@@ -51,7 +51,7 @@ describe("inspectTuiConfig", () => {
       join(projectDir, "tui.jsonc"),
       `{
         // local project tui config
-        "plugin": ["@slkiser/opencode-quota"]
+        "plugin": ["@cardinal4/opencode-quota"]
       }`,
       "utf8",
     );
@@ -119,7 +119,7 @@ describe("inspectTuiConfig", () => {
 
     writeFileSync(
       join(projectDir, ".opencode", "tui.json"),
-      JSON.stringify({ plugin: ["@slkiser/opencode-quota"] }),
+      JSON.stringify({ plugin: ["@cardinal4/opencode-quota"] }),
       "utf8",
     );
 
@@ -142,7 +142,7 @@ describe("inspectTuiConfig", () => {
 
     writeFileSync(
       join(projectDir, ".opencode", "tui.json"),
-      JSON.stringify({ plugin: ["@slkiser/opencode-quota"] }),
+      JSON.stringify({ plugin: ["@cardinal4/opencode-quota"] }),
       "utf8",
     );
 
@@ -164,7 +164,7 @@ describe("inspectTuiConfig", () => {
 
     writeFileSync(
       join(projectDir, ".opencode", "tui.json"),
-      JSON.stringify({ plugin: ["@slkiser/opencode-quota"] }),
+      JSON.stringify({ plugin: ["@cardinal4/opencode-quota"] }),
       "utf8",
     );
 

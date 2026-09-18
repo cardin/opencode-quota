@@ -89,7 +89,7 @@ describe("opencode config provider discovery", () => {
           "opencode-antigravity-auth@latest",
           "opencode-gemini-auth",
           "@playwo/opencode-cursor-oauth",
-          "@slkiser/opencode-quota",
+          "@cardinal4/opencode-quota",
         ],
       }),
       "utf8",
@@ -136,7 +136,7 @@ describe("opencode config provider discovery", () => {
       join(workspaceDir, "opencode.json"),
       JSON.stringify({
         provider: { copilot: {} },
-        plugin: ["@slkiser/opencode-quota"],
+        plugin: ["@cardinal4/opencode-quota"],
         experimental: { quotaToast: { enabledProviders: ["copilot"] } },
       }),
       "utf8",
@@ -149,7 +149,7 @@ describe("opencode config provider discovery", () => {
         google: { options: { projectId: "global-project" } },
         copilot: {},
       },
-      plugin: ["@slkiser/opencode-quota"],
+      plugin: ["@cardinal4/opencode-quota"],
       experimental: { quotaToast: { enabledProviders: ["copilot"] } },
     });
   });

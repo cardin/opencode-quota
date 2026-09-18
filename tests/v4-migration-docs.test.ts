@@ -39,7 +39,7 @@ describe("v4 migration documentation contract", () => {
     expect(migration).toContain(
       "v4 replaces the old `customSources` setting with `quotaProviders`",
     );
-    expect(migration).toContain("npx @cardin/opencode-quota@latest provider add");
+    expect(migration).toContain("npx @cardinal4/opencode-quota@latest provider add");
     expect(migration).toContain("[Provider setup guide](providers.md#custom-providers)");
     expect(migration).not.toContain("custom-accounting-sources");
 
@@ -52,7 +52,7 @@ describe("v4 migration documentation contract", () => {
   });
 
   it("gives concrete preview, verification, and rollback steps", () => {
-    expect(migration).toContain("npx @cardin/opencode-quota@latest update --dry-run");
+    expect(migration).toContain("npx @cardinal4/opencode-quota@latest update --dry-run");
     expect(migration).toContain("## Check the update");
     expect(migration).toContain("## Roll back to v3");
     expect(migration).toContain("Restart OpenCode, then run `/quota` and `/quota_status`.");

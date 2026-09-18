@@ -4,7 +4,7 @@
 
 ## What the command does
 
-`npx @slkiser/opencode-quota@latest update` first asks npm to resolve and run the published `@latest` CLI package. That npm resolution and execution begins before the updater can print its preview. The preview guarantee covers changes owned by the updater: OpenCode configuration files and OpenCode Quota package-cache directories.
+`npx @cardinal4/opencode-quota@latest update` first asks npm to resolve and run the published `@latest` CLI package. That npm resolution and execution begins before the updater can print its preview. The preview guarantee covers changes owned by the updater: OpenCode configuration files and OpenCode Quota package-cache directories.
 
 The updater builds one plan, prints it in full, and then either stops or applies that same plan. It does not add runtime compatibility fallbacks.
 
@@ -14,19 +14,19 @@ The updater builds one plan, prints it in full, and then either stops or applies
 2. Preview without changing configuration or package caches:
 
    ```bash
-   npx @slkiser/opencode-quota@latest update --dry-run
+   npx @cardinal4/opencode-quota@latest update --dry-run
    ```
 
 3. Read every section. If the plan is correct, apply it:
 
    ```bash
-   npx @slkiser/opencode-quota@latest update
+   npx @cardinal4/opencode-quota@latest update
    ```
 
    The interactive command asks once before safe work begins. For a noninteractive run, use:
 
    ```bash
-   npx @slkiser/opencode-quota@latest update --yes
+   npx @cardinal4/opencode-quota@latest update --yes
    ```
 
    `--yes` still prints the full preview. It authorizes only deterministic config edits and manifest-verified cache cleanup, never secret changes.

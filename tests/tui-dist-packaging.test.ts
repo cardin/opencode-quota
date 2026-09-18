@@ -61,7 +61,7 @@ describe("tui dist packaging", () => {
 
   it("can load the packaged TUI module", () => {
     expect(packagedTui.default).toMatchObject({
-      id: "@cardin/opencode-quota",
+      id: "@cardinal4/opencode-quota",
     });
     // V2 plugins are `{ id, setup }` definitions rather than V1 `{ tui }` modules.
     expect(typeof packagedTui.default.setup).toBe("function");

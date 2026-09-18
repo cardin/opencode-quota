@@ -57,7 +57,7 @@ import type { TuiCommandDisplay } from "./lib/types.js";
 
 type Context = Plugin.Context;
 
-const id = "@cardin/opencode-quota";
+const id = "@cardinal4/opencode-quota";
 const REFRESH_INTERVAL_MS = 60_000;
 const EVENT_REFRESH_DELAYS_MS = [150, 600] as const;
 const MOUNT_RECOVERY_DELAYS_MS = [500, 1_500, 4_000] as const;

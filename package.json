@@ -1,5 +1,5 @@
 {
-  "name": "@cardin/opencode-quota",
+  "name": "@cardinal4/opencode-quota",
   "version": "5.0.0",
   "packageManager": "pnpm@11.0.0",
   "description": "OpenCode 2 quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Chutes AI, Synthetic, Google Antigravity, Z.ai coding plan and more.",

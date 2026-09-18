@@ -34,7 +34,7 @@ type ParsedShowArgs =
 
 const SHOW_USAGE = [
   "Usage:",
-  "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
+  "  npx @cardinal4/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "",
   "Options:",
   "  --provider <provider-id>  Show quota for one provider",

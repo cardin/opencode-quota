@@ -61,23 +61,23 @@ try {
     import path from "node:path";
     import { fileURLToPath, pathToFileURL } from "node:url";
 
-    const rootExportUrl = import.meta.resolve("@cardin/opencode-quota");
-    await import("@cardin/opencode-quota");
-    await import("@cardin/opencode-quota/server");
+    const rootExportUrl = import.meta.resolve("@cardinal4/opencode-quota");
+    await import("@cardinal4/opencode-quota");
+    await import("@cardinal4/opencode-quota/server");
     const { metrics } = await import("@opentelemetry/api");
     assert.equal(typeof metrics.getMeter, "function");
 
-    const tuiExportUrl = import.meta.resolve("@cardin/opencode-quota/tui");
+    const tuiExportUrl = import.meta.resolve("@cardinal4/opencode-quota/tui");
     const tuiExportPath = fileURLToPath(tuiExportUrl);
     assert.match(tuiExportPath, /node_modules\\/\\@cardin\\/opencode-quota\\/dist\\/tui\\.js$/);
     const tuiSource = await readFile(tuiExportPath, "utf8");
-    assert.ok(tuiSource.includes("@cardin/opencode-quota"));
+    assert.ok(tuiSource.includes("@cardinal4/opencode-quota"));
     assert.ok(tuiSource.includes("@opencode/plugin/tui"));
     assert.ok(tuiSource.includes("TuiQuotaPlugin"));
     assert.ok(!tuiSource.includes("jsx-dev-runtime"));
 
     const pkg = JSON.parse(
-      await readFile("node_modules/@cardin/opencode-quota/package.json", "utf8"),
+      await readFile("node_modules/@cardinal4/opencode-quota/package.json", "utf8"),
     );
     assert.equal(pkg.engines?.node, ">=22.0.0");
     assert.equal(pkg.dependencies?.["@opentelemetry/api"], "^1.9.1");
@@ -131,7 +131,7 @@ try {
   const cliPath = path.join(
     workdir,
     "node_modules",
-    "@cardin",
+    "@cardinal4",
     "opencode-quota",
     "dist",
     "bin",

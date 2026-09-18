@@ -59,17 +59,17 @@ afterEach(() => {
 describe("scoped update specs and paths", () => {
   it("accepts only bare, latest, and exact SemVer package specs", () => {
     for (const spec of [
-      "@slkiser/opencode-quota",
-      "@slkiser/opencode-quota@latest",
-      "@slkiser/opencode-quota@3.11.1",
-      "@slkiser/opencode-quota@3.11.2-beta.1+build.2",
+      "@cardinal4/opencode-quota",
+      "@cardinal4/opencode-quota@latest",
+      "@cardinal4/opencode-quota@3.11.1",
+      "@cardinal4/opencode-quota@3.11.2-beta.1+build.2",
     ])
       expect(isCanonicalQuotaUpdateSpec(spec)).toBe(true);
     for (const spec of [
-      "@slkiser/opencode-quota@next",
-      "@slkiser/opencode-quota@^3.11.1",
-      "@slkiser/opencode-quota@~3.11.1",
-      "npm:@slkiser/opencode-quota@3.11.1",
+      "@cardinal4/opencode-quota@next",
+      "@cardinal4/opencode-quota@^3.11.1",
+      "@cardinal4/opencode-quota@~3.11.1",
+      "npm:@cardinal4/opencode-quota@3.11.1",
       "file:../opencode-quota",
       "workspace:*",
       "https://example.test/opencode-quota.tgz",
@@ -116,9 +116,9 @@ describe("scoped update config planning", () => {
     const f = fixture();
     const jsonc = join(f.project, "opencode.jsonc");
     const ignoredJson = join(f.project, "opencode.json");
-    const original = `{\n  // keep this comment\n  "plugin": [\n    "@slkiser/opencode-quota@3.11.1",\n    ["@slkiser/opencode-quota", { "setting": true }],\n    "@slkiser/opencode-quota@next",\n    "other-plugin",\n  ],\n  "unrelated": { "keep": true },\n}\n`;
+    const original = `{\n  // keep this comment\n  "plugin": [\n    "@cardinal4/opencode-quota@3.11.1",\n    ["@cardinal4/opencode-quota", { "setting": true }],\n    "@cardinal4/opencode-quota@next",\n    "other-plugin",\n  ],\n  "unrelated": { "keep": true },\n}\n`;
     write(jsonc, original);
-    write(ignoredJson, `{"plugin":["@slkiser/opencode-quota@1.0.0"]}`);
+    write(ignoredJson, `{"plugin":["@cardinal4/opencode-quota@1.0.0"]}`);
     const plan = await planScopedUpdate({
       cwd: join(f.project, "nested"),
       env: f.env,
@@ -129,7 +129,7 @@ describe("scoped update config planning", () => {
     const updated = plan.configEdits[0]!.updated;
     expect(updated).toContain("// keep this comment");
     expect(updated).toContain(`["${QUOTA_LATEST_SPEC}", { "setting": true }]`);
-    expect(updated).toContain('"@slkiser/opencode-quota@next"');
+    expect(updated).toContain('"@cardinal4/opencode-quota@next"');
     expect(updated).toContain('"other-plugin"');
     expect(updated).toContain('"unrelated": { "keep": true }');
     expect(readFileSync(ignoredJson, "utf8")).toContain("@1.0.0");
@@ -138,7 +138,7 @@ describe("scoped update config planning", () => {
   it("honors OPENCODE_CONFIG_DIR and deduplicates project/global real paths", async () => {
     const f = fixture();
     const config = join(f.project, "tui.jsonc");
-    write(config, `{"plugin":["@slkiser/opencode-quota"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota"]}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
       env: { ...f.env, OPENCODE_CONFIG_DIR: f.project },
@@ -150,7 +150,7 @@ describe("scoped update config planning", () => {
   it("aborts planning before writes when any selected config is unparseable", async () => {
     const f = fixture();
     const valid = join(f.project, "opencode.json");
-    write(valid, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(valid, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     write(join(f.global, "tui.jsonc"), `{ nope`);
     await expect(
       planScopedUpdate({ cwd: f.project, env: f.env, homeDir: join(f.root, "home") }),
@@ -161,7 +161,7 @@ describe("scoped update config planning", () => {
   it("is idempotent after applying its targeted edits", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1","other"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1","other"]}`);
     const params = { cwd: f.project, env: f.env, homeDir: join(f.root, "home") };
     await applyScopedUpdatePlan(await planScopedUpdate(params));
     expect((await planScopedUpdate(params)).configEdits).toEqual([]);
@@ -175,7 +175,7 @@ describe("scoped update config planning", () => {
       config,
       `{
   // keep package and display formatting
-  "plugin": ["@slkiser/opencode-quota@3.11.1"],
+  "plugin": ["@cardinal4/opencode-quota@3.11.1"],
   "experimental": {
     "quotaToast": {
       "opencodeZenDisplay": "default",
@@ -227,9 +227,9 @@ describe("scoped update config planning", () => {
     const f = fixture();
     const sidecar = join(f.project, "opencode-quota", "quota-toast.jsonc");
     write(sidecar, `{"opencodeZenDisplay":"detailed"}`);
-    const cache = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
-    const manifest = join(cache, "node_modules", "@slkiser", "opencode-quota", "package.json");
-    write(manifest, `{"name":"@slkiser/opencode-quota"}`);
+    const cache = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
+    const manifest = join(cache, "node_modules", "@cardinal4", "opencode-quota", "package.json");
+    write(manifest, `{"name":"@cardinal4/opencode-quota"}`);
 
     const plan = await planScopedUpdate({
       cwd: f.project,
@@ -258,7 +258,7 @@ describe("scoped update config planning", () => {
     const result = await applyScopedUpdatePlan(plan);
     expect(result.writtenPaths).toEqual([sidecar]);
     expect(result.removedCachePaths).toEqual([]);
-    expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
+    expect(readFileSync(manifest, "utf8")).toContain("@cardinal4/opencode-quota");
     expect(readFileSync(sidecar, "utf8")).toContain('"accountingDetail": "detailed"');
   });
 
@@ -266,7 +266,7 @@ describe("scoped update config planning", () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
     const malformed = join(f.project, "opencode-quota", "quota-toast.jsonc");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     write(malformed, `{"opencodeZenDisplay":"parser-secret",`);
 
     const plan = await planScopedUpdate({
@@ -294,8 +294,8 @@ describe("scoped update config planning", () => {
     const globalConfig = join(f.global, "tui.json");
     const globalSidecar = join(f.global, "opencode-quota", "quota-toast.json");
     const workspaceSidecar = join(f.project, "opencode-quota", "quota-toast.jsonc");
-    write(projectConfig, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-    write(globalConfig, `{"plugin":["@slkiser/opencode-quota@latest"]}`);
+    write(projectConfig, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
+    write(globalConfig, `{"plugin":["@cardinal4/opencode-quota@latest"]}`);
     write(globalSidecar, `{"opencodeZenDisplay":"default"}`);
     write(workspaceSidecar, `{"opencodeZenDisplay":"detailed"}`);
 
@@ -322,8 +322,8 @@ describe("scoped update config planning", () => {
     const injectedConfig = join(injectedRoot, "opencode.json");
     const ambientConfig = join(ambientRoot, "opencode.json");
     const workspaceSidecar = join(f.project, "opencode-quota", "quota-toast.json");
-    write(injectedConfig, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-    write(ambientConfig, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(injectedConfig, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
+    write(ambientConfig, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     write(workspaceSidecar, `{"opencodeZenDisplay":"default"}`);
     vi.stubEnv("OPENCODE_CONFIG_DIR", ambientRoot);
 
@@ -346,7 +346,7 @@ describe("scoped update config planning", () => {
     const f = fixture();
     const selected = join(f.project, "opencode.jsonc");
     const shadowed = join(f.project, "opencode.json");
-    write(selected, `{"plugin":["@slkiser/opencode-quota@latest"]}`);
+    write(selected, `{"plugin":["@cardinal4/opencode-quota@latest"]}`);
     write(shadowed, `{"experimental":{"quotaToast":{"opencodeZenDisplay":"default"}}}`);
 
     const plan = await planScopedUpdate({
@@ -369,7 +369,7 @@ describe("scoped update config planning", () => {
     const f = fixture();
     const selected = join(f.project, "opencode.jsonc");
     const migrationOnly = join(f.project, "opencode.json");
-    const shadowedSpec = "@slkiser/opencode-quota@3.11.1";
+    const shadowedSpec = "@cardinal4/opencode-quota@3.11.1";
     write(selected, `{"plugin":["other-plugin"]}`);
     write(
       migrationOnly,
@@ -398,7 +398,7 @@ describe("scoped update config planning", () => {
     const realConfig = join(f.global, "opencode.json");
     write(
       realConfig,
-      `{"plugin":["@slkiser/opencode-quota@3.11.1"],"experimental":{"quotaToast":{"opencodeZenDisplay":"default"}}}`,
+      `{"plugin":["@cardinal4/opencode-quota@3.11.1"],"experimental":{"quotaToast":{"opencodeZenDisplay":"default"}}}`,
     );
     mkdirSync(dirname(packageAlias), { recursive: true });
     symlinkSync(realConfig, packageAlias);
@@ -436,7 +436,7 @@ describe("scoped update config planning", () => {
     const f = fixture();
     const projectConfig = join(f.project, "opencode.json");
     const globalAlias = join(f.global, "opencode.json");
-    write(projectConfig, `{"plugin":["@slkiser/opencode-quota@latest"]}`);
+    write(projectConfig, `{"plugin":["@cardinal4/opencode-quota@latest"]}`);
     mkdirSync(dirname(globalAlias), { recursive: true });
     symlinkSync(projectConfig, globalAlias);
 
@@ -506,7 +506,7 @@ describe("scoped update config planning", () => {
     ];
     write(
       config,
-      `{"plugin":["@slkiser/opencode-quota@3.11.1"],"provider":{"opencode-go":{"options":{"apiKey":"provider-api-key-canary"}}},"experimental":{"quotaToast":{"opencodeZenDisplay":"invalid-display-value-canary"}}}`,
+      `{"plugin":["@cardinal4/opencode-quota@3.11.1"],"provider":{"opencode-go":{"options":{"apiKey":"provider-api-key-canary"}}},"experimental":{"quotaToast":{"opencodeZenDisplay":"invalid-display-value-canary"}}}`,
     );
     write(malformedSidecar, `{"opencodeZenDisplay":"migration-parser-content-canary",`);
     write(obsoleteGoFile, `{"authCookie":"legacy-go-file-content-canary"}`);
@@ -564,10 +564,10 @@ describe("scoped update application safety", () => {
   it("rejects a race in an unchanged @latest config before cache deletion", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    write(config, `{"plugin":["@slkiser/opencode-quota@latest"]}`);
-    const cache = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
-    const manifest = join(cache, "node_modules", "@slkiser", "opencode-quota", "package.json");
-    write(manifest, `{"name":"@slkiser/opencode-quota"}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@latest"]}`);
+    const cache = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
+    const manifest = join(cache, "node_modules", "@cardinal4", "opencode-quota", "package.json");
+    write(manifest, `{"name":"@cardinal4/opencode-quota"}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
       env: f.env,
@@ -577,16 +577,16 @@ describe("scoped update application safety", () => {
     write(config, `{"plugin":["other-plugin"]}`);
 
     await expect(applyScopedUpdatePlan(plan)).rejects.toThrow("changed since preview");
-    expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
+    expect(readFileSync(manifest, "utf8")).toContain("@cardinal4/opencode-quota");
   });
 
   it("revalidates @latest authority immediately before deleting cache", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-    const cache = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
-    const manifest = join(cache, "node_modules", "@slkiser", "opencode-quota", "package.json");
-    write(manifest, `{"name":"@slkiser/opencode-quota"}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
+    const cache = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
+    const manifest = join(cache, "node_modules", "@cardinal4", "opencode-quota", "package.json");
+    write(manifest, `{"name":"@cardinal4/opencode-quota"}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
       env: f.env,
@@ -600,18 +600,18 @@ describe("scoped update application safety", () => {
         },
       }),
     ).rejects.toThrow("changed before cache deletion");
-    expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
+    expect(readFileSync(manifest, "utf8")).toContain("@cardinal4/opencode-quota");
   });
 
   it("blocks cache deletion when a migrated sidecar changes after writes", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
     const sidecar = join(f.project, "opencode-quota", "quota-toast.jsonc");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     write(sidecar, `{"opencodeZenDisplay":"default"}`);
-    const cache = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
-    const manifest = join(cache, "node_modules", "@slkiser", "opencode-quota", "package.json");
-    write(manifest, `{"name":"@slkiser/opencode-quota"}`);
+    const cache = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
+    const manifest = join(cache, "node_modules", "@cardinal4", "opencode-quota", "package.json");
+    write(manifest, `{"name":"@cardinal4/opencode-quota"}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
       env: f.env,
@@ -629,16 +629,16 @@ describe("scoped update application safety", () => {
 
     expect(readFileSync(config, "utf8")).toContain("@latest");
     expect(readFileSync(sidecar, "utf8")).toContain('"raced":true');
-    expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
+    expect(readFileSync(manifest, "utf8")).toContain("@cardinal4/opencode-quota");
   });
 
   it("reports completed writes when pre-cache work fails", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-    const cache = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
-    const manifest = join(cache, "node_modules", "@slkiser", "opencode-quota", "package.json");
-    write(manifest, `{"name":"@slkiser/opencode-quota"}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
+    const cache = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
+    const manifest = join(cache, "node_modules", "@cardinal4", "opencode-quota", "package.json");
+    write(manifest, `{"name":"@cardinal4/opencode-quota"}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
       env: f.env,
@@ -655,14 +655,14 @@ describe("scoped update application safety", () => {
     expect(error).toMatchObject({ details: { writtenPaths: [config] } });
     expect(String(error)).toContain("Changed before failure");
     expect(readFileSync(config, "utf8")).toContain("@latest");
-    expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
+    expect(readFileSync(manifest, "utf8")).toContain("@cardinal4/opencode-quota");
   });
 
   it("preflights every snapshot before the first write", async () => {
     const f = fixture();
     const first = join(f.project, "opencode.json");
     const second = join(f.global, "tui.json");
-    const original = `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`;
+    const original = `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`;
     write(first, original);
     write(second, original);
     const plan = await planScopedUpdate({
@@ -721,8 +721,8 @@ describe("scoped update application safety", () => {
     const f = fixture();
     const first = join(f.project, "opencode.json");
     const second = join(f.global, "tui.json");
-    write(first, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-    write(second, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(first, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
+    write(second, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
       env: f.env,
@@ -756,13 +756,13 @@ describe("scoped update application safety", () => {
   it("detects raw-byte races before writing", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
       env: f.env,
       homeDir: join(f.root, "home"),
     });
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"],"raced":true}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"],"raced":true}`);
     await expect(applyScopedUpdatePlan(plan)).rejects.toThrow("changed since preview");
     expect(readFileSync(config, "utf8")).toContain('"raced":true');
   });
@@ -771,15 +771,15 @@ describe("scoped update application safety", () => {
     const f = fixture();
     write(
       join(f.project, "opencode.json"),
-      `{"plugin":["@slkiser/opencode-quota@3.11.1","other-plugin"]}`,
+      `{"plugin":["@cardinal4/opencode-quota@3.11.1","other-plugin"]}`,
     );
-    const quotaCache = join(f.cache, "packages", "@slkiser", "opencode-quota@3.11.1");
-    const latestCache = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
+    const quotaCache = join(f.cache, "packages", "@cardinal4", "opencode-quota@3.11.1");
+    const latestCache = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
     const otherCache = join(f.cache, "packages", "other-plugin");
     for (const path of [quotaCache, latestCache])
       write(
-        join(path, "node_modules", "@slkiser", "opencode-quota", "package.json"),
-        `{"name":"@slkiser/opencode-quota"}`,
+        join(path, "node_modules", "@cardinal4", "opencode-quota", "package.json"),
+        `{"name":"@cardinal4/opencode-quota"}`,
       );
     write(
       join(otherCache, "node_modules", "other-plugin", "package.json"),
@@ -796,15 +796,15 @@ describe("scoped update application safety", () => {
 
   it("skips symlinks and wrong manifests without broadening deletion", async () => {
     const f = fixture();
-    write(join(f.project, "opencode.json"), `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(join(f.project, "opencode.json"), `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     const outside = join(f.root, "outside");
     mkdirSync(outside);
-    const exact = join(f.cache, "packages", "@slkiser", "opencode-quota@3.11.1");
+    const exact = join(f.cache, "packages", "@cardinal4", "opencode-quota@3.11.1");
     mkdirSync(dirname(exact), { recursive: true });
     symlinkSync(outside, exact);
-    const latest = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
+    const latest = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
     write(
-      join(latest, "node_modules", "@slkiser", "opencode-quota", "package.json"),
+      join(latest, "node_modules", "@cardinal4", "opencode-quota", "package.json"),
       `{"name":"not-the-package"}`,
     );
     const result = await applyScopedUpdatePlan(
@@ -817,11 +817,11 @@ describe("scoped update application safety", () => {
   it("prints the complete preview before dry-run completion or confirmation", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    const original = `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`;
+    const original = `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`;
     write(config, original);
-    const cache = join(f.cache, "packages", "@slkiser", "opencode-quota@latest");
-    const manifest = join(cache, "node_modules", "@slkiser", "opencode-quota", "package.json");
-    write(manifest, `{"name":"@slkiser/opencode-quota"}`);
+    const cache = join(f.cache, "packages", "@cardinal4", "opencode-quota@latest");
+    const manifest = join(cache, "node_modules", "@cardinal4", "opencode-quota", "package.json");
+    write(manifest, `{"name":"@cardinal4/opencode-quota"}`);
     const base = {
       cwd: f.project,
       env: f.env,
@@ -837,7 +837,7 @@ describe("scoped update application safety", () => {
       "Responsible update preview complete — no configuration or package-cache changes were made.",
     );
     expect(readFileSync(config, "utf8")).toBe(original);
-    expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
+    expect(readFileSync(manifest, "utf8")).toContain("@cardinal4/opencode-quota");
 
     log.mockClear();
     const confirm = vi.fn(async (message: string) => {
@@ -846,7 +846,7 @@ describe("scoped update application safety", () => {
       );
       expect(log.mock.calls.map(([logged]) => logged)).toEqual(preview);
       expect(readFileSync(config, "utf8")).toBe(original);
-      expect(readFileSync(manifest, "utf8")).toContain("@slkiser/opencode-quota");
+      expect(readFileSync(manifest, "utf8")).toContain("@cardinal4/opencode-quota");
       return false;
     });
     expect(await runScopedUpdateCommand({ ...base, confirm, log })).toBe(0);
@@ -858,7 +858,7 @@ describe("scoped update application safety", () => {
   it("keeps responsible preview sections ordered and identical for dry-run and --yes", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    const original = `{"plugin":["@slkiser/opencode-quota@3.11.1"],"experimental":{"quotaToast":{"opencodeZenDisplay":"default"}}}`;
+    const original = `{"plugin":["@cardinal4/opencode-quota@3.11.1"],"experimental":{"quotaToast":{"opencodeZenDisplay":"default"}}}`;
     write(config, original);
     const env = { ...f.env, OPENCODE_GO_AUTH_COOKIE: "preview-secret-canary" };
     const base = {
@@ -963,7 +963,7 @@ describe("scoped update application safety", () => {
     const shellFileContent = `export OPENCODE_API_KEY="shell-secret-canary"\n`;
     write(
       config,
-      `{"plugin":["@slkiser/opencode-quota@3.11.1"],"provider":{"opencode-go":{"options":{"apiKey":"provider-secret-canary"}}},"experimental":{"quotaToast":{"opencodeZenDisplay":"default"}}}`,
+      `{"plugin":["@cardinal4/opencode-quota@3.11.1"],"provider":{"opencode-go":{"options":{"apiKey":"provider-secret-canary"}}},"experimental":{"quotaToast":{"opencodeZenDisplay":"default"}}}`,
     );
     write(goFile, goFileContent);
     write(zenFile, zenFileContent);
@@ -1014,7 +1014,7 @@ describe("scoped update application safety", () => {
     const project = join(root, "project \u0085unsafe");
     mkdirSync(join(project, ".git"), { recursive: true });
     const config = join(project, "opencode.json");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     const env = {
       XDG_CONFIG_HOME: join(root, "config"),
       XDG_CACHE_HOME: join(root, "cache"),
@@ -1035,7 +1035,7 @@ describe("scoped update application safety", () => {
     }
     expect(log.mock.calls.flat().join("\n")).toContain("project unsafe");
 
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     const plan = await planScopedUpdate(params);
     const unsafePath = `${config}\n\u001b[31munsafe`;
     const unsafePlan = {
@@ -1092,7 +1092,7 @@ describe("scoped update application safety", () => {
   it("reports successful update paths, restart guidance, and the secondary star request", async () => {
     const f = fixture();
     const config = join(f.project, "opencode.json");
-    write(config, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
+    write(config, `{"plugin":["@cardinal4/opencode-quota@3.11.1"]}`);
     const log = vi.fn();
 
     expect(
@@ -1109,7 +1109,7 @@ describe("scoped update application safety", () => {
     expect(log).toHaveBeenCalledWith(`Configured paths: ${config}`);
     expect(log).toHaveBeenCalledWith("Restart OpenCode and run /quota.");
     expect(log).toHaveBeenCalledWith(
-      "If OpenCode Quota helps, please consider a star: https://github.com/slkiser/opencode-quota",
+      "If OpenCode Quota helps, please consider a star: https://github.com/cardin/opencode-quota",
     );
   });
 

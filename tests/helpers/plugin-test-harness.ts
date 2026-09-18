@@ -379,7 +379,7 @@ export function createPluginTestContext(options: PluginTestContextOptions = {}) 
   const context = {
     location: { directory },
     options: {},
-    app: { name: "@cardin/opencode-quota", version: "0.0.0", channel: "test" },
+    app: { name: "@cardinal4/opencode-quota", version: "0.0.0", channel: "test" },
     provider: {
       list: vi.fn().mockResolvedValue({ location: { directory }, data: options.providers ?? [] }),
       get: vi.fn().mockResolvedValue({ data: undefined }),

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const pluginMocks = vi.hoisted(() => ({
   QuotaToastPlugin: vi.fn(),
-  QUOTA_PLUGIN_ID: "@cardin/opencode-quota",
+  QUOTA_PLUGIN_ID: "@cardinal4/opencode-quota",
 }));
 
 vi.mock("../src/plugin.js", () => ({

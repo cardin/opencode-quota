@@ -25,9 +25,9 @@ import {
   sortScopedUpdateSafeActions,
 } from "./scoped-update-migration.js";
 
-export const QUOTA_PACKAGE_NAME = "@slkiser/opencode-quota";
+export const QUOTA_PACKAGE_NAME = "@cardinal4/opencode-quota";
 export const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
-const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
+const GITHUB_REPO_URL = "https://github.com/cardin/opencode-quota";
 
 const EXACT_SEMVER =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -373,7 +373,7 @@ async function removeVerifiedCacheCandidate(path: string): Promise<"removed" | "
     const manifestPath = join(
       candidateReal,
       "node_modules",
-      "@slkiser",
+      "@cardinal4",
       "opencode-quota",
       "package.json",
     );
