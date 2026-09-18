@@ -18,7 +18,7 @@ type ParsedStatusArgs =
 
 const STATUS_USAGE = [
   "Usage:",
-  "  npx @slkiser/opencode-quota status [--provider <provider-id>] [--json]",
+  "  npx @cardinal4/opencode-quota status [--provider <provider-id>] [--json]",
   "",
   "Print the same Quota Status diagnostics as the /quota_status slash command,",
   "without launching OpenCode.",

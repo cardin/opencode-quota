@@ -7,7 +7,7 @@
 
 export const COMMAND_HANDLED_SENTINEL = "__QUOTA_COMMAND_HANDLED__" as const;
 
-const COMMAND_HANDLED_ERROR_BRAND = Symbol.for("@slkiser/opencode-quota/command-handled");
+const COMMAND_HANDLED_ERROR_BRAND = Symbol.for("@cardinal4/opencode-quota/command-handled");
 
 function createCommandHandledError(): Error {
   const err = Object.create(Error.prototype) as Error;

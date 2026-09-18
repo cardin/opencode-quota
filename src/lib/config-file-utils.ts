@@ -211,7 +211,7 @@ export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
 export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
   const normalized = spec.replace(/\\/g, "/").toLowerCase();
 
-  if (normalized.includes("@slkiser/opencode-quota")) {
+  if (normalized.includes("@cardinal4/opencode-quota")) {
     return true;
   }
 

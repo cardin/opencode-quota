@@ -23,7 +23,7 @@ import type { SessionTokenError } from "./lib/quota-status.js";
 import { disposeQuotaTelemetryOwner } from "./lib/quota-telemetry.js";
 import { createV2QuotaClient } from "./lib/v2-quota-client.js";
 
-export const QUOTA_PLUGIN_ID = "@cardin/opencode-quota";
+export const QUOTA_PLUGIN_ID = "@cardinal4/opencode-quota";
 
 export const QuotaToastPlugin = Plugin.define({
   id: QUOTA_PLUGIN_ID,

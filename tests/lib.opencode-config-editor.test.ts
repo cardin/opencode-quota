@@ -51,7 +51,7 @@ describe("OpenCode JSON/JSONC config editor", () => {
       target,
       desiredData: {
         ...original,
-        plugin: ["@slkiser/opencode-quota@latest"],
+        plugin: ["@cardinal4/opencode-quota@latest"],
       },
       managedComments: [
         {
@@ -98,7 +98,7 @@ describe("OpenCode JSON/JSONC config editor", () => {
     });
     const desiredData = {
       theme: "dark",
-      plugin: ["other-plugin", "@slkiser/opencode-quota@latest"],
+      plugin: ["other-plugin", "@cardinal4/opencode-quota@latest"],
     };
     const comments = [
       {
@@ -165,7 +165,7 @@ describe("OpenCode JSON/JSONC config editor", () => {
       target,
       desiredData: {
         $schema: "https://opencode.ai/config.json",
-        plugin: ["@slkiser/opencode-quota@latest"],
+        plugin: ["@cardinal4/opencode-quota@latest"],
       },
       managedComments: [
         {
@@ -196,7 +196,7 @@ describe("OpenCode JSON/JSONC config editor", () => {
       }),
       desiredData: {
         theme: "dark",
-        plugin: ["@slkiser/opencode-quota@latest"],
+        plugin: ["@cardinal4/opencode-quota@latest"],
       },
     });
 
@@ -226,7 +226,7 @@ describe("OpenCode JSON/JSONC config editor", () => {
       }),
       desiredData: {
         theme: "dark",
-        plugin: ["@slkiser/opencode-quota@latest"],
+        plugin: ["@cardinal4/opencode-quota@latest"],
       },
     });
 

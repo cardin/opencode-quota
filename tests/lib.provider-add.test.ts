@@ -226,7 +226,7 @@ describe("provider add global config workflow", () => {
       path,
       JSON.stringify({
         $schema: "https://opencode.ai/config.json",
-        plugin: ["@slkiser/opencode-quota@latest"],
+        plugin: ["@cardinal4/opencode-quota@latest"],
       }),
       "utf8",
     );

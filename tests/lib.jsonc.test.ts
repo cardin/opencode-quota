@@ -53,7 +53,7 @@ describe("parseJsonOrJsonc", () => {
     // comment the pre-pass edited was persisted into the user's config. Here the
     // trailing comma of "anthropic, openai," was deleted from their comment.
     const source = `{
-  "plugin": ["@slkiser/opencode-quota"],
+  "plugin": ["@cardinal4/opencode-quota"],
   "model": "opus"
   // providers we use: anthropic, openai,
 }`;
@@ -67,7 +67,7 @@ describe("parseJsonOrJsonc", () => {
   it("preserves a comment mentioning a comma inside an array", () => {
     const source = `{
   "plugin": [
-    "@slkiser/opencode-quota"
+    "@cardinal4/opencode-quota"
     // order matters: quota, auth,
   ]
 }`;
@@ -82,7 +82,7 @@ describe("parseJsonOrJsonc", () => {
     const source = `{
   // keep me
   "plugin": [
-    "@slkiser/opencode-quota",
+    "@cardinal4/opencode-quota",
   ],
   /* and me */
   "model": "opus",
@@ -96,15 +96,15 @@ describe("parseJsonOrJsonc", () => {
     expect(written).toContain("/* and me */");
     expect(written).toContain(`"model": "sonnet"`);
     expect(parseJsonOrJsonc(written, true)).toEqual({
-      plugin: ["@slkiser/opencode-quota"],
+      plugin: ["@cardinal4/opencode-quota"],
       model: "sonnet",
     });
   });
 
   it("parses plain JSON unchanged", () => {
-    const source = `{"plugin":["@slkiser/opencode-quota"],"model":"opus"}`;
+    const source = `{"plugin":["@cardinal4/opencode-quota"],"model":"opus"}`;
     expect(parseJsonOrJsonc(source, false)).toEqual({
-      plugin: ["@slkiser/opencode-quota"],
+      plugin: ["@cardinal4/opencode-quota"],
       model: "opus",
     });
   });

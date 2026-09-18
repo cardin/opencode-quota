@@ -1,5 +1,13 @@
+> [!IMPORTANT]
+> **Fork — OpenCode 2 support.** This is an independent fork of
+> [slkiser/opencode-quota](https://github.com/slkiser/opencode-quota) that adds
+> OpenCode 2 compatibility. It is **not affiliated with, endorsed by, or
+> published by the original author.** Requires OpenCode `>= 2.0.7`. See
+> [About this fork](#about-this-fork) for installation and the differences from
+> upstream.
+
 <p align="center">
-  <a href="https://github.com/slkiser/opencode-quota">
+  <a href="https://github.com/cardin/opencode-quota">
     <picture>
       <source srcset="opencode-quota-logo-dark.svg" media="(prefers-color-scheme: dark)">
       <source srcset="opencode-quota-logo-light.svg" media="(prefers-color-scheme: light)">
@@ -9,20 +17,54 @@
 </p>
 <p align="center">Quota, usage, and token visibility in OpenCode and your terminal.</p>
 <p align="center">
-  <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
-  <a href="https://www.npmjs.com/package/@slkiser/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40slkiser%2Fopencode-quota?style=flat-square" /></a>
-  <a href="https://github.com/slkiser/opencode-quota/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/slkiser/opencode-quota/ci.yml?style=flat-square&branch=main&label=CI" /></a>
+  <a href="https://www.npmjs.com/package/@cardinal4/opencode-quota"><img alt="npm" src="https://img.shields.io/npm/v/%40cardinal4%2Fopencode-quota?style=flat-square" /></a>
+  <a href="https://www.npmjs.com/package/@cardinal4/opencode-quota"><img alt="npm downloads" src="https://img.shields.io/npm/dm/%40cardinal4%2Fopencode-quota?style=flat-square" /></a>
+  <a href="https://github.com/cardin/opencode-quota/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/cardin/opencode-quota/ci.yml?style=flat-square&branch=main&label=CI" /></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
 
-[![OpenCode Quota sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/slkiser/opencode-quota)
+[![OpenCode Quota sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/cardin/opencode-quota)
+
+---
+
+## About this fork
+
+This project is a fork of
+[slkiser/opencode-quota](https://github.com/slkiser/opencode-quota), maintained
+to run on **OpenCode 2**. OpenCode 2 replaced the V1 plugin API, so upstream's
+V1 plugin does not run there. Only the plugin runtime layer was ported; the
+provider, quota, pricing, and reporting engine is upstream's.
+
+Install the fork's CLI (same commands as upstream, different package name):
+
+```bash
+npx @cardinal4/opencode-quota init
+```
+
+Requires **OpenCode `>= 2.0.7`** and Node.js `>= 22`.
+
+Known differences from upstream:
+
+- **Toasts are client-side.** OpenCode 2 removed the server toast endpoint, so
+  automatic quota toasts are emitted by the CLI plugin. Web/Desktop clients,
+  which do not run CLI plugins, do not show them.
+- **`showOnQuestion` is unavailable.** The V2 event stream does not carry the
+  tool name required for the question-tool trigger.
+- Everything else — providers, quota windows, slash commands, token reports,
+  JSON output, and pricing — is upstream's engine and behaves the same.
+
+For complete setup, provider, and configuration documentation, see the rest of
+this README and `docs/readme/`. Those documents come from upstream and apply to
+this fork except where noted above. Report fork-specific issues to
+[cardin/opencode-quota](https://github.com/cardin/opencode-quota/issues);
+report upstream issues to the original project.
 
 ---
 
 ## Quick start
 
 ```bash
-npx @slkiser/opencode-quota init
+npx @cardinal4/opencode-quota init
 ```
 
 > [!IMPORTANT]
@@ -43,13 +85,13 @@ After installation:
 2. Preview the update:
 
    ```bash
-   npx @slkiser/opencode-quota@latest update --dry-run
+   npx @cardinal4/opencode-quota@latest update --dry-run
    ```
 
 3. Inspect the safe setting/cache changes and manual credential findings, then apply:
 
    ```bash
-   npx @slkiser/opencode-quota@latest update
+   npx @cardinal4/opencode-quota@latest update
    ```
 
 4. Restart OpenCode.
@@ -121,13 +163,13 @@ Use the CLI for setup, updates, terminal checks, and custom providers.
 
 | Command                                                  | What it does                                |
 | -------------------------------------------------------- | ------------------------------------------- |
-| `npx @slkiser/opencode-quota@latest init`                | Set up OpenCode Quota                       |
-| `npx @slkiser/opencode-quota@latest provider add`        | Add or update a custom provider             |
-| `npx @slkiser/opencode-quota@latest show`                | Show current quota                          |
-| `npx @slkiser/opencode-quota@latest status`              | Check configuration and provider problems  |
-| `npx @slkiser/opencode-quota@latest update`              | Update an existing installation             |
+| `npx @cardinal4/opencode-quota@latest init`                | Set up OpenCode Quota                       |
+| `npx @cardinal4/opencode-quota@latest provider add`        | Add or update a custom provider             |
+| `npx @cardinal4/opencode-quota@latest show`                | Show current quota                          |
+| `npx @cardinal4/opencode-quota@latest status`              | Check configuration and provider problems  |
+| `npx @cardinal4/opencode-quota@latest update`              | Update an existing installation             |
 
-Run `npx @slkiser/opencode-quota@latest --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
+Run `npx @cardinal4/opencode-quota@latest --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
 
 ## Providers
 
@@ -217,7 +259,7 @@ These vendors offer team or business plans, but the current integrations report 
 Add a provider that uses a remote quota API or tracks a local usage estimate:
 
 ```bash
-npx @slkiser/opencode-quota@latest provider add
+npx @cardinal4/opencode-quota@latest provider add
 ```
 
 The guided setup previews the change before saving. See the [custom-provider guide](docs/readme/providers.md#custom-providers) for details.
@@ -228,7 +270,7 @@ If quota or token data looks wrong:
 
 1. Run `/quota_status` in OpenCode, or `opencode-quota status` from a terminal for the same diagnostics. Use `opencode-quota show` for a quick quota glance.
 2. Confirm the expected provider appears in the detected provider list.
-3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
+3. Confirm companion auth plugins are before `@cardinal4/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
 5. Check [Troubleshooting](docs/readme/troubleshooting.md) for common symptoms and provider-specific fixes.
 

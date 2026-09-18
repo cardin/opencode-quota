@@ -40,10 +40,10 @@ import {
 import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
 import type { QuotaToastConfig, SessionTokenScope, TuiCommandDisplay } from "./types.js";
 
-const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
+const QUOTA_PLUGIN_SPEC = "@cardinal4/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const TUI_SCHEMA_URL = "https://opencode.ai/tui.json";
-const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
+const GITHUB_REPO_URL = "https://github.com/cardin/opencode-quota";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
 const TUI_COMMAND_DISPLAY_COMMENT =
   "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.";
@@ -946,10 +946,10 @@ function getCanonicalQuotaPackageSpecForRemoval(entry: unknown): string | undefi
       : Array.isArray(entry) && typeof entry[0] === "string"
         ? entry[0]
         : undefined;
-  if (spec === "@slkiser/opencode-quota") return spec;
+  if (spec === "@cardinal4/opencode-quota") return spec;
   if (
     spec !== undefined &&
-    /^@slkiser\/opencode-quota@(?:v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|[A-Za-z][0-9A-Za-z._-]*)$/.test(
+    /^@cardinal4\/opencode-quota@(?:v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|[A-Za-z][0-9A-Za-z._-]*)$/.test(
       spec,
     )
   ) {
@@ -1521,7 +1521,7 @@ async function promptForSelections(
     manualProviders = selected.filter((value): value is string => typeof value === "string");
   }
   prompts.log.info("Custom providers are configured after installation.");
-  prompts.log.info("npx @slkiser/opencode-quota@latest provider add");
+  prompts.log.info("npx @cardinal4/opencode-quota@latest provider add");
 
   const formatStyle = await prompts.select({
     message: "Quota reset periods",
@@ -1619,7 +1619,7 @@ export async function runInitInstaller(params?: {
 }): Promise<number> {
   const prompts = params?.prompts ?? ((await import("@clack/prompts")) as unknown as PromptAdapter);
 
-  prompts.intro("Configure @slkiser/opencode-quota");
+  prompts.intro("Configure @cardinal4/opencode-quota");
 
   try {
     const selections = await promptForSelections(prompts, {
@@ -1653,7 +1653,7 @@ export async function runInitInstaller(params?: {
 
     if (params?.dryRun) {
       prompts.outro(
-        "OpenCode Quota setup preview complete — no files changed. Run npx @slkiser/opencode-quota@latest init to apply.",
+        "OpenCode Quota setup preview complete — no files changed. Run npx @cardinal4/opencode-quota@latest init to apply.",
       );
       return 0;
     }

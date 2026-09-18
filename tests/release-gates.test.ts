@@ -254,7 +254,7 @@ describe("v4 release gates", () => {
 
   it("verifies one exact release tarball and rejects content tampering", async () => {
     const artifactDir = path.join(tempDir, "artifact");
-    const filename = "cardin-opencode-quota-5.0.0.tgz";
+    const filename = "cardinal4-opencode-quota-5.0.0.tgz";
     const tarballPath = path.join(artifactDir, filename);
     const contents = Buffer.from("exact release artifact");
     await mkdir(artifactDir);

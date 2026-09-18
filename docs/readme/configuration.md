@@ -150,7 +150,7 @@ A custom provider connects OpenCode Quota to a provider that is not built in, or
 Use the guided command:
 
 ```bash
-npx @slkiser/opencode-quota@latest provider add
+npx @cardinal4/opencode-quota@latest provider add
 ```
 
 It asks what kind of provider you have, previews the complete canonical merged global config, and asks before writing. It never asks for a response body, credential, or secret value. For `json-v1`, it guides you through the optional rows path and each mapping one field at a time. The same schema validator used at startup checks the constructed adapter before the preview.
@@ -365,7 +365,7 @@ See [External integration](external-integration.md).
 <summary><strong>Advanced: also write the older OpenCode settings block</strong></summary>
 
 ```bash
-npx @slkiser/opencode-quota init --sync-legacy-config
+npx @cardinal4/opencode-quota init --sync-legacy-config
 ```
 
 Use this only if another tool needs `experimental.quotaToast` mirrored into `opencode.jsonc` or `.json`.
