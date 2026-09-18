@@ -1,7 +1,6 @@
 import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCommandHandledError } from "../src/lib/command-handled.js";
 import {
   assertPhase5CanariesRedacted,
   assertPhase5FixtureOrder,
@@ -17,13 +16,12 @@ import {
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
   createPluginTestClient,
-  createPluginToolMockModule,
+  createPluginTestContext,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createQwenAuthModuleMock,
   createSessionTokensModuleMock,
-  getPromptText,
-  getToastMessage,
+  getSyntheticText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -77,7 +75,6 @@ const otel = vi.hoisted(() => {
   };
 });
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 vi.mock("@opentelemetry/api", () => ({
   metrics: { getMeter: otel.getMeter },
 }));
@@ -116,24 +113,6 @@ vi.mock("../src/lib/anthropic.js", () => ({
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
 );
-
-type PluginHooks = {
-  config?: (input: unknown) => Promise<void> | void;
-  dispose?: () => Promise<void> | void;
-  event?: (input: unknown) => Promise<void> | void;
-  "command.execute.before"?: (input: {
-    command: string;
-    sessionID: string;
-  }) => Promise<void> | void;
-  tool?: {
-    quota_status?: {
-      execute(
-        args: Record<string, never>,
-        context: { sessionID: string; metadata(value: { title: string }): void },
-      ): Promise<string>;
-    };
-  };
-};
 
 function configFor(formatStyle: "allWindows" | "singleWindow") {
   return makeQuotaToastTestConfig({
@@ -218,14 +197,56 @@ function createClient() {
   return client;
 }
 
-async function expectHandled(value: unknown): Promise<void> {
-  try {
-    await Promise.resolve(value);
-  } catch (error) {
-    expect(isCommandHandledError(error)).toBe(true);
-    return;
-  }
-  throw new Error("Expected the ADR 0002 handled sentinel");
+async function createServerPlugin(providers: Array<{ id: string }>) {
+  const { QuotaToastPlugin } = await import("../src/plugin.js");
+  const context = createPluginTestContext({
+    directory: process.cwd(),
+    modelID: "team-gateway/model-one",
+    providerID: "team-gateway",
+    providers,
+  });
+  const dispose = await QuotaToastPlugin.setup(context as never);
+  return { context, dispose };
+}
+
+/**
+ * V2 moved toast emission from server plugin hooks to the CLI plugin. Tests
+ * exercise the same shared runtime the CLI bridge uses by injecting a fake
+ * `showToast` and forwarding the lifecycle triggers the bridge subscribes to.
+ */
+async function createToastRuntime(
+  client: ReturnType<typeof createClient>,
+  showToast: (body: unknown) => Promise<unknown>,
+) {
+  const { createQuotaToastRuntime } = await import("../src/lib/quota-toast-runtime.js");
+  return createQuotaToastRuntime({
+    client: client as never,
+    roots: () => ({
+      workspaceRoot: process.cwd(),
+      configRoot: process.cwd(),
+      fallbackDirectory: process.cwd(),
+    }),
+    resolveSessionMeta: async (sessionID) => {
+      const response = await client.session.get({ path: { id: sessionID } });
+      return {
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
+      };
+    },
+    isSubagentSession: async (sessionID) => {
+      const response = await client.session.get({ path: { id: sessionID } });
+      return Boolean(response.data?.parentID);
+    },
+    reconcileDetectedProviders: vi.fn().mockResolvedValue(undefined),
+    setSessionTokenError: vi.fn(),
+    showToast: showToast as never,
+    log: vi.fn().mockResolvedValue(undefined),
+    onInitialized: vi.fn(),
+  });
+}
+
+function toastMessage(showToast: { mock: { calls: unknown[][] } }, index = 0): string {
+  return (showToast.mock.calls[index]?.[0] as { message?: string } | undefined)?.message ?? "";
 }
 
 function assertTreeSessionTokenTotals(output: string): void {
@@ -391,31 +412,24 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
 
   it("proves server command, toast lifecycle, TUI placement, projections, order, partial failure, and redaction", async () => {
     const client = createClient();
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-    const serverConfig: { command?: Record<string, unknown> } = {};
-    await hooks.config?.(serverConfig);
-    expect(serverConfig.command).toHaveProperty("quota");
-
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "phase5-session",
-      }),
+    const { context, dispose } = await createServerPlugin(
+      PHASE5_RUNTIME_PROVIDER_IDS.map((id) => ({ id })),
     );
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(client.session.prompt).toHaveBeenCalledWith(
+    // V2 registers commands and the quota_status tool as capabilities.
+    expect(context.registeredCommands.map((command) => command.name)).toContain("quota");
+    expect(context.registeredTools.map((tool) => tool.name)).toContain("quota_status");
+
+    await context.runCommand("quota", "", "phase5-session");
+
+    expect(context.session.synthetic).toHaveBeenCalledTimes(1);
+    expect(context.session.synthetic).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: { id: "phase5-session" },
-        body: expect.objectContaining({
-          noReply: true,
-          parts: [expect.objectContaining({ type: "text", ignored: true })],
-        }),
+        sessionID: "phase5-session",
+        text: expect.any(String),
       }),
     );
-    const serverOutput = getPromptText(client);
+    const serverOutput = getSyntheticText(context, 0);
     expect(serverOutput).toMatch(/^Quota \(\/quota\)/);
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);
@@ -429,40 +443,29 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     assertTreeSessionTokenTotals(serverOutput);
     expect(serverOutput).toContain("tree-model");
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "phase5-session" },
-      },
-    });
-    expect(client.tui.showToast).toHaveBeenCalledTimes(1);
-    const toastOutput = getToastMessage(client);
+    // V2 toast lifecycle: CLI-owned runtime with a fake showToast. The first
+    // idle trigger emits, and the second reuses the runtime's toast cache.
+    const showToast = vi.fn().mockResolvedValue({});
+    const runtime = await createToastRuntime(client, showToast);
+
+    await runtime.handleTrigger({ sessionID: "phase5-session", trigger: "session.idle" });
+    expect(showToast).toHaveBeenCalledTimes(1);
+    const toastOutput = toastMessage(showToast, 0);
     assertFixtureContent(toastOutput);
     assertTreeSessionTokenTotals(toastOutput);
     expect(toastOutput).toContain("tree-model");
 
     const callsAfterFirstToast = vi.mocked(globalThis.fetch).mock.calls.length;
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "phase5-session" },
-      },
-    });
-    expect(client.tui.showToast).toHaveBeenCalledTimes(2);
+    await runtime.handleTrigger({ sessionID: "phase5-session", trigger: "session.idle" });
+    expect(showToast).toHaveBeenCalledTimes(2);
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(callsAfterFirstToast);
-    assertFixtureContent(getToastMessage(client, 1));
+    assertFixtureContent(toastMessage(showToast, 1));
 
-    const statusMetadata = vi.fn();
-    expect(hooks.tool?.quota_status).toBeDefined();
-    await hooks.tool?.quota_status?.execute(
-      {},
-      {
-        sessionID: "phase5-session",
-        metadata: statusMetadata,
-      },
-    );
-    expect(statusMetadata).toHaveBeenCalledWith({ title: "Quota Status" });
-    const statusOutput = getPromptText(client, 1);
+    // V2 metadata is returned from the tool result rather than a metadata
+    // callback (the server plugin intentionally returns only content).
+    const toolResult = await context.runTool("quota_status", {}, "phase5-session");
+    expect(toolResult).toEqual({ content: "" });
+    const statusOutput = getSyntheticText(context, 1);
     expect(statusOutput).toMatch(/^# Quota Status .*\(\/quota_status\)/u);
     expect(statusOutput).toContain("provider_team-accounting:");
     expect(statusOutput).toContain("provider_openrouter-primary:");
@@ -476,7 +479,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
 
     const { quotaProvidersProvider } = await import("../src/providers/quota-providers.js");
     const { resolveQuotaRuntimeContext } = await import("../src/lib/quota-runtime-context.js");
-    const runtime = await resolveQuotaRuntimeContext({
+    const runtimeContext = await resolveQuotaRuntimeContext({
       client: client as never,
       roots: { workspaceRoot: process.cwd() },
       config: currentConfig,
@@ -486,7 +489,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const { buildQuotaExport, createExportProviderContext } = await import(
       "../src/lib/quota-export.js"
     );
-    const exportContext = createExportProviderContext(runtime);
+    const exportContext = createExportProviderContext(runtimeContext);
     const fetchCallsBeforeExport = vi.mocked(globalThis.fetch).mock.calls.length;
     const exportData = await buildQuotaExport({
       providers: [quotaProvidersProvider],
@@ -698,7 +701,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       expect(telemetryOutput).not.toContain(source.url);
     }
     expect(allOutput).not.toMatch(/telemetryToken|opencode\.quota\./);
-    await hooks.dispose?.();
+    await dispose?.();
   });
 
   it("keeps over-quota MiniMax results in cache, export, and all four displays", async () => {
@@ -713,16 +716,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       data: { providers: [{ id: "minimax-coding-plan" }] },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
+    const { context, dispose } = await createServerPlugin([{ id: "minimax-coding-plan" }]);
 
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "minimax-session",
-      }),
-    );
-    const serverOutput = getPromptText(client);
+    await context.runCommand("quota", "", "minimax-session");
+    const serverOutput = getSyntheticText(context, 0);
     expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("Five-hour quota");
     expect(serverOutput).toContain("Weekly quota");
@@ -732,7 +729,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(serverOutput).not.toContain("Invalid normalized provider result");
 
     const { resolveQuotaRuntimeContext } = await import("../src/lib/quota-runtime-context.js");
-    const runtime = await resolveQuotaRuntimeContext({
+    const runtimeContext = await resolveQuotaRuntimeContext({
       client: client as never,
       roots: { workspaceRoot: process.cwd() },
       config: currentConfig,
@@ -745,7 +742,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const fetchCallsBeforeExport = vi.mocked(globalThis.fetch).mock.calls.length;
     const exportData = await buildQuotaExport({
       providers: [minimaxCodingPlanProvider],
-      ctx: createExportProviderContext(runtime),
+      ctx: createExportProviderContext(runtimeContext),
       ttlMs: currentConfig.minIntervalMs,
       fromCache: true,
     });
@@ -761,13 +758,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ),
     ).toEqual([-5, -10]);
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "minimax-session" },
-      },
-    });
-    const toastOutput = getToastMessage(client);
+    const showToast = vi.fn().mockResolvedValue({});
+    const toastRuntime = await createToastRuntime(client, showToast);
+    await toastRuntime.handleTrigger({ sessionID: "minimax-session", trigger: "session.idle" });
+    const toastOutput = toastMessage(showToast, 0);
     expect(toastOutput).toContain("MiniMax Token Plan");
     expect(toastOutput).toContain("Five-hour");
     expect(toastOutput).toContain("Weekly");
@@ -806,7 +800,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(compactOutput.match(/0%/gu)).toHaveLength(2);
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
 
-    await hooks.dispose?.();
+    await dispose?.();
   });
 
   it("shows the optional Anthropic Fable weekly row on all four displays", async () => {
@@ -843,27 +837,21 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       data: { providers: [{ id: "anthropic" }] },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
+    const { context, dispose } = await createServerPlugin([{ id: "anthropic" }]);
 
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "anthropic-fable-session",
-      }),
-    );
-    const serverOutput = getPromptText(client);
+    await context.runCommand("quota", "", "anthropic-fable-session");
+    const serverOutput = getSyntheticText(context, 0);
     expect(serverOutput).toContain("Claude");
     expect(serverOutput).toContain("Fable");
     expect(serverOutput).toContain("98% left");
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "anthropic-fable-session" },
-      },
+    const showToast = vi.fn().mockResolvedValue({});
+    const toastRuntime = await createToastRuntime(client, showToast);
+    await toastRuntime.handleTrigger({
+      sessionID: "anthropic-fable-session",
+      trigger: "session.idle",
     });
-    const toastOutput = getToastMessage(client);
+    const toastOutput = toastMessage(showToast, 0);
     expect(toastOutput).toContain("Fable");
     expect(toastOutput).toContain("98%");
 
@@ -894,7 +882,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(compactOutput).toContain("Fable");
     expect(compactOutput).toContain("98%");
 
-    await hooks.dispose?.();
+    await dispose?.();
   });
 
   it("renders CN general percentage quota and excludes video on all four surfaces", async () => {
@@ -923,16 +911,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       data: { providers: [{ id: "minimax-china-coding-plan" }] },
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
+    const { context, dispose } = await createServerPlugin([{ id: "minimax-china-coding-plan" }]);
 
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "minimax-china-session",
-      }),
-    );
-    const serverOutput = getPromptText(client);
+    await context.runCommand("quota", "", "minimax-china-session");
+    const serverOutput = getSyntheticText(context, 0);
     expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("(CN)");
     expect(serverOutput).toContain("Five-hour quota");
@@ -942,13 +924,13 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(serverOutput).not.toContain("video");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
 
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "minimax-china-session" },
-      },
+    const showToast = vi.fn().mockResolvedValue({});
+    const toastRuntime = await createToastRuntime(client, showToast);
+    await toastRuntime.handleTrigger({
+      sessionID: "minimax-china-session",
+      trigger: "session.idle",
     });
-    const toastOutput = getToastMessage(client);
+    const toastOutput = toastMessage(showToast, 0);
     expect(toastOutput).toContain("MiniMax Token Plan");
     expect(toastOutput).toContain("(CN)");
     expect(toastOutput).toContain("Five-hour");
@@ -991,6 +973,6 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(compactOutput).not.toContain("video");
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
 
-    await hooks.dispose?.();
+    await dispose?.();
   });
 });

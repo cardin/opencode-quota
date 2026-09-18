@@ -284,8 +284,8 @@ async function runSample(scenario: Scenario): Promise<StartupSample> {
 
   const events: StartupSample["events"] = {};
   const duplicateRegistrations: string[] = [];
-  const lifecycleCallbacks: Array<() => void> = [];
   let keymapAttempts = 0;
+  let dispose: (() => void) | undefined;
 
   const record = (event: RecordedEvent) => {
     if (events[event] !== undefined) {
@@ -295,69 +295,84 @@ async function runSample(scenario: Scenario): Promise<StartupSample> {
     events[event] = Date.now();
   };
 
-  const configGet = vi.fn(() => {
-    if (scenario.config === "never") return new Promise<never>(() => {});
-    if (scenario.delayMs === 0 && scenario.config === "resolve") {
-      return Promise.resolve({ data: {} });
-    }
-
-    return new Promise<{ data: Record<string, never> }>((resolve, reject) => {
-      setTimeout(() => {
-        if (scenario.config === "reject") {
-          reject(new Error("config unavailable"));
-          return;
-        }
-        resolve({ data: {} });
-      }, scenario.delayMs ?? 0);
-    });
-  });
-
-  const api = {
-    lifecycle: {
-      onDispose: vi.fn((callback: () => void) => {
-        lifecycleCallbacks.push(callback);
+  // OpenCode 2 CLI plugins receive a single `Context` and use slots/layers
+  // instead of the V1 `TuiPluginApi` registration methods.
+  const context = {
+    options: {},
+    location: { directory: process.cwd() },
+    app: { version: "2.0.7", channel: "dev" },
+    theme: { text: { default: "text", subdued: "muted" } },
+    client: {
+      provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
+      session: { get: vi.fn(), synthetic: vi.fn() },
+    },
+    data: {
+      on: vi.fn(() => () => {}),
+      listen: vi.fn(() => () => {}),
+      session: {
+        get: vi.fn(),
+        status: vi.fn(() => "idle"),
+        message: { list: vi.fn(() => []) },
+      },
+      location: { provider: { list: vi.fn(() => []) } },
+    },
+    ui: {
+      slot: vi.fn((claim: { append: string }) => {
+        if (claim.append === "sidebar.content") record("T_sidebar");
+        if (claim.append === "session.composer.top") record("T_session_prompt");
+        if (claim.append === "home.footer") record("T_home_bottom");
+        return () => {};
       }),
+      toast: { show: vi.fn() },
+      dialog: {
+        show: vi.fn(),
+        set: vi.fn(),
+        clear: vi.fn(),
+        prompt: vi.fn(),
+        alert: vi.fn(),
+        confirm: vi.fn(),
+        select: vi.fn(),
+      },
+      router: { current: vi.fn(() => ({ type: "home" })) },
     },
     keymap: {
-      registerLayer: vi.fn(() => {
+      layer: vi.fn((resolveLayer: () => unknown) => {
         keymapAttempts += 1;
         if (scenario.registerLayerThrows) throw new Error("registration unavailable");
         record("T_command");
-        return vi.fn();
+        resolveLayer();
+        return () => {};
       }),
     },
-    slots: {
-      register: vi.fn((registration: { slots: Record<string, unknown> }) => {
-        for (const slotName of Object.keys(registration.slots)) {
-          if (slotName === "sidebar_content") record("T_sidebar");
-          if (slotName === "session_prompt") record("T_session_prompt");
-          if (slotName === "home_bottom") record("T_home_bottom");
-        }
-        return "test-slot";
-      }),
-    },
-    client: {
-      config: { get: configGet },
+    storage: {
+      memory: vi.fn(() => [{}, vi.fn()]),
+      store: vi.fn(() => [{}, vi.fn()]),
     },
   };
 
-  resolveTuiSurfaceRegistration.mockImplementationOnce(async (receivedApi: typeof api) => {
-    try {
-      await receivedApi.client.config.get();
-    } catch (error) {
-      record("T_plan_resolved");
-      throw error;
+  resolveTuiSurfaceRegistration.mockImplementationOnce(async () => {
+    if (scenario.config === "never") {
+      await new Promise<never>(() => {});
+    }
+    if (scenario.delayMs && scenario.delayMs > 0) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, scenario.delayMs);
+      });
     }
     record("T_plan_resolved");
+    if (scenario.config === "reject") throw new Error("config unavailable");
     return FULL_REGISTRATION;
   });
 
-  const returned = plugin.tui(api as never, undefined, {} as never);
-  void returned.then(() => record("T_return"));
+  const returned = Promise.resolve(plugin.setup(context as never));
+  void returned.then((cleanup) => {
+    dispose = (cleanup as (() => void) | undefined) ?? undefined;
+    record("T_return");
+  });
 
   if (scenario.disposeAtMs !== undefined) {
     setTimeout(() => {
-      for (const callback of [...lifecycleCallbacks]) callback();
+      dispose?.();
     }, scenario.disposeAtMs);
   }
 

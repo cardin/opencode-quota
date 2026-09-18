@@ -6,12 +6,12 @@ import {
   createPluginTestClient as createClient,
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
-  createPluginToolMockModule,
+  createPluginTestContext,
   createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createQwenAuthModuleMock,
-  getToastMessage,
+  getSyntheticText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -60,7 +60,6 @@ const resetMocks = vi.hoisted(() => ({
   formatQuotaResetNotification: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 vi.mock("../src/providers/registry.js", () =>
   createProvidersRegistryModuleMock(mocks.getProviders),
@@ -112,71 +111,46 @@ function makeAnnouncementSummary(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function configureQuestionQuotaToast(
-  overrides: Parameters<typeof makeQuotaToastTestConfig>[0] = {},
-): void {
-  mocks.loadConfig.mockResolvedValueOnce(
-    makeQuotaToastTestConfig({
-      enabled: true,
-      enableToast: true,
-      enabledProviders: ["copilot"],
-      showOnIdle: false,
-      showOnQuestion: true,
-      showOnCompact: false,
-      minIntervalMs: 0,
-      maintainerAnnouncements: {
-        enabled: true,
-        home: true,
-      },
-      ...overrides,
-    }),
-  );
-  mocks.getProviders.mockReturnValue([
-    {
-      id: "copilot",
-      isAvailable: vi.fn().mockResolvedValue(true),
-      fetch: vi.fn().mockResolvedValue({
-        attempted: true,
-        entries: [{ accounting: TEST_ACCOUNTING, name: "Copilot", percentRemaining: 81 }],
-        errors: [],
-      }),
-    },
-  ]);
+async function setupPlugin() {
+  const { QuotaToastPlugin } = await import("../src/plugin.js");
+  const context = createPluginTestContext({ directory: process.cwd() });
+  await QuotaToastPlugin.setup(context as never);
+  return context;
 }
 
-async function runSuccessfulQuestion(
-  hooks: Record<string, any>,
-  sessionID = "session-question",
-): Promise<void> {
-  await hooks["tool.execute.after"]?.(
-    { tool: "question", sessionID, callID: `call-${sessionID}` },
-    { title: "Question", output: "ok", metadata: { status: "success" } },
-  );
-}
-
-async function buildAnnouncementsDialogOutput(params: {
-  client: ReturnType<typeof createClient>;
-  arguments?: string;
-}) {
-  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
-  const result = await buildQuotaDialogCommandOutput({
-    command: "quota_announcements",
-    arguments: params.arguments,
-    client: params.client,
-    roots: {
+async function createRuntime(
+  overrides: { showToast: (body: unknown) => Promise<unknown> },
+  client: ReturnType<typeof createClient>,
+) {
+  const { createQuotaToastRuntime } = await import("../src/lib/quota-toast-runtime.js");
+  return createQuotaToastRuntime({
+    client: client as never,
+    roots: () => ({
       workspaceRoot: process.cwd(),
       configRoot: process.cwd(),
       fallbackDirectory: process.cwd(),
+    }),
+    resolveSessionMeta: async (sessionID) => {
+      const response = await client.session.get({ path: { id: sessionID } });
+      return {
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
+      };
     },
-    sessionID: "session-announcements",
+    isSubagentSession: async (sessionID) => {
+      const response = await client.session.get({ path: { id: sessionID } });
+      return Boolean(response.data?.parentID);
+    },
+    reconcileDetectedProviders: vi.fn().mockResolvedValue(undefined),
+    setSessionTokenError: vi.fn(),
+    showToast: overrides.showToast as never,
+    log: vi.fn().mockResolvedValue(undefined),
+    onInitialized: vi.fn(),
   });
-  expect(params.client.session.prompt).not.toHaveBeenCalled();
-  expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
 }
 
 async function flushMaintainerFallbackWork(): Promise<void> {
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = 0; i < 8; i += 1) {
     await Promise.resolve();
   }
 }
@@ -218,22 +192,23 @@ describe("maintainer announcement plugin integration", () => {
     };
     mocks.getProviders.mockReturnValue([provider]);
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
     const announcementCommand = QUOTA_DIALOG_COMMANDS.find(
       (command) => command.id === "quota_announcements",
     );
-    const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
-    const cfg: any = {};
+    const context = await setupPlugin();
 
-    await hooks.config?.(cfg);
-    expect(cfg.command?.quota_announcements).toEqual({
-      template: `/${announcementCommand?.slashName}`,
-      description: announcementCommand?.description,
-    });
+    expect(
+      context.registeredCommands.find((command) => command.name === announcementCommand?.slashName),
+    ).toEqual(
+      expect.objectContaining({
+        name: announcementCommand?.slashName,
+        description: announcementCommand?.description,
+      }),
+    );
 
-    const output = await buildAnnouncementsDialogOutput({ client });
+    await context.runCommand("quota_announcements", "", "session-announcements");
+    const output = getSyntheticText(context);
 
     expect(output).toBe(
       "Maintainer announcements\n\n- If you use Copilot, GitHub billing is moving to AI Credits.\n  https://github.blog/example",
@@ -263,13 +238,10 @@ describe("maintainer announcement plugin integration", () => {
         : makeAnnouncementSummary({ activeCount: 0, activeAnnouncements: [] });
     });
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const context = await setupPlugin();
 
-    await expect(buildAnnouncementsDialogOutput({ client })).resolves.toBe(
-      "Maintainer announcements\n\nNo current announcements.",
-    );
+    await context.runCommand("quota_announcements", "", "session-announcements");
+    expect(getSyntheticText(context)).toBe("Maintainer announcements\n\nNo current announcements.");
     expect(provider.isAvailable).toHaveBeenCalledOnce();
     expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
       expect.objectContaining({ enabledProviders: [] }),
@@ -284,44 +256,71 @@ describe("maintainer announcement plugin integration", () => {
       }),
     );
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const context = await setupPlugin();
 
-    await expect(buildAnnouncementsDialogOutput({ client })).resolves.toBe(
-      "Maintainer announcements\n\nNo current announcements.",
-    );
+    await context.runCommand("quota_announcements", "", "session-announcements");
+    expect(getSyntheticText(context)).toBe("Maintainer announcements\n\nNo current announcements.");
   });
 
   it("rejects /quota_announcements arguments", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const context = await setupPlugin();
 
-    await expect(
-      buildAnnouncementsDialogOutput({
-        client,
-        arguments: "show copilot-credits",
-      }),
-    ).resolves.toBe(
+    await context.runCommand(
+      "quota_announcements",
+      "show copilot-credits",
+      "session-announcements",
+    );
+
+    expect(getSyntheticText(context)).toBe(
       "Invalid arguments for /quota_announcements\n\nThis command does not accept arguments.\n\nUsage: /quota_announcements",
     );
   });
 
   it("shows one count-only fallback toast after the first visible quota toast without TUI", async () => {
-    configureQuestionQuotaToast();
+    mocks.loadConfig.mockResolvedValue(
+      makeQuotaToastTestConfig({
+        enabled: true,
+        enableToast: true,
+        enabledProviders: ["copilot"],
+        showOnIdle: false,
+        showOnQuestion: true,
+        showOnCompact: false,
+        minIntervalMs: 0,
+        maintainerAnnouncements: {
+          enabled: true,
+          home: true,
+        },
+      }),
+    );
+    mocks.getProviders.mockReturnValue([
+      {
+        id: "copilot",
+        isAvailable: vi.fn().mockResolvedValue(true),
+        fetch: vi.fn().mockResolvedValue({
+          attempted: true,
+          entries: [{ accounting: TEST_ACCOUNTING, name: "Copilot", percentRemaining: 81 }],
+          errors: [],
+        }),
+      },
+    ]);
+    const showToast = vi.fn().mockResolvedValue({});
+    const client = createClient({ modelID: "copilot/gpt-4.1", providerID: "copilot" });
+    const runtime = await createRuntime({ showToast }, client);
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
-
-    await runSuccessfulQuestion(hooks);
-
+    await runtime.handleTrigger({ sessionID: "session-question", trigger: "question" });
     await flushMaintainerFallbackWork();
-    expect(getToastMessage(client, 0)).toContain("Copilot");
-    expect(getToastMessage(client, 1)).toBe(ANNOUNCEMENT_TOAST_MESSAGE);
-    expect(getToastMessage(client, 1)).not.toContain(TEST_ANNOUNCEMENT.message);
-    expect(getToastMessage(client, 1)).not.toContain(TEST_ANNOUNCEMENT.id);
+
+    expect(showToast.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ message: expect.stringContaining("Copilot") }),
+    );
+    expect(showToast.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ message: ANNOUNCEMENT_TOAST_MESSAGE }),
+    );
+    expect(showToast.mock.calls[1]?.[0]).not.toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining(TEST_ANNOUNCEMENT.message),
+      }),
+    );
     expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
       expect.objectContaining({ enabledProviders: ["copilot"] }),
     );
@@ -341,20 +340,18 @@ describe("maintainer announcement plugin integration", () => {
       }),
     );
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
+    const showToast = vi.fn().mockResolvedValue({});
     const client = createClient();
-    const hooks = await QuotaToastPlugin({ client } as any);
+    const runtime = await createRuntime({ showToast }, client);
 
-    await hooks.event?.({
-      event: { type: "session.idle", properties: { sessionID: "session-idle" } },
-    } as any);
-    await hooks["tool.execute.after"]?.(
-      { tool: "question", sessionID: "session-question", callID: "call-1" },
-      { title: "Error", output: "failed", metadata: { status: "error" } },
-    );
+    // V2 server plugins no longer observe tool executions; the CLI bridge
+    // forwards only session lifecycle triggers. With every trigger disabled
+    // there is no quota toast, so no count-only fallback may appear.
+    await runtime.handleTrigger({ sessionID: "session-idle", trigger: "session.idle" });
+    await runtime.handleTrigger({ sessionID: "session-question", trigger: "question" });
 
     expect(announcementMocks.getMaintainerAnnouncementsSummary).not.toHaveBeenCalled();
     expect(tuiDiagnosticsMocks.inspectTuiConfig).not.toHaveBeenCalled();
-    expect(client.tui.showToast).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,7 @@ v4 adds clearer quota results, guided custom-provider setup, and JSON export v2.
 
 ## Requirements
 
-- OpenCode 1.4.3 or newer
+- OpenCode 2.0.7 or newer
 - Node.js 22 or newer
 
 ## Before you update
@@ -24,13 +24,13 @@ v4 adds clearer quota results, guided custom-provider setup, and JSON export v2.
 Preview the changes first:
 
 ```bash
-npx @slkiser/opencode-quota@latest update --dry-run
+npx @cardin/opencode-quota@latest update --dry-run
 ```
 
 If the preview looks right, apply them:
 
 ```bash
-npx @slkiser/opencode-quota@latest update
+npx @cardin/opencode-quota@latest update
 ```
 
 Restart OpenCode, then run `/quota` and `/quota_status`.
@@ -44,7 +44,7 @@ v4 replaces the old `customSources` setting with `quotaProviders`. The old setti
 Use the guided command to add each custom provider:
 
 ```bash
-npx @slkiser/opencode-quota@latest provider add
+npx @cardin/opencode-quota@latest provider add
 ```
 
 It previews the exact global config change and asks before writing. See the [Provider setup guide](providers.md#custom-providers) for full details.
@@ -80,7 +80,7 @@ After restarting OpenCode:
 
 1. Close OpenCode.
 2. Restore the config backup you made before updating.
-3. Pin both the server and TUI plugin entries to v3, for example `@slkiser/opencode-quota@3`.
+3. Pin both the server and TUI plugin entries to v3, for example `@cardin/opencode-quota@3`.
 4. Remove v4 `quotaProviders` entries because v3 does not understand them.
 5. Restart OpenCode and run `/quota`.
 

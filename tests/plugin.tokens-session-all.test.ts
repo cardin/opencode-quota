@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createAlibabaAuthModuleMock,
-  createPluginTestClient as createClient,
   createConfigModuleMock,
-  createPluginToolMockModule,
+  createPluginTestContext,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createQwenAuthModuleMock,
   createSessionTokensModuleMock,
+  getSyntheticText,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
 
@@ -41,8 +41,6 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
-
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
 vi.mock("../src/providers/registry.js", () =>
@@ -73,25 +71,11 @@ vi.mock("../src/lib/quota-stats-format.js", () => ({
   formatQuotaStatsReport: mocks.formatQuotaStatsReport,
 }));
 
-async function buildTokenDialogOutput(params: {
-  command: "tokens_session" | "tokens_session_all";
-  client: ReturnType<typeof createClient>;
-  sessionID: string;
-}) {
-  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
-  const result = await buildQuotaDialogCommandOutput({
-    command: params.command,
-    client: params.client,
-    roots: {
-      workspaceRoot: process.cwd(),
-      configRoot: process.cwd(),
-      fallbackDirectory: process.cwd(),
-    },
-    sessionID: params.sessionID,
-  });
-  expect(params.client.session.prompt).not.toHaveBeenCalled();
-  expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
+async function setupPlugin() {
+  const { QuotaToastPlugin } = await import("../src/plugin.js");
+  const context = createPluginTestContext({ directory: process.cwd() });
+  await QuotaToastPlugin.setup(context as never);
+  return context;
 }
 
 describe("/tokens_session_all command", () => {
@@ -121,33 +105,25 @@ describe("/tokens_session_all command", () => {
     ]);
   });
 
-  it("registers /tokens_session_all in server plugin config", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
+  it("registers /tokens_session_all as a V2 slash command", async () => {
     const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
     const tokensSessionAllCommand = QUOTA_DIALOG_COMMANDS.find(
       (command) => command.id === "tokens_session_all",
     );
-    const hooks = await QuotaToastPlugin({ client: createClient() } as any);
-    const cfg: { command?: Record<string, { template: string; description: string }> } = {};
+    const context = await setupPlugin();
+    const registered = context.registeredCommands.find(
+      (command) => command.name === tokensSessionAllCommand?.slashName,
+    );
 
-    await hooks.config?.(cfg as any);
-
-    expect(cfg.command?.tokens_session_all).toEqual({
-      template: `/${tokensSessionAllCommand?.slashName}`,
-      description: tokensSessionAllCommand?.description,
-    });
+    expect(registered).toBeDefined();
+    expect(registered?.description).toBe(tokensSessionAllCommand?.description);
   });
 
   it("aggregates the current session tree for /tokens_session_all", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const context = await setupPlugin();
 
-    const output = await buildTokenDialogOutput({
-      command: "tokens_session_all",
-      client,
-      sessionID: "ses_parent",
-    });
+    await context.runCommand("tokens_session_all", "", "ses_parent");
+    const output = getSyntheticText(context);
 
     expect(mocks.resolveSessionTree).toHaveBeenCalledWith("ses_parent");
     expect(mocks.aggregateUsage).toHaveBeenCalledWith({
@@ -183,15 +159,9 @@ describe("/tokens_session_all command", () => {
   });
 
   it("keeps /tokens_session scoped to the selected session only", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const context = await setupPlugin();
 
-    await buildTokenDialogOutput({
-      command: "tokens_session",
-      client,
-      sessionID: "ses_parent",
-    });
+    await context.runCommand("tokens_session", "", "ses_parent");
 
     expect(mocks.resolveSessionTree).not.toHaveBeenCalled();
     expect(mocks.aggregateUsage).toHaveBeenCalledWith({
@@ -219,15 +189,10 @@ describe("/tokens_session_all command", () => {
       new mocks.SessionNotFoundError("ses_missing", "/tmp/opencode.db"),
     );
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const context = await setupPlugin();
 
-    const injected = await buildTokenDialogOutput({
-      command: "tokens_session_all",
-      client,
-      sessionID: "ses_missing",
-    });
+    await context.runCommand("tokens_session_all", "", "ses_missing");
+    const injected = getSyntheticText(context);
     expect(injected).toContain("Token report unavailable (/tokens_session_all)");
     expect(injected).toContain("session_lookup_error:");
     expect(injected).toContain("- session_id: ses_missing");
@@ -239,15 +204,10 @@ describe("/tokens_session_all command", () => {
       new mocks.SessionNotFoundError("ses_parent", "/tmp/opencode.db"),
     );
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const client = createClient();
-    await QuotaToastPlugin({ client } as any);
+    const context = await setupPlugin();
 
-    const injected = await buildTokenDialogOutput({
-      command: "tokens_session",
-      client,
-      sessionID: "ses_parent",
-    });
+    await context.runCommand("tokens_session", "", "ses_parent");
+    const injected = getSyntheticText(context);
     expect(injected).toContain("Token report unavailable (/tokens_session)");
     expect(injected).toContain("- session_id: ses_parent");
     expect(injected).toContain("- checked_path: /tmp/opencode.db");

@@ -5,10 +5,10 @@ import { isCommandHandledError } from "../src/lib/command-handled.js";
 import {
   createPluginTestClient as createClient,
   createConfigModuleMock,
-  createPluginToolMockModule,
+  createPluginTestContext,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  getPromptText,
+  getSyntheticText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -27,8 +27,6 @@ const mocks = vi.hoisted(() => ({
   setPricingSnapshotSelection: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
-
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
 vi.mock("../src/providers/registry.js", () =>
@@ -46,79 +44,17 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   }),
 }));
 
-type PluginHooks = {
-  config?: (input: unknown) => Promise<void> | void;
-  "command.execute.before"?: (input: {
-    command: string;
-    arguments?: string;
-    sessionID: string;
-  }) => Promise<void> | void;
-};
-
-type PluginConfigFixture = {
-  command?: Record<string, { template: string; description: string }>;
-  agent?: Record<string, unknown>;
-  default_agent?: string;
-};
-
-const AGENT_NORMALIZATION_CASES = [
-  {
-    name: "exact",
-    agent: { "\u200Bplanner": {} },
-    defaultAgent: "\u200Bplanner",
-    expectedDefaultAgent: "\u200Bplanner",
-  },
-  {
-    name: "unique",
-    agent: { "\u200Bplanner": {}, coder: {} },
-    defaultAgent: "planner",
-    expectedDefaultAgent: "\u200Bplanner",
-  },
-  {
-    name: "ambiguous",
-    agent: { "\u200Bplanner": {}, "\u200Cplanner": {} },
-    defaultAgent: "planner",
-    expectedDefaultAgent: "planner",
-  },
-] as const;
-
-const PLUGIN_ORDERS = ["quota-first", "remapper-first"] as const;
-
-async function loadPluginHooks(client: ReturnType<typeof createClient>): Promise<PluginHooks> {
+async function setupPlugin(
+  options: { modelID?: string; providerID?: string; directory?: string } = {},
+) {
   const { QuotaToastPlugin } = await import("../src/plugin.js");
-  return (await QuotaToastPlugin({ client } as any)) as PluginHooks;
-}
-
-async function expectHandled(promise: Promise<unknown> | unknown): Promise<void> {
-  try {
-    await promise;
-  } catch (err) {
-    expect(isCommandHandledError(err)).toBe(true);
-    return;
-  }
-  throw new Error("expected handled sentinel");
-}
-
-async function runServerCommand(params: {
-  command: string;
-  arguments?: string;
-  client?: ReturnType<typeof createClient>;
-  sessionID?: string;
-}) {
-  const client = params.client ?? createClient();
-  const hooks = await loadPluginHooks(client);
-  const commandHook = hooks["command.execute.before"];
-  expect(commandHook).toBeDefined();
-
-  await expectHandled(
-    commandHook?.({
-      command: params.command,
-      arguments: params.arguments,
-      sessionID: params.sessionID ?? "session-command",
-    }),
-  );
-
-  return { client, hooks };
+  const context = createPluginTestContext({
+    directory: options.directory ?? process.cwd(),
+    modelID: options.modelID,
+    providerID: options.providerID,
+  });
+  await QuotaToastPlugin.setup(context as never);
+  return context;
 }
 
 async function buildDialogOutput(params: {
@@ -157,92 +93,59 @@ describe("plugin command handled boundary", () => {
   });
 
   it("registers deterministic slash commands for the server/web command surface", async () => {
-    const client = createClient();
-    const hooks = await loadPluginHooks(client);
-    const cfg: { command?: Record<string, { template: string; description: string }> } = {};
+    const context = await setupPlugin();
     const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
 
-    await hooks.config?.(cfg as any);
-
-    expect(hooks["command.execute.before"]).toBeDefined();
-    expect(cfg.command).toBeDefined();
     expect(QUOTA_DIALOG_COMMANDS).toHaveLength(12);
     expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.id)).size).toBe(12);
     expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.slashName)).size).toBe(12);
-    expect(Object.keys(cfg.command ?? {})).toHaveLength(12);
+    expect(context.registeredCommands).toHaveLength(12);
     for (const spec of QUOTA_DIALOG_COMMANDS) {
-      expect(cfg.command?.[spec.id]).toEqual({
-        template: `/${spec.slashName}`,
-        description: spec.description,
-      });
+      expect(context.registeredCommands.find((command) => command.name === spec.slashName)).toEqual(
+        expect.objectContaining({
+          name: spec.slashName,
+          description: spec.description,
+        }),
+      );
     }
-    expect(client.session.prompt).not.toHaveBeenCalled();
+    // V2 commands are registered as first-class capabilities; they never
+    // inject through the V1 session.prompt/noReply path or a handled sentinel.
+    expect(context.session.synthetic).not.toHaveBeenCalled();
   });
 
-  for (const order of PLUGIN_ORDERS) {
-    for (const scenario of AGENT_NORMALIZATION_CASES) {
-      it(`normalizes the default agent for ${order} ordering with an ${scenario.name} match`, async () => {
-        const client = createClient();
-        const hooks = await loadPluginHooks(client);
-        const cfg: PluginConfigFixture = {};
-        let configAtPrompt:
-          | { defaultAgent: string | undefined; agentKeys: string[]; namesExistingAgent: boolean }
-          | undefined;
+  /**
+   * OpenCode 2 migration note
+   * ------------------------
+   * V1 relied on the `config` hook to remap a `default_agent` whose
+   * zero-width-normalized name matched exactly one agent key. V2 resolves
+   * agents from the agent registry (`ctx.agent`) and no longer hands raw
+   * config through plugin hooks, so that remap has no equivalent. The test
+   * below documents the V2 behavior: command registration is independent of
+   * any config hook and never mutates agent state.
+   */
+  it("registers slash commands without a config hook or agent remap (V2)", async () => {
+    const context = await setupPlugin({ providerID: "openai" });
 
-        if (order === "quota-first" && scenario.name === "unique") {
-          client.session.prompt.mockImplementationOnce(async () => {
-            const agentKeys = Object.keys(cfg.agent ?? {});
-            configAtPrompt = {
-              defaultAgent: cfg.default_agent,
-              agentKeys,
-              namesExistingAgent:
-                cfg.default_agent !== undefined && agentKeys.includes(cfg.default_agent),
-            };
-            return {};
-          });
-        }
+    // The V2 plugin does not mutate agent state while registering commands.
+    expect(context.agent.transform).not.toHaveBeenCalled();
+    expect(context.tool.hook).not.toHaveBeenCalled();
 
-        const applyAgentRemap = () => {
-          cfg.agent = { ...scenario.agent };
-          cfg.default_agent = scenario.defaultAgent;
-        };
-
-        if (order === "remapper-first") applyAgentRemap();
-        await hooks.config?.(cfg);
-        if (order === "quota-first") applyAgentRemap();
-
-        await expectHandled(
-          hooks["command.execute.before"]?.({
-            command: "quota",
-            sessionID: `session-agent-order-${order}-${scenario.name}`,
-          }),
-        );
-
-        expect(cfg.default_agent).toBe(scenario.expectedDefaultAgent);
-        expect(client.session.prompt).toHaveBeenCalledTimes(1);
-        if (order === "quota-first" && scenario.name === "unique") {
-          expect(configAtPrompt).toEqual({
-            defaultAgent: "\u200Bplanner",
-            agentKeys: ["\u200Bplanner", "coder"],
-            namesExistingAgent: true,
-          });
-        }
-      });
-    }
-  }
+    // A previous V1-only config hook would have injected a command catalog;
+    // in V2 the catalog is registered directly through ctx.command.transform.
+    expect(context.command.transform).toHaveBeenCalledOnce();
+    expect(context.registeredCommands).toHaveLength(12);
+  });
 
   it("leaves non-quota server commands untouched", async () => {
-    const client = createClient();
-    const hooks = await loadPluginHooks(client);
+    const context = await setupPlugin();
 
-    await expect(
-      hooks["command.execute.before"]?.({ command: "project_notes", sessionID: "session-other" }),
-    ).resolves.toBeUndefined();
-
-    expect(client.session.prompt).not.toHaveBeenCalled();
+    expect(context.registeredCommands.some((command) => command.name === "project_notes")).toBe(
+      false,
+    );
+    expect(context.session.synthetic).not.toHaveBeenCalled();
   });
 
-  it("handles server /quota by injecting deterministic output and aborting continuation", async () => {
+  it("handles server /quota by injecting deterministic output", async () => {
     mocks.getProviders.mockReturnValue([
       {
         id: "boom-provider",
@@ -251,28 +154,22 @@ describe("plugin command handled boundary", () => {
       },
     ]);
 
-    const { client } = await runServerCommand({ command: "quota", sessionID: "session-2" });
+    const context = await setupPlugin();
+    await context.runCommand("quota", "", "session-2");
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(client.session.prompt).toHaveBeenCalledWith(
+    expect(context.session.synthetic).toHaveBeenCalledTimes(1);
+    expect(context.session.synthetic).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: { id: "session-2" },
-        body: expect.objectContaining({
-          noReply: true,
-          parts: [
-            expect.objectContaining({
-              type: "text",
-              ignored: true,
-            }),
-          ],
-        }),
+        sessionID: "session-2",
+        description: "OpenCode Quota",
+        text: expect.stringContaining("Quota unavailable"),
       }),
     );
-    expect(getPromptText(client)).toContain("Quota unavailable");
-    expect(getPromptText(client)).toContain("No provider data available");
+    expect(getSyntheticText(context)).toContain("Quota unavailable");
+    expect(getSyntheticText(context)).toContain("No provider data available");
   });
 
-  it("injects clean plain text with noReply/ignored when /quota has no current model", async () => {
+  it("injects clean plain text when /quota has no current model", async () => {
     mocks.loadConfig.mockResolvedValueOnce(
       makeQuotaToastTestConfig({
         enabled: true,
@@ -304,58 +201,37 @@ describe("plugin command handled boundary", () => {
       }),
     };
     mocks.getProviders.mockReturnValue([provider]);
-    const client = createClient();
 
-    await runServerCommand({
-      command: "quota",
-      sessionID: "session-zero-model",
-      client,
-    });
+    const context = await setupPlugin();
+    await context.runCommand("quota", "", "session-zero-model");
 
     expect(provider.fetch).toHaveBeenCalledTimes(1);
-    expect(client.session.prompt).toHaveBeenCalledWith({
-      path: { id: "session-zero-model" },
-      body: {
-        noReply: true,
-        parts: [
-          {
-            type: "text",
-            ignored: true,
-            text: expect.stringContaining("  Week quota"),
-          },
-        ],
-      },
-    });
-    expect(getPromptText(client)).toMatch(/\n {2}Week quota\s+[█░]{10}\s+80% left/u);
-    expect(getPromptText(client)).toMatch(/^Quota \(\/quota\)/u);
-    expect(getPromptText(client)).not.toContain("```");
-    expect(getPromptText(client)).not.toMatch(/^#{1,6} /mu);
-    expect(getPromptText(client)).not.toContain("No enabled quota providers matched");
+    const text = getSyntheticText(context);
+    expect(text).toMatch(/\n {2}Week quota\s+[█░]{10}\s+80% left/u);
+    expect(text).toMatch(/^Quota \(\/quota\)/u);
+    expect(text).not.toContain("```");
+    expect(text).not.toMatch(/^#{1,6} /mu);
+    expect(text).not.toContain("No enabled quota providers matched");
   });
 
   it("handles /tokens_between arguments through one inline injection", async () => {
-    const { client } = await runServerCommand({
-      command: "tokens_between",
-      arguments: "not-a-date-range",
-      sessionID: "session-between",
-    });
+    const context = await setupPlugin();
+    await context.runCommand("tokens_between", "not-a-date-range", "session-between");
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Invalid arguments for /tokens_between");
+    expect(context.session.synthetic).toHaveBeenCalledTimes(1);
+    expect(getSyntheticText(context)).toContain("Invalid arguments for /tokens_between");
   });
 
   it("injects inline usage output when /tokens_between arguments are missing", async () => {
-    const { client } = await runServerCommand({
-      command: "tokens_between",
-      sessionID: "session-between-missing",
-    });
+    const context = await setupPlugin();
+    await context.runCommand("tokens_between", "", "session-between-missing");
 
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Invalid arguments for /tokens_between");
-    expect(getPromptText(client)).toContain("Expected: /tokens_between YYYY-MM-DD YYYY-MM-DD");
+    expect(context.session.synthetic).toHaveBeenCalledTimes(1);
+    expect(getSyntheticText(context)).toContain("Invalid arguments for /tokens_between");
+    expect(getSyntheticText(context)).toContain("Expected: /tokens_between YYYY-MM-DD YYYY-MM-DD");
   });
 
-  it("propagates server slash command injection failures instead of throwing handled", async () => {
+  it("propagates slash command injection failures and logs them", async () => {
     mocks.getProviders.mockReturnValue([
       {
         id: "boom-provider",
@@ -363,27 +239,24 @@ describe("plugin command handled boundary", () => {
         fetch: vi.fn(),
       },
     ]);
-    const injectionError = new Error("prompt unavailable");
-    const client = createClient();
-    client.session.prompt.mockRejectedValueOnce(injectionError);
-    const hooks = await loadPluginHooks(client);
+    const injectionError = new Error("synthetic unavailable");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const context = await setupPlugin();
+    context.session.synthetic.mockRejectedValueOnce(injectionError);
 
-    await expect(
-      hooks["command.execute.before"]?.({ command: "quota", sessionID: "session-inject-fails" }),
-    ).rejects.toBe(injectionError);
+    await expect(context.runCommand("quota", "", "session-inject-fails")).rejects.toBe(
+      injectionError,
+    );
 
     expect(isCommandHandledError(injectionError)).toBe(false);
-    expect(client.app.log).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({
-          level: "warn",
-          message: "Failed to inject raw output",
-        }),
-      }),
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[quota-toast] Failed to inject raw output",
+      expect.objectContaining({ error: "synthetic unavailable" }),
     );
+    errorSpy.mockRestore();
   });
 
-  it("still builds deterministic quota dialog output without session.prompt injection", async () => {
+  it("still builds deterministic quota dialog output without session injection", async () => {
     const isAvailable = vi.fn().mockRejectedValue(new Error("boom"));
     mocks.getProviders.mockReturnValue([
       {
@@ -405,17 +278,13 @@ describe("plugin command handled boundary", () => {
 
   it("handles disabled deterministic server commands without injecting output", async () => {
     mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-    const client = createClient();
+    const context = await setupPlugin();
 
-    await runServerCommand({ command: "tokens_daily", client, sessionID: "session-disabled" });
-    await runServerCommand({
-      command: "tokens_session_all",
-      client,
-      sessionID: "session-disabled-tree",
-    });
+    await context.runCommand("tokens_daily", "", "session-disabled");
+    await context.runCommand("tokens_session_all", "", "session-disabled-tree");
 
     expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
+    expect(context.session.synthetic).not.toHaveBeenCalled();
   });
 
   it("returns no-op dialog result for disabled deterministic commands", async () => {
@@ -439,17 +308,15 @@ describe("plugin command handled boundary", () => {
     expect(client.session.prompt).not.toHaveBeenCalled();
   });
 
-  it("handles server /pricing_refresh by refreshing pricing, injecting output, and aborting continuation", async () => {
+  it("handles server /pricing_refresh by refreshing pricing and injecting output", async () => {
     mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
       attempted: true,
       updated: true,
       state: { version: 1, updatedAt: Date.now(), lastResult: "success" },
     });
 
-    const { client } = await runServerCommand({
-      command: "pricing_refresh",
-      sessionID: "session-pricing-refresh",
-    });
+    const context = await setupPlugin();
+    await context.runCommand("pricing_refresh", "", "session-pricing-refresh");
 
     expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({
       reason: "manual",
@@ -457,8 +324,8 @@ describe("plugin command handled boundary", () => {
       snapshotSelection: "auto",
       allowRefreshWhenSelectionBundled: true,
     });
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Pricing Refresh (/pricing_refresh)");
+    expect(context.session.synthetic).toHaveBeenCalledTimes(1);
+    expect(getSyntheticText(context)).toContain("Pricing Refresh (/pricing_refresh)");
   });
 
   it("still builds /pricing_refresh dialog output without throwing a handled sentinel", async () => {
@@ -490,16 +357,12 @@ describe("plugin command handled boundary", () => {
 
   it("handles disabled server /pricing_refresh as a no-op", async () => {
     mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-    const client = createClient();
+    const context = await setupPlugin();
 
-    await runServerCommand({
-      command: "pricing_refresh",
-      client,
-      sessionID: "session-disabled-refresh",
-    });
+    await context.runCommand("pricing_refresh", "", "session-disabled-refresh");
 
     expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
+    expect(context.session.synthetic).not.toHaveBeenCalled();
   });
 
   it("treats /pricing_refresh as a dialog no-op when disabled", async () => {

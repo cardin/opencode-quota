@@ -1,4 +1,3 @@
-import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import {
   formatAccountingBoolean,
   formatAccountingQuantity,
@@ -46,6 +45,7 @@ import {
   resolveQuotaRuntimeContext,
 } from "./quota-runtime-context.js";
 import { buildCompactQuotaStatusLine } from "./tui-compact-format.js";
+import type { TuiHost } from "./tui-host.js";
 import { hasNativeProviderQuotaClient } from "./tui-native-provider-quota.js";
 import type {
   CompactStatusState,
@@ -59,9 +59,9 @@ import type { OpenCodeGoWindowKey, TuiCommandDisplay } from "./types.js";
 
 const COMPACT_UNAVAILABLE_TEXT = "Quota unavailable";
 const PROMPT_BAR_MAX_WIDTH = 50;
-const tuiQuotaClients = new WeakMap<TuiPluginApi, ReturnType<typeof makeTuiQuotaClient>>();
+const tuiQuotaClients = new WeakMap<TuiHost, ReturnType<typeof makeTuiQuotaClient>>();
 
-export function getTuiRuntimeRootHints(api: TuiPluginApi): RuntimeContextRootHints {
+export function getTuiRuntimeRootHints(api: TuiHost): RuntimeContextRootHints {
   return {
     worktreeRoot: api.state.path.worktree,
     activeDirectory: api.state.path.directory,
@@ -69,11 +69,11 @@ export function getTuiRuntimeRootHints(api: TuiPluginApi): RuntimeContextRootHin
   };
 }
 
-export function resolveWorkspaceDir(api: TuiPluginApi): string {
+export function resolveWorkspaceDir(api: TuiHost): string {
   return resolveRuntimeContextRoots(getTuiRuntimeRootHints(api)).workspaceRoot;
 }
 
-function makeTuiQuotaClient(api: TuiPluginApi) {
+function makeTuiQuotaClient(api: TuiHost) {
   return {
     config: {
       providers: async () => {
@@ -114,7 +114,7 @@ function makeTuiQuotaClient(api: TuiPluginApi) {
   };
 }
 
-export function createTuiQuotaClient(api: TuiPluginApi) {
+export function createTuiQuotaClient(api: TuiHost) {
   const existing = tuiQuotaClients.get(api);
   if (existing) return existing;
   const client = makeTuiQuotaClient(api);
@@ -172,7 +172,7 @@ function extractMessageModelMeta(input: unknown): SessionModelMeta {
   return {};
 }
 
-function getMessageSessionModelMeta(api: TuiPluginApi, sessionID: string): SessionModelMeta {
+function getMessageSessionModelMeta(api: TuiHost, sessionID: string): SessionModelMeta {
   const messages = api.state.session.messages(sessionID);
   for (let index = messages.length - 1; index >= 0; index--) {
     const meta = extractMessageModelMeta(messages[index]);
@@ -182,7 +182,7 @@ function getMessageSessionModelMeta(api: TuiPluginApi, sessionID: string): Sessi
 }
 
 export async function getTuiSessionModelMeta(
-  api: TuiPluginApi,
+  api: TuiHost,
   sessionID: string,
 ): Promise<SessionModelMeta> {
   const safeSessionID = normalizeTuiSessionID(sessionID);
@@ -252,7 +252,7 @@ export type TuiSurfaceRegistrationOptions = {
 };
 
 function getMatchingInitialRuntimeSeed(
-  api: TuiPluginApi,
+  api: TuiHost,
   seed: TuiInitialRuntimeSeed | undefined,
 ): TuiInitialRuntimeSeed | undefined {
   if (!seed) return undefined;
@@ -585,7 +585,7 @@ async function collectTuiQuotaRenderData(params: {
 }
 
 export async function resolveTuiSurfaceRegistration(
-  api: TuiPluginApi,
+  api: TuiHost,
   options?: TuiSurfaceRegistrationOptions,
 ): Promise<TuiSurfaceRegistration> {
   const quotaClient = createTuiQuotaClient(api);
@@ -637,7 +637,7 @@ export async function resolveTuiSurfaceRegistration(
 }
 
 export async function loadTuiSessionQuotaSurfaces(params: {
-  api: TuiPluginApi;
+  api: TuiHost;
   sessionID: string;
   initialRuntimeSeed?: TuiInitialRuntimeSeed;
 }): Promise<TuiSessionQuotaSurfaces> {
@@ -686,7 +686,7 @@ export async function loadTuiSessionQuotaSurfaces(params: {
 }
 
 export async function loadTuiHomeBottomStatus(params: {
-  api: TuiPluginApi;
+  api: TuiHost;
   nowMs?: number;
   announcements?: readonly MaintainerAnnouncement[];
   initialRuntimeSeed?: TuiInitialRuntimeSeed;
@@ -773,7 +773,7 @@ export async function loadTuiHomeBottomStatus(params: {
 }
 
 export async function loadTuiHomeCompactStatus(params: {
-  api: TuiPluginApi;
+  api: TuiHost;
 }): Promise<CompactStatusState> {
   const quotaClient = createTuiQuotaClient(params.api);
   const runtime = await resolveQuotaRuntimeContext({
@@ -823,7 +823,7 @@ export async function loadTuiHomeCompactStatus(params: {
  * the caller; the call-site in `tui.tsx` is responsible for catching and
  * logging them so a failed write never affects rendering.
  */
-export async function writeTuiQuotaExportIfEnabled(params: { api: TuiPluginApi }): Promise<void> {
+export async function writeTuiQuotaExportIfEnabled(params: { api: TuiHost }): Promise<void> {
   const quotaClient = createTuiQuotaClient(params.api);
   const runtime = await resolveQuotaRuntimeContext({
     client: quotaClient,

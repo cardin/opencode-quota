@@ -115,7 +115,7 @@ describe("v4 release gates", () => {
     const typescript = run(typescriptScript);
     expect(typescript.status).toBe(0);
     expect(typescript.stdout).toContain(
-      "TypeScript 7.0.2 and @opencode-ai/plugin 1.18.11 lock entries verified",
+      "TypeScript 7.0.2 and @opencode/plugin 2.0.7 lock entries verified",
     );
 
     const historyRepo = path.join(tempDir, "clean-history");
@@ -254,7 +254,7 @@ describe("v4 release gates", () => {
 
   it("verifies one exact release tarball and rejects content tampering", async () => {
     const artifactDir = path.join(tempDir, "artifact");
-    const filename = "slkiser-opencode-quota-4.0.0.tgz";
+    const filename = "cardin-opencode-quota-5.0.0.tgz";
     const tarballPath = path.join(artifactDir, filename);
     const contents = Buffer.from("exact release artifact");
     await mkdir(artifactDir);

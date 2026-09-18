@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPluginTestClient,
-  createPluginToolMockModule,
+  createPluginTestContext,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
 } from "./helpers/plugin-test-harness.js";
@@ -28,8 +28,6 @@ const mocks = vi.hoisted(() => ({
   setPricingSnapshotAutoRefresh: vi.fn(),
   setPricingSnapshotSelection: vi.fn(),
 }));
-
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
 vi.mock("../src/providers/registry.js", () =>
   createProvidersRegistryModuleMock(mocks.getProviders),
@@ -226,7 +224,8 @@ describe("quota surface parity regressions", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
+    const pluginContext = createPluginTestContext({ directory: process.cwd() });
+    await QuotaToastPlugin.setup(pluginContext as never);
 
     const quotaOutput = await buildQuotaDialogOutputText({
       client,
@@ -330,7 +329,8 @@ describe("quota surface parity regressions", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
+    const pluginContext = createPluginTestContext({ directory: process.cwd() });
+    await QuotaToastPlugin.setup(pluginContext as never);
 
     await expect(
       buildQuotaDialogOutputText({
@@ -435,7 +435,8 @@ describe("quota surface parity regressions", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
+    const pluginContext = createPluginTestContext({ directory: process.cwd() });
+    await QuotaToastPlugin.setup(pluginContext as never);
 
     const quotaOutput = await buildQuotaDialogOutputText({
       client,
@@ -526,7 +527,8 @@ describe("quota surface parity regressions", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
+    const pluginContext = createPluginTestContext({ directory: process.cwd() });
+    await QuotaToastPlugin.setup(pluginContext as never);
 
     const quotaOutput = await buildQuotaDialogOutputText({
       client,
@@ -616,7 +618,8 @@ describe("quota surface parity regressions", () => {
     });
 
     const { QuotaToastPlugin } = await import("../src/plugin.js");
-    await QuotaToastPlugin({ client } as any);
+    const pluginContext = createPluginTestContext({ directory: process.cwd() });
+    await QuotaToastPlugin.setup(pluginContext as never);
 
     const quotaOutput = await buildQuotaDialogOutputText({
       client,

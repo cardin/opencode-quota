@@ -43,21 +43,27 @@ describe("tui dist packaging", () => {
 
     const source = await readFile(distTui, "utf8");
     expect(source).toContain("createComponent");
-    expect(source).toContain("sidebar_content");
+    // OpenCode 2 CLI plugins register through the V2 slot paths.
+    expect(source).toContain("sidebar.content");
+    expect(source).toContain("session.composer.top");
+    expect(source).toContain("prompt.footer");
+    expect(source).toContain("home.footer");
+    expect(source).toContain('from "@opencode/plugin/tui"');
     expect(source).toContain("loadTuiSessionQuotaSurfaces");
     expect(source).toContain("resolveTuiSurfaceRegistration");
-    expect(source).toContain("const pluginModule");
+    expect(source).toContain("TuiQuotaPlugin");
     expect(source).toContain("registerQuotaDialogCommands");
     expect(source).toContain("CommandOutputDialog");
     expect(source).toContain("buildQuotaDialogCommandOutput");
-    expect(source).toContain("registerLayer");
+    expect(source).toContain("keymap.layer");
     expect(source).not.toContain("jsx-dev-runtime");
   });
 
   it("can load the packaged TUI module", () => {
     expect(packagedTui.default).toMatchObject({
-      id: "@slkiser/opencode-quota",
+      id: "@cardin/opencode-quota",
     });
-    expect(typeof packagedTui.default.tui).toBe("function");
+    // V2 plugins are `{ id, setup }` definitions rather than V1 `{ tui }` modules.
+    expect(typeof packagedTui.default.setup).toBe("function");
   });
 });

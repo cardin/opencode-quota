@@ -153,10 +153,21 @@ describe("package manifest compatibility", () => {
   });
 
   it("keeps the public plugin peer broad and reference-compatible development targets exact", () => {
-    expect(pkg.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
-    expect(pkg.devDependencies?.["@opencode-ai/plugin"]).toBe("1.18.11");
-    expect(pkg.dependencies?.["@opentui/core"]).toBe("0.4.5");
-    expect(pkg.dependencies?.["@opentui/solid"]).toBe("0.4.5");
+    // OpenCode 2 plugins depend on `@opencode/plugin` (the V1
+    // `@opencode-ai/plugin` package was removed in the port).
+    expect(pkg.peerDependencies?.["@opencode/plugin"]).toBe("^2.0.7");
+    expect(pkg.peerDependencies?.["@opentui/core"]).toBe(">=0.5.10");
+    expect(pkg.peerDependencies?.["@opentui/solid"]).toBe(">=0.5.10");
+    expect(pkg.peerDependencies?.["solid-js"]).toBe(">=1.9.0");
+    expect(pkg.peerDependenciesMeta?.["@opentui/core"]?.optional).toBe(true);
+    expect(pkg.peerDependenciesMeta?.["@opentui/solid"]?.optional).toBe(true);
+    expect(pkg.devDependencies?.["@opencode/plugin"]).toBe("2.0.7");
+    expect(pkg.devDependencies?.["@opencode/client"]).toBe("2.0.7");
+    expect(pkg.devDependencies?.["@opencode/schema"]).toBe("2.0.7");
+    expect(pkg.devDependencies?.["@opencode/theme"]).toBe("2.0.7");
+    expect(pkg.devDependencies?.["@opentui/core"]).toBe("0.5.11");
+    expect(pkg.devDependencies?.["@opentui/solid"]).toBe("0.5.11");
+    expect(pkg.devDependencies).not.toHaveProperty("@opencode-ai/plugin");
     expect(readme).toContain("Node.js `>= 22` is required.");
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
@@ -165,8 +176,8 @@ describe("package manifest compatibility", () => {
   it("keeps the TypeScript 7 toolchain explicit without suppressing the known peer mismatch", () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
     expect(typescriptValidator).toContain('const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";');
-    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "1.18.11";');
-    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.4.5";');
+    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "2.0.7";');
+    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.5.11";');
     expect(typescriptValidator).toContain('const BUN_FFI_TYPESCRIPT_PEER = "^5";');
     expect(typescriptValidator).toContain("Known unmet peer:");
     expect(typescriptValidator).not.toMatch(/TypeScript v4 freeze|\^5\.9/);
@@ -262,11 +273,16 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("minimumReleaseAgeStrict: true");
     expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
     expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
+    // `@opencode/*` packages publish same-day; excluding them from the
+    // minimum-release-age gate keeps V2 dev tooling installable.
+    expect(pnpmWorkspace).toContain("minimumReleaseAgeExclude:");
+    expect(pnpmWorkspace).toContain('- "@opencode/*"');
     expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
       "better-sqlite3": true,
       esbuild: true,
       lefthook: true,
       "msgpackr-extract": true,
+      protobufjs: true,
     });
   });
 
@@ -283,7 +299,9 @@ describe("package manifest compatibility", () => {
     expect(pkg.bin).toEqual({
       "opencode-quota": "./dist/bin/opencode-quota.js",
     });
-    expect(pkg["oc-plugin"]).toEqual(["server", "tui"]);
+    // V2 discovers plugins from the package `exports`; the V1 manifest
+    // `oc-plugin` field no longer exists.
+    expect(pkg["oc-plugin"]).toBeUndefined();
     expect(pkg.dependencies?.["@clack/prompts"]).toBeTruthy();
     expect(pkg.exports?.["."]).toEqual({
       default: "./dist/index.js",
@@ -413,16 +431,16 @@ describe("package manifest compatibility", () => {
   });
 
   it("smoke-tests public imports, CLI commands, and the compiled TUI export", () => {
-    expect(packedSmoke).toContain('await import("@slkiser/opencode-quota");');
-    expect(packedSmoke).toContain('await import("@slkiser/opencode-quota/server");');
+    expect(packedSmoke).toContain('await import("@cardin/opencode-quota");');
+    expect(packedSmoke).toContain('await import("@cardin/opencode-quota/server");');
     expect(packedSmoke).toContain('"opencode-quota init"');
     expect(packedSmoke).toContain('"opencode-quota show"');
     expect(packedSmoke).toContain('"opencode-quota update"');
-    expect(packedSmoke).toContain("@slkiser/opencode-quota/tui");
-    expect(packedSmoke).toContain('import.meta.resolve("@slkiser/opencode-quota/tui")');
+    expect(packedSmoke).toContain("@cardin/opencode-quota/tui");
+    expect(packedSmoke).toContain('import.meta.resolve("@cardin/opencode-quota/tui")');
     expect(packedSmoke).toContain('readFile(tuiExportPath, "utf8")');
     expect(packedSmoke).toContain("dist\\\\/tui\\\\.js");
-    expect(packedSmoke).not.toContain('await import("@slkiser/opencode-quota/tui")');
+    expect(packedSmoke).not.toContain('await import("@cardin/opencode-quota/tui")');
     expect(packedSmoke).toContain('const { metrics } = await import("@opentelemetry/api");');
     expect(packedSmoke).toContain('assert.equal(typeof metrics.getMeter, "function");');
     expect(packedSmoke).toContain(
