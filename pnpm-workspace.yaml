@@ -3,7 +3,10 @@ allowBuilds:
   esbuild: true
   lefthook: true
   msgpackr-extract: true
+  protobufjs: true
 blockExoticSubdeps: true
 minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@opencode/*"
 minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeStrict: true

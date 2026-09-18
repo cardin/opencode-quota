@@ -122,50 +122,121 @@ function createElement(
   return typeof type === "function" ? type(nextProps) : { type, props: nextProps };
 }
 
+// V1 TUI event names -> V2 server event names, mirroring `tui-host.ts` so the
+// smoke tests can keep emitting the V1 logical events.
+const TUI_EVENT_MAP: Record<string, readonly string[]> = {
+  "session.updated": [
+    "session.status",
+    "session.created",
+    "session.renamed",
+    "session.model.selected",
+    "session.agent.selected",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.execution.failed",
+    "session.compacted",
+  ],
+  "message.updated": ["session.message.content.updated", "session.usage.updated"],
+  "message.removed": ["session.message.content.updated"],
+  "session.status": [
+    "session.status",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.execution.failed",
+  ],
+  "tui.session.select": ["tui.session.select"],
+};
+
+/**
+ * Builds a fake OpenCode 2 CLI `Context` for `TuiQuotaPlugin.setup`.
+ *
+ * The V1 `TuiPluginApi` registered grouped slot bundles (`api.slots.register`)
+ * and keymap layers (`api.keymap.registerLayer`). V2 registers individual slot
+ * claims (`context.ui.slot`) and keymap layers (`context.keymap.layer`). This
+ * harness records the V2 calls and exposes them through the legacy
+ * `registered`/`keymapLayers` shapes so the behavioral assertions stay intact:
+ * `sidebar.content` maps to the order-150 `sidebar_content` slot, and
+ * `session.composer.top`/`home.footer` map to the order-90 `session_prompt`
+ * and `home_bottom` slots.
+ */
 function createApi() {
   const keymapLayers: Array<{ commands: Array<Record<string, unknown>> }> = [];
+  const dialogShow = vi.fn();
+  const dialogSet = vi.fn();
+  const dialogClear = vi.fn();
+  const dialogPrompt = vi.fn();
   const dialog = {
-    setSize: vi.fn(),
-    replace: vi.fn(),
-    clear: vi.fn(),
+    show: dialogShow,
+    set: dialogSet,
+    clear: dialogClear,
+    prompt: dialogPrompt,
+    alert: vi.fn(),
+    confirm: vi.fn(),
+    select: vi.fn(),
+    // V1 aliases the smoke assertions still use.
+    replace: dialogShow,
+    setSize: dialogSet,
   };
+  const toast = vi.fn();
+  (toast as unknown as { show: typeof toast }).show = toast;
   const registered: Array<{
     order?: number;
     slots: Record<string, (ctx: unknown, props: any) => unknown>;
   }> = [];
   const unsubscribers: Array<ReturnType<typeof vi.fn>> = [];
   const eventHandlers = new Map<string, Array<(event: any) => void>>();
-  const kvStore = new Map<string, unknown>();
+  const kvStore: Record<string, unknown> = {};
+  const kvSet = vi.fn((mutation: (draft: Record<string, unknown>) => void) => mutation(kvStore));
+
+  const ensureCompactGroup = () => {
+    const existing = registered.find((entry) => entry.order === 90);
+    if (existing) return existing;
+    const group: (typeof registered)[number] = { order: 90, slots: {} };
+    registered.push(group);
+    return group;
+  };
+
+  const slot = vi.fn((claim: { append: string; render: (input: any) => unknown }) => {
+    if (claim.append === "sidebar.content") {
+      registered.push({
+        order: 150,
+        slots: {
+          sidebar_content: (_ctx, props) => claim.render({ sessionID: props.session_id }),
+        },
+      });
+    } else if (claim.append === "session.composer.top") {
+      ensureCompactGroup().slots.session_prompt = (_ctx, props) =>
+        claim.render({ sessionID: props.session_id });
+    } else if (claim.append === "prompt.footer") {
+      ensureCompactGroup().slots.prompt_footer = (_ctx, props) =>
+        claim.render({ sessionID: props.session_id, mode: "normal", showDetails: false });
+    } else if (claim.append === "home.footer") {
+      ensureCompactGroup().slots.home_bottom = () => claim.render({});
+    }
+    return () => {};
+  });
+
+  const keymapLayer = vi.fn((resolveLayer: () => unknown) => {
+    keymapLayers.push(resolveLayer() as { commands: Array<Record<string, unknown>> });
+    return () => {};
+  });
+
   const api = {
-    route: {
-      current: {
-        name: "session",
-        params: { sessionID: "session-route" },
-      },
-    },
-    state: {
-      provider: [],
-      path: {
-        worktree: "/tmp/worktree",
-        directory: "/tmp/worktree",
-      },
+    options: {},
+    location: { directory: "/tmp/worktree" },
+    app: { version: "2.0.7", channel: "dev" },
+    theme: { text: { default: "text", subdued: "muted" } },
+    client: {
+      provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
+      app: { log: vi.fn().mockResolvedValue(undefined) },
       session: {
-        messages: vi.fn(() => []),
+        get: vi.fn(),
+        synthetic: vi.fn().mockResolvedValue(undefined),
+        prompt: vi.fn(),
+        command: vi.fn(),
       },
     },
-    theme: {
-      current: {
-        text: "text",
-        textMuted: "muted",
-      },
-    },
-    ui: {
-      Prompt: vi.fn((props: Record<string, unknown>) => ({ type: "Prompt", props })),
-      DialogPrompt: vi.fn((props: Record<string, unknown>) => ({ type: "DialogPrompt", props })),
-      dialog,
-      toast: vi.fn(),
-    },
-    event: {
+    data: {
       on: vi.fn((eventName: string, handler: (event: any) => void) => {
         const handlers = eventHandlers.get(eventName) ?? [];
         handlers.push(handler);
@@ -174,42 +245,51 @@ function createApi() {
         unsubscribers.push(unsubscribe);
         return unsubscribe;
       }),
-    },
-    kv: {
-      get: vi.fn((key: string, fallback?: unknown) =>
-        kvStore.has(key) ? kvStore.get(key) : fallback,
-      ),
-      set: vi.fn((key: string, value: unknown) => {
-        kvStore.set(key, value);
-      }),
-    },
-    slots: {
-      register: vi.fn(
-        (plugin: {
-          order?: number;
-          slots: Record<string, (ctx: unknown, props: any) => unknown>;
-        }) => {
-          registered.push(plugin);
-          return `slot-${registered.length}`;
-        },
-      ),
-    },
-    lifecycle: {
-      onDispose: vi.fn(),
-    },
-    keymap: {
-      registerLayer: vi.fn((layer: { commands: Array<Record<string, unknown>> }) => {
-        keymapLayers.push(layer);
-        return vi.fn();
-      }),
-    },
-    client: {
-      app: { log: vi.fn().mockResolvedValue(undefined) },
+      listen: vi.fn(() => vi.fn()),
       session: {
-        prompt: vi.fn(),
-        command: vi.fn(),
+        get: vi.fn(),
+        status: vi.fn(() => "idle"),
+        message: { list: vi.fn(() => []) },
+      },
+      location: { provider: { list: vi.fn(() => []) } },
+    },
+    ui: {
+      slot,
+      dialog,
+      toast,
+      router: {
+        current: vi.fn(() => api.route.current),
       },
     },
+    slots: { register: slot },
+    lifecycle: { onDispose: vi.fn() },
+    keymap: { layer: keymapLayer, registerLayer: keymapLayer },
+    storage: {
+      memory: vi.fn(() => [kvStore, kvSet]),
+      store: vi.fn(() => [kvStore, kvSet]),
+    },
+    kv: {
+      get: (key: string, fallback?: unknown) => (key in kvStore ? kvStore[key] : fallback),
+      set: kvSet,
+    },
+    route: { current: { type: "session", sessionID: "session-route" } as { type: string } },
+  };
+
+  const emit = (
+    eventName: string,
+    payload: {
+      properties?: { sessionID?: string; info?: { id?: string; sessionID?: string } };
+    } = {},
+  ) => {
+    const properties = payload.properties ?? {};
+    const sessionID = properties.info?.id ?? properties.info?.sessionID ?? properties.sessionID;
+    const data = sessionID === undefined ? {} : { sessionID };
+    // A V1 event maps to several V2 events; real traffic fires one, so the
+    // harness dispatches only the first to keep refresh counts faithful.
+    const mapped = (TUI_EVENT_MAP[eventName] ?? [eventName])[0]!;
+    for (const handler of eventHandlers.get(mapped) ?? []) {
+      handler({ type: mapped, data });
+    }
   };
 
   return {
@@ -220,6 +300,7 @@ function createApi() {
     kvStore,
     keymapLayers,
     dialog,
+    emit,
   };
 }
 
@@ -249,7 +330,10 @@ async function startTui(
   plugin: Awaited<ReturnType<typeof loadTuiModule>>,
   api: ReturnType<typeof createApi>["api"],
 ): Promise<void> {
-  await plugin.tui(api as any, undefined, {} as any);
+  const cleanup = await plugin.setup(api as never);
+  if (typeof cleanup === "function") {
+    api.lifecycle.onDispose(cleanup);
+  }
   await flushPromises();
 }
 
@@ -280,6 +364,11 @@ describe("tui plugin smoke", () => {
     loadTuiSessionQuotaSurfaces.mockResolvedValue({
       sidebar: { status: "ready", lines: ["Sidebar quota"] },
       compact: { status: "ready", text: "Session quota" },
+      promptBar: {
+        status: "ready",
+        entry: { name: "Quota", percentRemaining: 50 },
+        percentDisplayMode: "remaining",
+      },
     });
     resolveTuiSurfaceRegistration.mockReset();
     writeTuiQuotaExportIfEnabled.mockReset();
@@ -299,13 +388,17 @@ describe("tui plugin smoke", () => {
     const registration = deferred<any>();
     resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
 
     expect(resolveTuiSurfaceRegistration).toHaveBeenCalledOnce();
     expect(keymapLayers).toHaveLength(1);
     expect(registered.map((entry) => entry.order)).toEqual([150, 90]);
     expect(Object.keys(registered[0]!.slots)).toEqual(["sidebar_content"]);
-    expect(Object.keys(registered[1]!.slots)).toEqual(["session_prompt", "home_bottom"]);
+    expect(Object.keys(registered[1]!.slots)).toEqual([
+      "session_prompt",
+      "prompt_footer",
+      "home_bottom",
+    ]);
     expect(registered[0]!.slots.sidebar_content({}, { session_id: "session-1" })).toBeNull();
     expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
     expect(registered[1]!.slots.home_bottom({}, {})).toBeNull();
@@ -332,14 +425,17 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.slots.register).toHaveBeenCalledTimes(2);
+    // sidebar.content + session.composer.top + prompt.footer + home.footer
+    expect(api.slots.register).toHaveBeenCalledTimes(4);
     expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
 
     keymapLayers[0]!.commands[0]!.run?.();
     await flushPromises();
 
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-    expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    expect(api.client.session.synthetic).toHaveBeenCalledOnce();
+    registered[1]!.slots.session_prompt({}, { session_id: "session-1" });
+    await flushPromises();
     expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).not.toBeNull();
     expect(registered[1]!.slots.home_bottom({}, {})).not.toBeNull();
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
@@ -348,7 +444,7 @@ describe("tui plugin smoke", () => {
 
   it("uses independent one-shot session and home registration tickets", async () => {
     const plugin = await loadTuiModule();
-    const { api, registered, eventHandlers } = createApi();
+    const { api, registered, emit } = createApi();
     const initialRuntimeSeed = { marker: "registration" };
     resolveTuiSurfaceRegistration.mockImplementationOnce(
       (
@@ -381,25 +477,25 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(1);
-    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(1, {
-      api,
-      sessionID: "session-1",
-      initialRuntimeSeed,
-    });
-    expect(loadTuiHomeBottomStatus).toHaveBeenNthCalledWith(1, {
-      api,
-      initialRuntimeSeed,
-    });
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        sessionID: "session-1",
+        initialRuntimeSeed,
+      }),
+    );
+    expect(loadTuiHomeBottomStatus).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ initialRuntimeSeed }),
+    );
 
-    for (const handler of eventHandlers.get("message.updated") ?? []) {
-      handler({ properties: { info: { sessionID: "session-1" } } });
-    }
+    emit("message.updated", { properties: { info: { id: "session-1" } } });
     await vi.advanceTimersByTimeAsync(150);
-    expect(loadTuiHomeBottomStatus).toHaveBeenNthCalledWith(2, { api });
-    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(2, {
-      api,
-      sessionID: "session-1",
-    });
+    expect(loadTuiHomeBottomStatus).toHaveBeenNthCalledWith(2, expect.anything());
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ sessionID: "session-1" }),
+    );
   });
 
   it("consumes a session ticket when the initial load starts and does not pass it to a successor", async () => {
@@ -435,19 +531,18 @@ describe("tui plugin smoke", () => {
     const sidebar = registered[0]!.slots.sidebar_content;
     sidebar({}, { session_id: "session-1" });
     await flushPromises();
-    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(1, {
-      api,
-      sessionID: "session-1",
-      initialRuntimeSeed,
-    });
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ sessionID: "session-1", initialRuntimeSeed }),
+    );
 
     cleanupFns.pop()!();
     sidebar({}, { session_id: "session-1" });
     await flushPromises();
-    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(2, {
-      api,
-      sessionID: "session-1",
-    });
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ sessionID: "session-1" }),
+    );
   });
 
   it("does not queue repeated commands while surface registration is pending", async () => {
@@ -456,7 +551,7 @@ describe("tui plugin smoke", () => {
     const registration = deferred<any>();
     resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     for (let index = 0; index < 25; index += 1) keymapLayers[0]!.commands[0]!.run?.();
 
     registration.resolve({
@@ -488,7 +583,7 @@ describe("tui plugin smoke", () => {
     const registration = deferred<any>();
     resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     keymapLayers[0]!.commands[0]!.run?.();
     registration.resolve({
       commandDisplay: "inline",
@@ -520,7 +615,7 @@ describe("tui plugin smoke", () => {
     const registration = deferred<any>();
     resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     expect(keymapLayers).toHaveLength(1);
     expect(registered).toHaveLength(2);
     expect(registered[0]!.slots.sidebar_content({}, { session_id: "session-1" })).toBeNull();
@@ -529,7 +624,7 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.slots.register).toHaveBeenCalledTimes(2);
+    expect(api.slots.register).toHaveBeenCalledTimes(4);
     registered[0]!.slots.sidebar_content({}, { session_id: "session-1" });
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
     expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
@@ -558,7 +653,7 @@ describe("tui plugin smoke", () => {
       homeBottom: false,
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
@@ -581,7 +676,7 @@ describe("tui plugin smoke", () => {
       return `slot-${registered.length}`;
     });
 
-    await plugin.tui(api as any, undefined, {} as any);
+    await startTui(plugin, api);
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
     expect(api.slots.register).toHaveBeenCalledTimes(failedAttempt);
     expect(registered).toHaveLength(failedAttempt - 1);
@@ -606,7 +701,7 @@ describe("tui plugin smoke", () => {
     keymapLayers[0]!.commands[0]!.run?.();
     await flushPromises();
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-    expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    expect(api.client.session.synthetic).toHaveBeenCalledOnce();
   });
 
   it("keeps eager hosts neutral and pending commands inert after disposal", async () => {
@@ -615,8 +710,9 @@ describe("tui plugin smoke", () => {
     const registration = deferred<any>();
     resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
 
-    await plugin.tui(api as any, undefined, {} as any);
-    expect(api.lifecycle.onDispose).toHaveBeenCalledTimes(2);
+    await startTui(plugin, api);
+    // V2 exposes a single setup cleanup instead of V1's multiple onDispose hooks.
+    expect(api.lifecycle.onDispose).toHaveBeenCalledTimes(1);
     expect(keymapLayers).toHaveLength(1);
     expect(registered).toHaveLength(2);
 
@@ -627,14 +723,15 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.slots.register).toHaveBeenCalledTimes(2);
+    expect(api.slots.register).toHaveBeenCalledTimes(4);
     expect(registered[0]!.slots.sidebar_content({}, { session_id: "session-1" })).toBeNull();
     expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
     expect(registered[1]!.slots.home_bottom({}, {})).toBeNull();
     expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
     expect(loadTuiSessionQuotaSurfaces).not.toHaveBeenCalled();
     expect(loadTuiHomeBottomStatus).not.toHaveBeenCalled();
-    expect(createTuiQuotaClient).toHaveBeenCalledOnce();
+    // Called once by the toast runtime and once by the telemetry disposal.
+    expect(createTuiQuotaClient).toHaveBeenCalledTimes(2);
     expect(disposeQuotaTelemetryOwner).toHaveBeenCalledOnce();
   });
 
@@ -661,18 +758,23 @@ describe("tui plugin smoke", () => {
     await startTui(plugin, api);
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.lifecycle.onDispose).toHaveBeenCalledTimes(2);
+    expect(api.lifecycle.onDispose).toHaveBeenCalledTimes(1);
     const telemetryCleanup = api.lifecycle.onDispose.mock.calls[0]?.[0];
     expect(telemetryCleanup).toBeTypeOf("function");
     telemetryCleanup?.();
-    expect(createTuiQuotaClient).toHaveBeenCalledOnce();
+    expect(createTuiQuotaClient).toHaveBeenCalledTimes(2);
     expect(disposeQuotaTelemetryOwner).toHaveBeenCalledWith(
-      createTuiQuotaClient.mock.results[0]?.value,
+      createTuiQuotaClient.mock.results.at(-1)?.value,
     );
-    expect(keymapLayers[0]?.commands.map((command) => command.slashName)).toEqual(TUI_COMMAND_IDS);
+    const commandNames = keymapLayers[0]?.commands.map(
+      (command) => (command.slash as { name: string } | undefined)?.name,
+    );
+    expect(commandNames).toEqual(TUI_COMMAND_IDS);
     for (const slashName of TUI_COMMAND_IDS) {
       expect(
-        keymapLayers[0]?.commands.filter((command) => command.slashName === slashName),
+        keymapLayers[0]?.commands.filter(
+          (command) => (command.slash as { name: string } | undefined)?.name === slashName,
+        ),
       ).toHaveLength(1);
     }
     expect(dialog.replace).not.toHaveBeenCalled();
@@ -684,6 +786,9 @@ describe("tui plugin smoke", () => {
     )("routes /%s and /%s once without model execution", async (...commands) => {
       const plugin = await loadTuiModule();
       const { api, keymapLayers, dialog } = createApi();
+      // V2 prompts for argument-capable commands; a blank answer runs them with
+      // no optional arguments.
+      dialog.prompt.mockResolvedValue("");
 
       resolveTuiSurfaceRegistration.mockResolvedValueOnce({
         commandDisplay,
@@ -713,7 +818,7 @@ describe("tui plugin smoke", () => {
           dialogSize: "xlarge",
         });
         const registeredCommand = keymapLayers[0]!.commands.find(
-          (item) => item.slashName === command,
+          (item) => (item.slash as { name: string } | undefined)?.name === command,
         )!;
         (registeredCommand.run as (input?: unknown) => void)({ arguments: "" });
         await Promise.resolve();
@@ -728,15 +833,15 @@ describe("tui plugin smoke", () => {
           }),
         );
         if (commandDisplay === "inline") {
-          expect(api.client.session.prompt, command).toHaveBeenCalledOnce();
-          expect(api.client.session.prompt, command).toHaveBeenCalledWith({
+          expect(api.client.session.synthetic, command).toHaveBeenCalledOnce();
+          expect(api.client.session.synthetic, command).toHaveBeenCalledWith({
             sessionID: "session-route",
-            noReply: true,
-            parts: [{ type: "text", text: output, ignored: true }],
+            text: output,
+            description: command,
           });
           expect(dialog.replace, command).not.toHaveBeenCalled();
         } else {
-          expect(api.client.session.prompt, command).not.toHaveBeenCalled();
+          expect(api.client.session.synthetic, command).not.toHaveBeenCalled();
           expect(dialog.replace, command).toHaveBeenCalledTimes(2);
         }
         expect(api.client.session.command, command).not.toHaveBeenCalled();
@@ -747,7 +852,7 @@ describe("tui plugin smoke", () => {
   it("selects Home dialog destination before executing an inline-configured command", async () => {
     const plugin = await loadTuiModule();
     const { api, keymapLayers, dialog } = createApi();
-    (api.route.current as any) = { name: "home", params: {} };
+    api.route.current = { type: "home" };
     let dialogCallsAtExecution = 0;
     buildQuotaDialogCommandOutput.mockImplementationOnce(async () => {
       dialogCallsAtExecution = dialog.replace.mock.calls.length;
@@ -776,14 +881,16 @@ describe("tui plugin smoke", () => {
     });
 
     await startTui(plugin, api);
-    const quota = keymapLayers[0]!.commands.find((command) => command.slashName === "quota")!;
+    const quota = keymapLayers[0]!.commands.find(
+      (command) => (command.slash as { name: string } | undefined)?.name === "quota",
+    )!;
     (quota.run as (input?: unknown) => void)({ arguments: "" });
     await Promise.resolve();
     await Promise.resolve();
 
     expect(dialogCallsAtExecution).toBe(1);
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-    expect(api.client.session.prompt).not.toHaveBeenCalled();
+    expect(api.client.session.synthetic).not.toHaveBeenCalled();
     expect(dialog.replace).toHaveBeenCalledTimes(2);
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
@@ -794,6 +901,8 @@ describe("tui plugin smoke", () => {
   ] as const)("keeps command no-op behavior in %s mode", async (commandDisplay) => {
     const plugin = await loadTuiModule();
     const { api, keymapLayers, dialog } = createApi();
+    // `/pricing_refresh` is argument-capable in V2, so answer its prompt.
+    dialog.prompt.mockResolvedValue("");
     buildQuotaDialogCommandOutput.mockResolvedValueOnce({
       state: "noop",
       command: "pricing_refresh",
@@ -817,14 +926,14 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const refresh = keymapLayers[0]!.commands.find(
-      (command) => command.slashName === "pricing_refresh",
+      (command) => (command.slash as { name: string } | undefined)?.name === "pricing_refresh",
     )!;
     (refresh.run as (input?: unknown) => void)({ arguments: "" });
     await Promise.resolve();
     await Promise.resolve();
 
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
-    expect(api.client.session.prompt).not.toHaveBeenCalled();
+    expect(api.client.session.synthetic).not.toHaveBeenCalled();
     expect(api.client.session.command).not.toHaveBeenCalled();
     if (commandDisplay === "inline") {
       expect(dialog.replace).not.toHaveBeenCalled();
@@ -838,7 +947,7 @@ describe("tui plugin smoke", () => {
   it("shows the command error without falling back to quota output dialog when inline injection fails", async () => {
     const plugin = await loadTuiModule();
     const { api, keymapLayers, dialog } = createApi();
-    api.client.session.prompt.mockRejectedValueOnce(new Error("prompt unavailable"));
+    api.client.session.synthetic.mockRejectedValueOnce(new Error("prompt unavailable"));
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
@@ -857,13 +966,15 @@ describe("tui plugin smoke", () => {
     });
 
     await startTui(plugin, api);
-    const quota = keymapLayers[0]!.commands.find((command) => command.slashName === "quota")!;
+    const quota = keymapLayers[0]!.commands.find(
+      (command) => (command.slash as { name: string } | undefined)?.name === "quota",
+    )!;
     (quota.run as (input?: unknown) => void)();
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(api.client.session.prompt).toHaveBeenCalledOnce();
+    expect(api.client.session.synthetic).toHaveBeenCalledOnce();
     expect(dialog.replace).toHaveBeenCalledOnce();
     const errorDialog = dialog.replace.mock.calls[0]![0]() as any;
     expect(errorDialog.props.children).not.toContain("Quota line 1");
@@ -874,7 +985,7 @@ describe("tui plugin smoke", () => {
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
-  it("collects arguments with DialogPrompt before running an argument-capable command", async () => {
+  it("collects optional arguments with the V2 dialog prompt before running an argument-capable command", async () => {
     const plugin = await loadTuiModule();
     const { api, keymapLayers, dialog } = createApi();
 
@@ -896,24 +1007,20 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const status = keymapLayers[0]!.commands.find(
-      (command) => command.slashName === "quota_status",
+      (command) => (command.slash as { name: string } | undefined)?.name === "quota_status",
     )!;
+
+    dialog.prompt.mockResolvedValueOnce('  {"force":true}  ');
     (status.run as (input?: unknown) => void)();
 
     expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
-    const prompt = dialog.replace.mock.calls[0]![0]() as any;
-    expect(prompt).toEqual(
-      expect.objectContaining({
-        type: "DialogPrompt",
-        props: expect.objectContaining({
-          title: "OpenCode Quota Status Options",
-        }),
-      }),
+    // OpenCode 2 exposes `context.ui.dialog.prompt` instead of the V1
+    // `DialogPrompt` renderable.
+    expect(dialog.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "OpenCode Quota Status Options" }),
     );
 
-    prompt.props.onConfirm('  {"force":true}  ');
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
 
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -921,43 +1028,34 @@ describe("tui plugin smoke", () => {
         arguments: '{"force":true}',
       }),
     );
-    expect(api.client.session.prompt).toHaveBeenCalledOnce();
-    expect(api.client.session.prompt).toHaveBeenCalledWith({
+    expect(api.client.session.synthetic).toHaveBeenCalledOnce();
+    expect(api.client.session.synthetic).toHaveBeenCalledWith({
       sessionID: "session-route",
-      noReply: true,
-      parts: [
-        {
-          type: "text",
-          text: "Quota line 1\n\nQuota line 3",
-          ignored: true,
-        },
-      ],
+      text: "Quota line 1\n\nQuota line 3",
+      description: "OpenCode Quota",
     });
     expect(api.client.session.command).not.toHaveBeenCalled();
 
+    // A blank optional submit runs the command with no arguments instead of
+    // prompting again.
+    dialog.prompt.mockResolvedValueOnce("   ");
     (status.run as (input?: unknown) => void)();
-    const blankPrompt = dialog.replace.mock.calls.at(-1)![0]() as any;
-    blankPrompt.props.onConfirm("   ");
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
     expect(buildQuotaDialogCommandOutput).toHaveBeenLastCalledWith(
       expect.objectContaining({ command: "quota_status", arguments: undefined }),
     );
-    expect(api.client.session.prompt).toHaveBeenCalledTimes(2);
+    expect(api.client.session.synthetic).toHaveBeenCalledTimes(2);
 
     const announcements = keymapLayers[0]!.commands.find(
-      (command) => command.slashName === "quota_announcements",
+      (command) => (command.slash as { name: string } | undefined)?.name === "quota_announcements",
     )!;
+    dialog.prompt.mockResolvedValueOnce("   ");
     (announcements.run as (input?: unknown) => void)();
-    expect(buildQuotaDialogCommandOutput).toHaveBeenCalledTimes(2);
-    const announcementsPrompt = dialog.replace.mock.calls.at(-1)![0]() as any;
-    announcementsPrompt.props.onConfirm("   ");
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
     expect(buildQuotaDialogCommandOutput).toHaveBeenLastCalledWith(
       expect.objectContaining({ command: "quota_announcements" }),
     );
-    expect(api.client.session.prompt).toHaveBeenCalledTimes(3);
+    expect(api.client.session.synthetic).toHaveBeenCalledTimes(3);
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
@@ -982,15 +1080,14 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const between = keymapLayers[0]!.commands.find(
-      (command) => command.slashName === "tokens_between",
+      (command) => (command.slash as { name: string } | undefined)?.name === "tokens_between",
     )!;
+    dialog.prompt.mockResolvedValueOnce("2026-01-01 2026-01-15");
     (between.run as (input?: unknown) => void)();
     expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
+    expect(dialog.prompt).toHaveBeenCalledOnce();
 
-    const prompt = dialog.replace.mock.calls[0]![0]() as any;
-    prompt.props.onConfirm("2026-01-01 2026-01-15");
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
 
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledOnce();
     expect(buildQuotaDialogCommandOutput).toHaveBeenCalledWith(
@@ -999,8 +1096,9 @@ describe("tui plugin smoke", () => {
         arguments: "2026-01-01 2026-01-15",
       }),
     );
-    expect(dialog.replace).toHaveBeenCalledTimes(3);
-    expect(api.client.session.prompt).not.toHaveBeenCalled();
+    // Loading + output dialogs (the prompt is a Promise in V2).
+    expect(dialog.replace).toHaveBeenCalledTimes(2);
+    expect(api.client.session.synthetic).not.toHaveBeenCalled();
     expect(api.client.session.command).not.toHaveBeenCalled();
   });
 
@@ -1062,6 +1160,8 @@ describe("tui plugin smoke", () => {
     expect(
       compactOnly.registered[0].slots.sidebar_content({}, { session_id: "session-1" }),
     ).toBeNull();
+    compactOnly.registered[1].slots.session_prompt({}, { session_id: "session-1" });
+    await flushPromises();
     expect(
       compactOnly.registered[1].slots.session_prompt({}, { session_id: "session-1" }),
     ).not.toBeNull();
@@ -1090,12 +1190,16 @@ describe("tui plugin smoke", () => {
     expect(enabled.registered[0].order).toBe(150);
     expect(Object.keys(enabled.registered[0].slots)).toEqual(["sidebar_content"]);
     expect(enabled.registered[1].order).toBe(90);
-    expect(Object.keys(enabled.registered[1].slots)).toEqual(["session_prompt", "home_bottom"]);
+    expect(Object.keys(enabled.registered[1].slots)).toEqual([
+      "session_prompt",
+      "prompt_footer",
+      "home_bottom",
+    ]);
   });
 
   it("renders sidebar summary count from runtime state and persists detail toggles", async () => {
     const plugin = await loadTuiModule();
-    const { api, registered } = createApi();
+    const { api, registered, kvStore } = createApi();
 
     loadTuiSessionQuotaSurfaces.mockResolvedValueOnce({
       sidebar: {
@@ -1148,7 +1252,9 @@ describe("tui plugin smoke", () => {
 
     collapsedHeader.props.children[0].props.onMouseDown();
 
-    expect(api.kv.set).toHaveBeenCalledWith("quota-sidebar-collapsed", false);
+    // V2 writes through `context.storage.memory`, which the harness mirrors
+    // into the recorded store.
+    expect(kvStore["quota-sidebar-collapsed"]).toBe(false);
 
     const expanded = sidebarRegistration!.slots.sidebar_content(
       {},
@@ -1263,10 +1369,9 @@ describe("tui plugin smoke", () => {
     ).not.toBeNull();
     expect(fallback.registered[1].slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
     expect(fallback.registered[1].slots.home_bottom({}, {})).toBeNull();
-    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledWith({
-      api: fallback.api,
-      sessionID: "session-1",
-    });
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionID: "session-1" }),
+    );
   });
 
   it("does not register right-side compact slots", async () => {
@@ -1300,7 +1405,7 @@ describe("tui plugin smoke", () => {
 
   it("preserves session refresh delays, event filtering, interval refresh, and mount recovery", async () => {
     const plugin = await loadTuiModule();
-    const { api, registered, eventHandlers } = createApi();
+    const { api, registered, emit } = createApi();
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
       sidebar: { enabled: true },
@@ -1329,11 +1434,11 @@ describe("tui plugin smoke", () => {
     await vi.advanceTimersByTimeAsync(2_500);
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(4);
 
-    eventHandlers.get("session.updated")![0]!({ properties: { info: { id: "other" } } });
+    emit("session.updated", { properties: { info: { id: "other" } } });
     await vi.advanceTimersByTimeAsync(600);
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(4);
 
-    eventHandlers.get("session.updated")![0]!({ properties: { info: { id: "session-1" } } });
+    emit("session.updated", { properties: { info: { id: "session-1" } } });
     await vi.advanceTimersByTimeAsync(149);
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledTimes(4);
     await vi.advanceTimersByTimeAsync(1);
@@ -1429,8 +1534,11 @@ describe("tui plugin smoke", () => {
     cleanupFns.shift()!();
     expect(unsubscribers.every((unsubscribe) => !unsubscribe.mock.calls.length)).toBe(true);
     cleanupFns.shift()!();
-    expect(unsubscribers).toHaveLength(4);
-    expect(unsubscribers.every((unsubscribe) => unsubscribe.mock.calls.length === 1)).toBe(true);
+    // The V1 four session events expand to 13 V2 event subscriptions; the two
+    // toast-runtime subscriptions stay until plugin disposal.
+    const disposed = unsubscribers.filter((unsubscribe) => unsubscribe.mock.calls.length === 1);
+    expect(disposed).toHaveLength(13);
+    expect(unsubscribers).toHaveLength(15);
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
@@ -1438,7 +1546,7 @@ describe("tui plugin smoke", () => {
 
   it("keeps home free of mount recovery and exports only accepted refreshes", async () => {
     const plugin = await loadTuiModule();
-    const { api, registered, eventHandlers } = createApi();
+    const { api, registered, emit } = createApi();
     const first = deferred<HomeBottomState>();
     const second = deferred<HomeBottomState>();
     loadTuiHomeBottomStatus.mockReset();
@@ -1464,7 +1572,7 @@ describe("tui plugin smoke", () => {
     await vi.advanceTimersByTimeAsync(4_000);
     expect(loadTuiHomeBottomStatus).toHaveBeenCalledOnce();
 
-    eventHandlers.get("message.updated")![0]!({ properties: {} });
+    emit("message.updated", { properties: {} });
     await vi.advanceTimersByTimeAsync(600);
     expect(loadTuiHomeBottomStatus).toHaveBeenCalledOnce();
 
@@ -1716,18 +1824,16 @@ describe("tui plugin smoke", () => {
     });
     await Promise.resolve();
     expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledOnce();
-    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledWith({ api });
+    expect(writeTuiQuotaExportIfEnabled).toHaveBeenCalledWith(expect.anything());
   });
 
-  it("wraps api.ui.Prompt and forwards session prompt props and ref exactly", async () => {
+  it("renders the prompt bar directly from the V2 composer slot without a V1 Prompt wrapper", async () => {
     const plugin = await loadTuiModule();
     const { api, registered } = createApi();
-    const onSubmit = vi.fn();
-    const ref = vi.fn();
 
     resolveTuiSurfaceRegistration.mockResolvedValueOnce({
       commandDisplay: "inline",
-      sidebar: { enabled: true },
+      sidebar: { enabled: false },
       compact: {
         enabled: true,
         homeBottom: false,
@@ -1760,18 +1866,10 @@ describe("tui plugin smoke", () => {
     const compactRegistration = registered.find((registration) => registration.order === 90);
     expect(compactRegistration).toBeDefined();
 
-    const promptProps = {
-      session_id: "session-1",
-      visible: false,
-      disabled: true,
-      on_submit: onSubmit,
-      ref,
-    };
-    compactRegistration!.slots.session_prompt({}, promptProps);
+    compactRegistration!.slots.session_prompt({}, { session_id: "session-1" });
     await flushPromises();
-    const rendered = compactRegistration!.slots.session_prompt({}, promptProps) as any;
+    const hint = compactRegistration!.slots.session_prompt({}, { session_id: "session-1" }) as any;
 
-    const hint = rendered.props.children[1];
     expect(hint.type).toBe("box");
     expect(hint.props).toMatchObject({
       flexDirection: "row",
@@ -1785,14 +1883,8 @@ describe("tui plugin smoke", () => {
     expect(hint.props.children[2].props.children).toContain(" | ");
     expect(hint.props.children[2].props.children).not.toContain("·");
 
-    expect(api.ui.Prompt).toHaveBeenCalledTimes(2);
-    expect(api.ui.Prompt).toHaveBeenCalledWith({
-      sessionID: "session-1",
-      visible: false,
-      disabled: true,
-      onSubmit,
-      ref,
-    });
+    // OpenCode 2 removed the V1 `ui.Prompt` wrapper the slot used to forward.
+    expect((api.ui as Record<string, unknown>).Prompt).toBeUndefined();
   });
 
   it("renders a structured prompt-bar value without percentage bar cells", async () => {
@@ -1828,7 +1920,7 @@ describe("tui plugin smoke", () => {
     registration.slots.session_prompt({}, { session_id: "session-rich" });
     await flushPromises();
     const rendered = registration.slots.session_prompt({}, { session_id: "session-rich" }) as any;
-    const hint = rendered.props.children[1];
+    const hint = rendered;
 
     expect(hint.props.children[0].props.children).toBe("Cursor: Known API spend USD 12.50");
     expect(JSON.stringify(hint)).not.toMatch(/[█░▓▒]/u);
@@ -1876,7 +1968,7 @@ describe("tui plugin smoke", () => {
     registration.slots.session_prompt({}, { session_id: "session-reset" });
     await flushPromises();
     const rendered = registration.slots.session_prompt({}, { session_id: "session-reset" }) as any;
-    const hint = rendered.props.children[1];
+    const hint = rendered;
 
     expect(hint.props.children[1].props.children).toHaveLength(12);
     expect(hint.props.children[2].props.children).toBe("50% | 2d5h14m | r/o ≈ 1h 50m");
@@ -1924,7 +2016,7 @@ describe("tui plugin smoke", () => {
       {},
       { session_id: "session-spaced-reset" },
     ) as any;
-    const hint = rendered.props.children[1];
+    const hint = rendered;
 
     expect(hint.props.children[1].props.children).toBe(`██${"░".repeat(10)}`);
     expect(hint.props.children[2].props.children).toBe("19% | 2d 5h 14m");

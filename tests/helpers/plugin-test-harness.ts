@@ -313,6 +313,157 @@ export function seedDefaultPluginBootstrapMocks(
   seedDefaultPricingMocks(mocks);
 }
 
+/**
+ * OpenCode 2 plugin test context.
+ *
+ * The V2 entrypoint (`QuotaToastPlugin.setup(ctx)`) no longer receives a V1
+ * SDK client and no longer returns hooks. Instead it registers capabilities
+ * through `ctx.command.transform`, `ctx.tool.transform`, `ctx.provider.list`,
+ * `ctx.session.get`/`ctx.session.synthetic`, and `ctx.location.directory`.
+ *
+ * This helper builds a fake context that captures the registered commands and
+ * tools and exposes `runCommand` / `runTool` / `getSyntheticText` conveniences
+ * so tests drive the real V2 entrypoint instead of V1 hooks.
+ */
+export type PluginTestRegisteredCommand = {
+  name: string;
+  description?: string;
+  execute: (input: {
+    sessionID: string;
+    prompt: { text: string };
+    delivery?: string;
+  }) => Promise<void>;
+};
+
+export type PluginTestRegisteredTool = {
+  name: string;
+  description?: string;
+  execute: (
+    input: unknown,
+    context: {
+      sessionID: string;
+      metadata?: (value: unknown) => void;
+      progress?: (value: unknown) => void;
+    },
+  ) => Promise<unknown>;
+};
+
+export interface PluginTestContextOptions {
+  directory?: string;
+  modelID?: string;
+  providerID?: string;
+  sessionData?: Record<string, unknown>;
+  providers?: Array<{ id: string } & Record<string, unknown>>;
+}
+
+export function createPluginTestContext(options: PluginTestContextOptions = {}) {
+  const directory = options.directory ?? process.cwd();
+  const registeredCommands: PluginTestRegisteredCommand[] = [];
+  const registeredTools: PluginTestRegisteredTool[] = [];
+
+  const sessionData = {
+    ...(options.modelID === undefined && options.providerID === undefined
+      ? {}
+      : {
+          model: {
+            ...(options.modelID === undefined ? {} : { id: options.modelID }),
+            ...(options.providerID === undefined ? {} : { providerID: options.providerID }),
+          },
+        }),
+    ...(options.sessionData ?? {}),
+  };
+
+  const sessionGet = vi.fn().mockResolvedValue(sessionData);
+  const sessionSynthetic = vi.fn().mockResolvedValue({});
+
+  const context = {
+    location: { directory },
+    options: {},
+    app: { name: "@cardin/opencode-quota", version: "0.0.0", channel: "test" },
+    provider: {
+      list: vi.fn().mockResolvedValue({ location: { directory }, data: options.providers ?? [] }),
+      get: vi.fn().mockResolvedValue({ data: undefined }),
+      transform: vi.fn(async () => ({ dispose: async () => {} })),
+      reload: vi.fn().mockResolvedValue(undefined),
+    },
+    session: {
+      get: sessionGet,
+      synthetic: sessionSynthetic,
+    },
+    command: {
+      transform: vi.fn(
+        async (
+          callback: (editor: { add: (definition: PluginTestRegisteredCommand) => void }) => void,
+        ) => {
+          callback({
+            add: (definition) => {
+              registeredCommands.push(definition);
+            },
+          });
+          return { dispose: async () => {} };
+        },
+      ),
+      reload: vi.fn().mockResolvedValue(undefined),
+    },
+    tool: {
+      transform: vi.fn(async (callback: (editor: unknown) => void) => {
+        callback({
+          list: () => registeredTools,
+          get: (name: string) => registeredTools.find((tool) => tool.name === name),
+          add: (definition: PluginTestRegisteredTool) => {
+            registeredTools.push(definition);
+          },
+          update: vi.fn(),
+          remove: vi.fn(),
+          namespace: vi.fn(),
+        });
+        return { dispose: async () => {} };
+      }),
+      hook: vi.fn(async () => ({ dispose: async () => {} })),
+      reload: vi.fn().mockResolvedValue(undefined),
+    },
+    storage: {
+      get: vi.fn().mockResolvedValue(undefined),
+      set: vi.fn().mockResolvedValue(undefined),
+      delete: vi.fn().mockResolvedValue(undefined),
+      list: vi.fn().mockResolvedValue([]),
+      scan: vi.fn().mockResolvedValue({ entries: [] }),
+    },
+    agent: {
+      transform: vi.fn(async () => ({ dispose: async () => {} })),
+      reload: vi.fn().mockResolvedValue(undefined),
+    },
+    event: {
+      subscribe: vi.fn(),
+    },
+    registeredCommands,
+    registeredTools,
+    runCommand: async (name: string, args = "", sessionID = "session-test") => {
+      const command = registeredCommands.find((candidate) => candidate.name === name);
+      if (!command) throw new Error(`Command not registered: ${name}`);
+      await command.execute({ sessionID, prompt: { text: args }, delivery: "steer" });
+      return command;
+    },
+    runTool: async (name: string, input: unknown = {}, sessionID = "session-test") => {
+      const tool = registeredTools.find((candidate) => candidate.name === name);
+      if (!tool) throw new Error(`Tool not registered: ${name}`);
+      return tool.execute(input, { sessionID, metadata: vi.fn(), progress: vi.fn() });
+    },
+    getSyntheticText: (index = 0): string =>
+      (sessionSynthetic.mock.calls[index]?.[0] as { text?: string } | undefined)?.text ?? "",
+    getSyntheticCall: (index = 0) =>
+      sessionSynthetic.mock.calls[index]?.[0] as { sessionID?: string; text?: string } | undefined,
+  };
+
+  return context;
+}
+
+/**
+ * V1-shaped client retained for `src/lib` mocks and direct engine calls.
+ *
+ * The V2 server plugin no longer consumes this client; prefer
+ * `createPluginTestContext` for entrypoint tests.
+ */
 export function createPluginTestClient({
   modelID,
   providerID,
@@ -358,4 +509,20 @@ export function getPromptText(client: PromptClient, callIndex = 0): string {
 
 export function getToastMessage(client: ToastClient, callIndex = 0): string {
   return client.tui.showToast.mock.calls[callIndex]?.[0]?.body?.message ?? "";
+}
+
+type SyntheticContext = {
+  session: {
+    synthetic: MockFunction;
+  };
+};
+
+/**
+ * Read the text the V2 server plugin injected through `ctx.session.synthetic`.
+ */
+export function getSyntheticText(context: SyntheticContext, callIndex = 0): string {
+  return (
+    (context.session.synthetic.mock.calls[callIndex]?.[0] as { text?: string } | undefined)?.text ??
+    ""
+  );
 }

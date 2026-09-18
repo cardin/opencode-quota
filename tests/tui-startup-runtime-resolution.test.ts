@@ -287,6 +287,32 @@ function writeGenerationConfig(worktreeDir: string, generation: number): void {
   );
 }
 
+// V1 TUI event names -> V2 server event names, mirroring `tui-host.ts`. Tests
+// still emit the V1 logical names; the adapter maps them back to the V2
+// events `createTuiHost` subscribed to.
+const TUI_EVENT_MAP: Record<string, readonly string[]> = {
+  "session.updated": [
+    "session.status",
+    "session.created",
+    "session.renamed",
+    "session.model.selected",
+    "session.agent.selected",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.execution.failed",
+    "session.compacted",
+  ],
+  "message.updated": ["session.message.content.updated", "session.usage.updated"],
+  "message.removed": ["session.message.content.updated"],
+  "session.status": [
+    "session.status",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.execution.failed",
+  ],
+  "tui.session.select": ["tui.session.select"],
+};
+
 function createApi(worktreeDir: string) {
   const registered: Array<{
     order?: number;
@@ -294,50 +320,87 @@ function createApi(worktreeDir: string) {
   }> = [];
   const lifecycleCallbacks: Array<() => void> = [];
   const eventHandlers = new Map<string, Array<(event: unknown) => void>>();
+
+  const ensureCompactGroup = () => {
+    const existing = registered.find((entry) => entry.order === 90);
+    if (existing) return existing;
+    const group: (typeof registered)[number] = { order: 90, slots: {} };
+    registered.push(group);
+    return group;
+  };
+
+  // OpenCode 2 CLI plugin context. Slot claims are grouped into the legacy
+  // 150 (sidebar) / 90 (compact + home) shape the measurement harness reads.
   const api = {
-    route: { current: { name: "session", params: { sessionID: "session-1" } } },
-    state: {
-      provider: [],
-      path: { worktree: worktreeDir, directory: worktreeDir },
-      session: { messages: () => [] },
+    options: {},
+    location: { directory: worktreeDir },
+    app: { version: "2.0.7", channel: "dev" },
+    theme: { text: { default: "text", subdued: "muted" } },
+    client: {
+      provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
+      session: { get: vi.fn(), synthetic: vi.fn() },
     },
-    theme: { current: { text: "text", textMuted: "muted" } },
-    ui: {
-      Prompt: (props: Record<string, unknown>) => ({ type: "Prompt", props }),
-      DialogPrompt: (props: Record<string, unknown>) => ({ type: "DialogPrompt", props }),
-      dialog: { setSize: vi.fn(), replace: vi.fn(), clear: vi.fn() },
-      toast: vi.fn(),
-    },
-    kv: { get: vi.fn((_key: string, fallback: unknown) => fallback), set: vi.fn() },
-    event: {
+    data: {
       on: vi.fn((eventName: string, handler: (event: unknown) => void) => {
         const handlers = eventHandlers.get(eventName) ?? [];
         handlers.push(handler);
         eventHandlers.set(eventName, handlers);
         return vi.fn();
       }),
+      listen: vi.fn(() => vi.fn()),
+      session: {
+        get: vi.fn(),
+        status: vi.fn(() => "idle"),
+        message: { list: vi.fn(() => []) },
+      },
+      location: { provider: { list: vi.fn(() => []) } },
     },
-    slots: {
-      register: vi.fn(
-        (registration: {
-          order?: number;
-          slots: Record<string, (ctx: unknown, props: Record<string, unknown>) => unknown>;
-        }) => {
-          registered.push(registration);
-          return `slot-${registered.length}`;
-        },
-      ),
-    },
-    lifecycle: {
-      onDispose: vi.fn((callback: () => void) => {
-        lifecycleCallbacks.push(callback);
+    ui: {
+      slot: vi.fn((claim: { append: string; render: (input: unknown) => unknown }) => {
+        if (claim.append === "sidebar.content") {
+          registered.push({
+            order: 150,
+            slots: {
+              sidebar_content: (_ctx, props) => claim.render({ sessionID: props.session_id }),
+            },
+          });
+        } else if (claim.append === "session.composer.top") {
+          ensureCompactGroup().slots.composer_top = (_ctx, props) =>
+            claim.render({ sessionID: props.session_id });
+        } else if (claim.append === "prompt.footer") {
+          // The V1 `session_prompt` slot carried the compact status line when
+          // the prompt bar was disabled; V2 splits that into `prompt.footer`.
+          ensureCompactGroup().slots.session_prompt = (_ctx, props) =>
+            claim.render({ sessionID: props.session_id, mode: "normal", showDetails: false });
+        } else if (claim.append === "home.footer") {
+          ensureCompactGroup().slots.home_bottom = () => claim.render({});
+        }
+        return () => {};
       }),
+      toast: { show: vi.fn() },
+      dialog: {
+        show: vi.fn(),
+        set: vi.fn(),
+        clear: vi.fn(),
+        prompt: vi.fn(),
+        alert: vi.fn(),
+        confirm: vi.fn(),
+        select: vi.fn(),
+      },
+      router: { current: vi.fn(() => ({ type: "session", sessionID: "session-1" })) },
     },
-    keymap: { registerLayer: vi.fn(() => vi.fn()) },
-    client: {
-      app: { log: vi.fn().mockResolvedValue(undefined) },
-      config: { get: vi.fn().mockResolvedValue({ data: {} }) },
-      session: { prompt: vi.fn(), command: vi.fn() },
+    keymap: { layer: vi.fn((resolveLayer: () => unknown) => resolveLayer()) },
+    storage: {
+      // The harness needs a readable/writable memory store so sidebar collapse
+      // state can round-trip.
+      memory: vi.fn((_key: string, options?: { initial?: Record<string, unknown> }) => {
+        const store = { ...(options?.initial ?? {}) };
+        return [
+          store,
+          vi.fn((mutation: (draft: Record<string, unknown>) => void) => mutation(store)),
+        ];
+      }),
+      store: vi.fn(() => [{}, vi.fn()]),
     },
   };
   return { api, registered, lifecycleCallbacks, eventHandlers };
@@ -412,7 +475,8 @@ async function startScenario(controlledDelayMs: number): Promise<StartedScenario
   const configPath = join(worktreeDir, "opencode.json");
   const { api, registered, lifecycleCallbacks, eventHandlers } = createApi(worktreeDir);
 
-  await plugin.tui(api as never, undefined, {} as never);
+  const cleanup = await plugin.setup(api as never);
+  if (typeof cleanup === "function") lifecycleCallbacks.push(cleanup);
   const sidebarRegistration = registered.find((entry) => entry.order === 150);
   const compactRegistration = registered.find((entry) => entry.order === 90);
   if (!sidebarRegistration || !compactRegistration) {
@@ -493,7 +557,16 @@ async function startScenario(controlledDelayMs: number): Promise<StartedScenario
       await flushAsyncWork(configPath);
     },
     emit: (eventName: string, event: unknown) => {
-      for (const handler of eventHandlers.get(eventName) ?? []) handler(event);
+      const properties = ((
+        event as { properties?: { sessionID?: string; info?: { id?: string } } } | undefined
+      )?.properties ?? {}) as { sessionID?: string; info?: { id?: string } };
+      const sessionID = properties.info?.id ?? properties.sessionID;
+      const data = sessionID === undefined ? {} : { sessionID };
+      for (const mapped of TUI_EVENT_MAP[eventName] ?? [eventName]) {
+        for (const handler of eventHandlers.get(mapped) ?? []) {
+          handler({ type: mapped, data });
+        }
+      }
     },
     cleanup: () => {
       for (const cleanup of instrumentation.cleanupFns.splice(0).reverse()) cleanup();

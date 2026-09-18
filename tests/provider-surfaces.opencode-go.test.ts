@@ -1,16 +1,14 @@
 import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCommandHandledError } from "../src/lib/command-handled.js";
 import {
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
   createPluginTestClient,
-  createPluginToolMockModule,
+  createPluginTestContext,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  getPromptText,
-  getToastMessage,
+  getSyntheticText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -36,7 +34,6 @@ const mocks = vi.hoisted(() => ({
   queryOpenCodeGoQuota: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 vi.mock("../src/lib/config.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/config.js")>()),
   ...createConfigModuleMock(mocks.loadConfig),
@@ -59,15 +56,6 @@ vi.mock("../src/lib/opencode-go-auth.js", () => ({
 vi.mock("../src/lib/opencode-go.js", () => ({
   queryOpenCodeGoQuota: mocks.queryOpenCodeGoQuota,
 }));
-
-type PluginHooks = {
-  dispose?: () => Promise<void> | void;
-  event?: (input: unknown) => Promise<void> | void;
-  "command.execute.before"?: (input: {
-    command: string;
-    sessionID: string;
-  }) => Promise<void> | void;
-};
 
 function createConfig() {
   return makeQuotaToastTestConfig({
@@ -124,16 +112,6 @@ function successfulResult() {
   };
 }
 
-async function expectHandled(value: unknown): Promise<void> {
-  try {
-    await Promise.resolve(value);
-  } catch (error) {
-    expect(isCommandHandledError(error)).toBe(true);
-    return;
-  }
-  throw new Error("Expected the handled command sentinel");
-}
-
 function expectCanonicalPercentOrder(output: string): void {
   expect(output).toContain("OpenCode Go");
   const positions = [
@@ -146,6 +124,74 @@ function expectCanonicalPercentOrder(output: string): void {
     output,
   ).toBe(true);
   expect(positions, output).toEqual([...positions].sort((left, right) => left - right));
+}
+
+async function collectSurfaceOutputs(sessionID: string) {
+  const client = createPluginTestClient({
+    modelID: "opencode-go/model",
+    providerID: "opencode-go",
+  });
+  client.config.providers.mockResolvedValue({
+    data: { providers: [{ id: "opencode-go" }] },
+  });
+
+  const { QuotaToastPlugin } = await import("../src/plugin.js");
+  const context = createPluginTestContext({
+    directory: process.cwd(),
+    modelID: "opencode-go/model",
+    providerID: "opencode-go",
+    providers: [{ id: "opencode-go" }],
+  });
+  const dispose = await QuotaToastPlugin.setup(context as never);
+
+  await context.runCommand("quota", "", sessionID);
+  const command = getSyntheticText(context);
+
+  // V2 removed server-side toast emission; exercise the shared runtime with a
+  // fake showToast, which is what the CLI bridge drives.
+  const { createQuotaToastRuntime } = await import("../src/lib/quota-toast-runtime.js");
+  const showToast = vi.fn().mockResolvedValue({});
+  const runtime = createQuotaToastRuntime({
+    client: client as never,
+    roots: () => ({
+      workspaceRoot: process.cwd(),
+      configRoot: process.cwd(),
+      fallbackDirectory: process.cwd(),
+    }),
+    resolveSessionMeta: async (id) => {
+      const response = await client.session.get({ path: { id } });
+      return {
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
+      };
+    },
+    isSubagentSession: async (id) => {
+      const response = await client.session.get({ path: { id } });
+      return Boolean(response.data?.parentID);
+    },
+    reconcileDetectedProviders: vi.fn().mockResolvedValue(undefined),
+    setSessionTokenError: vi.fn(),
+    showToast: showToast as never,
+    log: vi.fn().mockResolvedValue(undefined),
+    onInitialized: vi.fn(),
+  });
+  await runtime.handleTrigger({ sessionID, trigger: "session.idle" });
+  const toast = (showToast.mock.calls[0]?.[0] as { message?: string } | undefined)?.message ?? "";
+
+  const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
+  const surfaces = await loadTuiSessionQuotaSurfaces({
+    api: {
+      state: {
+        provider: [{ id: "opencode-go" }],
+        path: { worktree: process.cwd(), directory: process.cwd() },
+        session: { messages: () => [] },
+      },
+      client,
+    } as never,
+    sessionID,
+  });
+
+  return { client, context, command, toast, showToast, surfaces, dispose };
 }
 
 describe("OpenCode Go shared projections", () => {
@@ -190,45 +236,8 @@ describe("OpenCode Go shared projections", () => {
   });
 
   it("keeps canonical all-window values and the five-hour prompt entry on every surface", async () => {
-    const client = createPluginTestClient({
-      modelID: "opencode-go/model",
-      providerID: "opencode-go",
-    });
-    client.config.providers.mockResolvedValue({
-      data: { providers: [{ id: "opencode-go" }] },
-    });
-
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "opencode-go-session",
-      }),
-    );
-    const command = getPromptText(client);
-
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "opencode-go-session" },
-      },
-    });
-    const toast = getToastMessage(client);
-
-    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
-    const surfaces = await loadTuiSessionQuotaSurfaces({
-      api: {
-        state: {
-          provider: [{ id: "opencode-go" }],
-          path: { worktree: process.cwd(), directory: process.cwd() },
-          session: { messages: () => [] },
-        },
-        client,
-      } as never,
-      sessionID: "opencode-go-session",
-    });
+    const { command, toast, surfaces, dispose } =
+      await collectSurfaceOutputs("opencode-go-session");
     const sidebar = [...surfaces.sidebar.lines, ...(surfaces.sidebar.linesExpanded ?? [])].join(
       "\n",
     );
@@ -250,7 +259,7 @@ describe("OpenCode Go shared projections", () => {
     });
     expect(JSON.stringify(surfaces)).not.toContain(TEST_TOKEN);
 
-    await hooks.dispose?.();
+    await dispose?.();
   });
 
   it("hides a not-subscribed result on every display and keeps it visible in safe diagnostics", async () => {
@@ -260,55 +269,21 @@ describe("OpenCode Go shared projections", () => {
       notSubscribed: true,
       retryable: false,
     });
-    const client = createPluginTestClient({
-      modelID: "opencode-go/model",
-      providerID: "opencode-go",
-    });
-    client.config.providers.mockResolvedValue({
-      data: { providers: [{ id: "opencode-go" }] },
-    });
+    const sessionID = "opencode-go-no-subscription";
+    const { client, context, command, toast, showToast, surfaces, dispose } =
+      await collectSurfaceOutputs(sessionID);
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const hooks = (await QuotaToastPlugin({ client } as never)) as PluginHooks;
-
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota",
-        sessionID: "opencode-go-no-subscription",
-      }),
-    );
-    const command = getPromptText(client);
-
-    await hooks.event?.({
-      event: {
-        type: "session.idle",
-        properties: { sessionID: "opencode-go-no-subscription" },
-      },
-    });
-
-    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
-    const surfaces = await loadTuiSessionQuotaSurfaces({
-      api: {
-        state: {
-          provider: [{ id: "opencode-go" }],
-          path: { worktree: process.cwd(), directory: process.cwd() },
-          session: { messages: () => [] },
-        },
-        client,
-      } as never,
-      sessionID: "opencode-go-no-subscription",
-    });
     const sidebar = [...surfaces.sidebar.lines, ...(surfaces.sidebar.linesExpanded ?? [])].join(
       "\n",
     );
     const compact = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
 
-    for (const output of [command, getToastMessage(client), sidebar, compact]) {
+    for (const output of [command, toast, sidebar, compact]) {
       expect(output).not.toContain("EntitlementError");
       expect(output).not.toContain("not subscribed");
       expect(output).not.toContain(TEST_TOKEN);
     }
-    expect(client.tui.showToast).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
 
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");
     const { createRuntimeProviderIdResolver } = await import("../src/lib/runtime-provider-ids.js");
@@ -324,19 +299,16 @@ describe("OpenCode Go shared projections", () => {
     });
     expect(exportData.providers["opencode-go"]).toEqual({ status: "unavailable" });
 
-    await expectHandled(
-      hooks["command.execute.before"]?.({
-        command: "quota_status",
-        sessionID: "opencode-go-no-subscription",
-      }),
-    );
-    const status = getPromptText(client, 1);
+    // V2 exposes diagnostics as the quota_status tool rather than a slash
+    // command intercepted in command.execute.before.
+    await context.runTool("quota_status", {}, sessionID);
+    const status = getSyntheticText(context, 1);
     expect(status).toContain("opencode_go_state");
     expect(status).toContain("not_subscribed");
     expect(status).not.toContain(TEST_TOKEN);
     expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(1);
 
-    await hooks.dispose?.();
+    await dispose?.();
   });
 
   it("selects the most constrained window and preserves accounting through projection", async () => {

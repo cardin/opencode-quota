@@ -24,11 +24,13 @@ const configuration = await readFile(
 describe("v4 migration documentation contract", () => {
   it("keeps requirements and navigation aligned", () => {
     expect(packageJson.engines?.node).toBe(">=22.0.0");
-    expect(packageJson.peerDependencies?.["@opencode-ai/plugin"]).toBe("^1.4.3");
+    // The V2 port targets `@opencode/plugin` 2.x instead of the removed V1
+    // `@opencode-ai/plugin` package.
+    expect(packageJson.peerDependencies?.["@opencode/plugin"]).toBe("^2.0.7");
     expect(packageJson.engines).not.toHaveProperty("opencode");
 
     expect(migration).toContain("[← Back to README](../../README.md)");
-    expect(migration).toContain("OpenCode 1.4.3 or newer");
+    expect(migration).toContain("OpenCode 2.0.7 or newer");
     expect(migration).toContain("Node.js 22 or newer");
     expect(readme).toContain("[v4 migration guide](docs/readme/v4-migration.md)");
   });
@@ -37,7 +39,7 @@ describe("v4 migration documentation contract", () => {
     expect(migration).toContain(
       "v4 replaces the old `customSources` setting with `quotaProviders`",
     );
-    expect(migration).toContain("npx @slkiser/opencode-quota@latest provider add");
+    expect(migration).toContain("npx @cardin/opencode-quota@latest provider add");
     expect(migration).toContain("[Provider setup guide](providers.md#custom-providers)");
     expect(migration).not.toContain("custom-accounting-sources");
 
@@ -50,7 +52,7 @@ describe("v4 migration documentation contract", () => {
   });
 
   it("gives concrete preview, verification, and rollback steps", () => {
-    expect(migration).toContain("npx @slkiser/opencode-quota@latest update --dry-run");
+    expect(migration).toContain("npx @cardin/opencode-quota@latest update --dry-run");
     expect(migration).toContain("## Check the update");
     expect(migration).toContain("## Roll back to v3");
     expect(migration).toContain("Restart OpenCode, then run `/quota` and `/quota_status`.");
