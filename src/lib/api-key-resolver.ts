@@ -6,12 +6,15 @@
  */
 
 import { existsSync } from "fs";
+
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { resolveEnvTemplate } from "./env-template.js";
+import * as openCodeAuth from "./opencode-auth.js";
 import {
   buildOpenCodeConfigCandidates,
   readOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
+import { OPENCODE_CREDENTIAL_SOURCE } from "./opencode-credential-store.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 
 /** A candidate config file path with its format */
@@ -191,6 +194,11 @@ export interface StrictApiKeyAuthConfig<Source extends string> {
   getAuthPaths?: () => string[];
   authKeys?: readonly string[];
   authSource: Source;
+  /**
+   * Integration ids to read from the OpenCode v2 credential store
+   * (`opencode.db` -> `credential`). Defaults to `authKeys` + provider keys.
+   */
+  credentialIntegrationIds?: readonly string[];
 }
 
 export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
@@ -202,6 +210,11 @@ export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
   displayName: string;
   defaultMaxAgeMs: number;
   unsupportedTypeError?: string;
+  /**
+   * Integration ids to read from the OpenCode v2 credential store
+   * (`opencode.db` -> `credential`). Defaults to `authKeys` + provider keys.
+   */
+  credentialIntegrationIds?: readonly string[];
 }
 
 /** Configuration for simple nullable API key resolution. */
@@ -294,6 +307,59 @@ function buildProviderEnvAndConfig<Source extends string>(
   };
 }
 
+type OpenCodeCredentialReader = (params?: {
+  maxAgeMs?: number;
+}) => Promise<Record<string, unknown> | null>;
+
+/**
+ * Read the v2 credential store through the OpenCode auth module.
+ *
+ * Providers (and tests) mock `opencode-auth.js`, so a mocked module without
+ * `readOpenCodeCredentialsCached` transparently disables the v2 source and
+ * preserves legacy resolution.
+ */
+function getOpenCodeCredentialReader(): OpenCodeCredentialReader | null {
+  let candidate: unknown;
+  try {
+    candidate = (openCodeAuth as { readOpenCodeCredentialsCached?: unknown })
+      .readOpenCodeCredentialsCached;
+  } catch {
+    // Mocked/partial modules may reject unknown exports; treat as unavailable.
+    return null;
+  }
+  return typeof candidate === "function" ? (candidate as OpenCodeCredentialReader) : null;
+}
+
+/**
+ * Resolve an API key from OpenCode 2's credential store (`opencode.db`).
+ *
+ * Only `key` credentials are returned; OAuth credential sets are ignored so
+ * callers keep their existing OAuth handling. Returns null when the v2 store
+ * is unavailable or has no matching key, so callers fall back to auth.json.
+ */
+async function resolveOpenCodeCredentialKey(params: {
+  integrationIds: readonly string[];
+  authKeys: readonly string[];
+  maxAgeMs?: number;
+}): Promise<string | null> {
+  const reader = getOpenCodeCredentialReader();
+  if (!reader) return null;
+
+  const credentials = await reader({ maxAgeMs: params.maxAgeMs }).catch(() => null);
+  if (!credentials) return null;
+
+  const candidates = params.integrationIds.length > 0 ? params.integrationIds : params.authKeys;
+  for (const integrationId of candidates) {
+    const entry = credentials[integrationId];
+    const record = asRecord(entry);
+    if (record?.type !== "api") continue;
+    const apiKey = typeof record.key === "string" ? record.key.trim() : "";
+    if (apiKey) return apiKey;
+  }
+
+  return null;
+}
+
 function parseInvalidAwareAuth(
   auth: unknown,
   config: InvalidAwareApiKeyAuthConfig<string>,
@@ -344,6 +410,21 @@ function createInvalidAwareProviderApiKeyResolver<Source extends string, AuthSou
     }
 
     const maxAgeMs = Math.max(0, params?.maxAgeMs ?? config.auth.defaultMaxAgeMs);
+    const credentialKey = await resolveOpenCodeCredentialKey({
+      integrationIds: config.auth.credentialIntegrationIds ?? [
+        ...config.auth.authKeys,
+        ...config.providerKeys,
+      ],
+      authKeys: config.auth.authKeys,
+      maxAgeMs,
+    });
+    if (credentialKey) {
+      return {
+        auth: { state: "configured", apiKey: credentialKey } as InvalidAwareAuthResult,
+        source: OPENCODE_CREDENTIAL_SOURCE as Source | AuthSource | null,
+      };
+    }
+
     const auth = parseAuth(await config.auth.readAuth(maxAgeMs));
     return {
       auth,
@@ -505,15 +586,21 @@ export async function resolveProviderApiKey<Source extends string>(
     return resolveApiKeyFromEnvAndConfig(envAndConfig);
   }
 
-  return resolveApiKey(
-    {
-      ...envAndConfig,
-      extractFromAuth: (auth) =>
-        extractAuthApiKeyEntry(auth, config.auth?.authKeys ?? config.providerKeys),
-      authSource: config.auth.authSource,
-    },
-    config.auth.readAuth,
-  );
+  const envOrConfig = await resolveApiKeyFromEnvAndConfig(envAndConfig);
+  if (envOrConfig) return envOrConfig;
+
+  const authKeys = config.auth.authKeys ?? config.providerKeys;
+  const credentialKey = await resolveOpenCodeCredentialKey({
+    integrationIds: config.auth.credentialIntegrationIds ?? [...authKeys, ...config.providerKeys],
+    authKeys,
+  });
+  if (credentialKey) {
+    return { key: credentialKey, source: OPENCODE_CREDENTIAL_SOURCE as Source };
+  }
+
+  const auth = await config.auth.readAuth();
+  const key = extractAuthApiKeyEntry(auth, authKeys);
+  return key ? { key, source: config.auth.authSource } : null;
 }
 
 /** Configuration for API key diagnostics */

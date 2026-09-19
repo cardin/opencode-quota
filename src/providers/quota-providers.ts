@@ -6,6 +6,7 @@ import type {
   QuotaProviderResult,
 } from "../lib/entries.js";
 import { mapWithConcurrency } from "../lib/map-with-concurrency.js";
+import type { OpenCodeCredentialSource } from "../lib/opencode-credential-store.js";
 import type {
   QuotaProviderDefinition,
   RemoteApiQuotaProviderDefinition,
@@ -77,7 +78,13 @@ function buildDiagnosticIdentity(
 }
 
 function mapCredentialSource(
-  source: "env" | "opencode.json" | "opencode.jsonc" | "auth.json" | null,
+  source:
+    | "env"
+    | "opencode.json"
+    | "opencode.jsonc"
+    | "auth.json"
+    | OpenCodeCredentialSource
+    | null,
 ): QuotaProviderDiagnostic["credentialSource"] {
   switch (source) {
     case "env":
@@ -88,6 +95,8 @@ function mapCredentialSource(
       return "global_opencode_jsonc";
     case "auth.json":
       return "auth_json";
+    case "opencode.credentials":
+      return "opencode_credentials";
     default:
       return null;
   }

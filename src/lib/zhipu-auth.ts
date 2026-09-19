@@ -4,6 +4,7 @@ import {
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
 import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
+import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
 import type { AuthData } from "./types.js";
 
 export const DEFAULT_ZHIPU_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -21,14 +22,16 @@ export type ZhipuKeySource =
   | "env:ZHIPU_CODING_PLAN_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "auth.json"
+  | OpenCodeCredentialSource;
 
+export type ZhipuAuthSource = "auth.json" | OpenCodeCredentialSource;
 export type ResolvedZhipuAuth = InvalidAwareAuthResult;
-export type ZhipuAuthDiagnostics = InvalidAwareAuthDiagnostics<ZhipuKeySource, "auth.json">;
+export type ZhipuAuthDiagnostics = InvalidAwareAuthDiagnostics<ZhipuKeySource, ZhipuAuthSource>;
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
-const zhipuAuthResolver = createProviderApiKeyResolver<ZhipuKeySource, "auth.json">({
+const zhipuAuthResolver = createProviderApiKeyResolver<ZhipuKeySource, ZhipuAuthSource>({
   envVars: [
     { name: "ZHIPU_API_KEY", source: "env:ZHIPU_API_KEY" },
     { name: "ZHIPU_CODING_PLAN_API_KEY", source: "env:ZHIPU_CODING_PLAN_API_KEY" },

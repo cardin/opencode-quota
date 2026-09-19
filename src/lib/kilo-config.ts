@@ -3,13 +3,19 @@ import {
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
 import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
+import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
 
 export interface KiloApiKeyResult {
   key: string;
   source: KiloKeySource;
 }
 
-export type KiloKeySource = "env:KILO_API_KEY" | "opencode.json" | "opencode.jsonc" | "auth.json";
+export type KiloKeySource =
+  | "env:KILO_API_KEY"
+  | "opencode.json"
+  | "opencode.jsonc"
+  | "auth.json"
+  | OpenCodeCredentialSource;
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 

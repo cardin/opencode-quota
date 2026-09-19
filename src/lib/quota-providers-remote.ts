@@ -6,6 +6,7 @@ import {
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import type { AccountingResultType, QuotaToastEntry } from "./entries.js";
 import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
+import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
 import type {
   JsonV1Mapping,
   JsonV1NumberSource,
@@ -40,7 +41,12 @@ const RESULT_TYPES = new Set<AccountingResultType>([
 ]);
 const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-export type QuotaProviderAuthSource = "env" | "opencode.json" | "opencode.jsonc" | "auth.json";
+export type QuotaProviderAuthSource =
+  | "env"
+  | "opencode.json"
+  | "opencode.jsonc"
+  | "auth.json"
+  | OpenCodeCredentialSource;
 
 export interface QuotaProviderAuthResolution {
   key?: string;

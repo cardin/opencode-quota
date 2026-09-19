@@ -311,6 +311,7 @@ export interface QuotaProviderDiagnostic {
     | "global_opencode_json"
     | "global_opencode_jsonc"
     | "auth_json"
+    | "opencode_credentials"
     | null;
   outcome:
     | "missing_credential"

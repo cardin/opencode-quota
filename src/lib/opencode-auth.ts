@@ -16,6 +16,18 @@ import {
 
 import type { AuthData } from "./types.js";
 
+export {
+  clearOpenCodeCredentialCacheForTests,
+  getExistingOpenCodeCredentialPaths,
+  normalizeStoredCredential,
+  OPENCODE_CREDENTIAL_SOURCE,
+  type OpenCodeCredentialEntry,
+  type OpenCodeCredentialSource,
+  type OpenCodeCredentials,
+  readOpenCodeCredentials,
+  readOpenCodeCredentialsCached,
+} from "./opencode-credential-store.js";
+
 const DEFAULT_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
 type AuthCacheEntry = {

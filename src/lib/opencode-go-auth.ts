@@ -4,6 +4,7 @@ import {
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
 import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
+import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
 
 export const DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS = 5_000;
 // `opencode-go` is the provider id the OpenCode CLI writes via
@@ -17,17 +18,22 @@ export type OpenCodeGoKeySource =
   | "env:OPENCODE_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json";
+  | "auth.json"
+  | OpenCodeCredentialSource;
 
+export type OpenCodeGoAuthSource = "auth.json" | OpenCodeCredentialSource;
 export type ResolvedOpenCodeGoAuth = InvalidAwareAuthResult;
 export type OpenCodeGoAuthDiagnostics = InvalidAwareAuthDiagnostics<
   OpenCodeGoKeySource,
-  "auth.json"
+  OpenCodeGoAuthSource
 >;
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
-const openCodeGoAuthResolver = createProviderApiKeyResolver<OpenCodeGoKeySource, "auth.json">({
+const openCodeGoAuthResolver = createProviderApiKeyResolver<
+  OpenCodeGoKeySource,
+  OpenCodeGoAuthSource
+>({
   envVars: [{ name: "OPENCODE_API_KEY", source: "env:OPENCODE_API_KEY" }],
   providerKeys: OPENCODE_GO_PROVIDER_KEYS,
   allowedEnvVars: ALLOWED_OPENCODE_GO_ENV_VARS,

@@ -354,6 +354,7 @@ function isQuotaProviderDiagnostic(value: unknown): boolean {
         "global_opencode_json",
         "global_opencode_jsonc",
         "auth_json",
+        "opencode_credentials",
       ])) &&
     isOneOf(value.outcome, [
       "missing_credential",

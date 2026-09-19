@@ -334,6 +334,8 @@ function getQuotaProviderCredentialCategory(
       return "trusted_global_config";
     case "auth_json":
       return "auth_json";
+    case "opencode_credentials":
+      return "opencode_credentials";
     default:
       return "none";
   }
