@@ -50,6 +50,7 @@ export type TuiHost = {
         sessionID: string;
         text: string;
         description?: string;
+        resume?: boolean;
       }) => Promise<unknown>;
     };
   };
@@ -115,6 +116,21 @@ export function createTuiHost(context: Context): TuiHost {
   const [kvStore, updateKv] = context.storage.memory<Record<string, unknown>>("quota-ui", {
     initial: {},
   });
+  // OpenCode 2.0.9 renamed the resolved theme leaves from
+  // default/subdued to base/muted. Keep the adapter compatible with both the
+  // 2.0.7 contract used by the first V2 release and current hosts.
+  const themeText = context.theme.text as unknown as {
+    base?: RGBA;
+    muted?: RGBA;
+    default?: RGBA;
+    subdued?: RGBA;
+  };
+  const text = themeText.base ?? themeText.default;
+  const textMuted = themeText.muted ?? themeText.subdued;
+
+  if (!text || !textMuted) {
+    throw new Error("OpenCode TUI theme is missing required text colors");
+  }
 
   return {
     state: {
@@ -159,6 +175,7 @@ export function createTuiHost(context: Context): TuiHost {
             sessionID: input.sessionID,
             text: input.text,
             ...(input.description ? { description: input.description } : {}),
+            ...(input.resume === undefined ? {} : { resume: input.resume }),
           }),
       },
     },
@@ -175,8 +192,8 @@ export function createTuiHost(context: Context): TuiHost {
     },
     theme: {
       current: {
-        text: context.theme.text.default,
-        textMuted: context.theme.text.subdued,
+        text,
+        textMuted,
       },
     },
     event: {

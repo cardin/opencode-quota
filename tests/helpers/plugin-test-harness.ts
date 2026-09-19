@@ -449,10 +449,16 @@ export function createPluginTestContext(options: PluginTestContextOptions = {}) 
       if (!tool) throw new Error(`Tool not registered: ${name}`);
       return tool.execute(input, { sessionID, metadata: vi.fn(), progress: vi.fn() });
     },
-    getSyntheticText: (index = 0): string =>
-      (sessionSynthetic.mock.calls[index]?.[0] as { text?: string } | undefined)?.text ?? "",
+    getSyntheticText: (index = 0): string => {
+      const call = sessionSynthetic.mock.calls[index]?.[0] as
+        | { text?: string; description?: string }
+        | undefined;
+      return call?.description ?? call?.text ?? "";
+    },
     getSyntheticCall: (index = 0) =>
-      sessionSynthetic.mock.calls[index]?.[0] as { sessionID?: string; text?: string } | undefined,
+      sessionSynthetic.mock.calls[index]?.[0] as
+        | { sessionID?: string; text?: string; description?: string; resume?: boolean }
+        | undefined,
   };
 
   return context;
@@ -521,8 +527,8 @@ type SyntheticContext = {
  * Read the text the V2 server plugin injected through `ctx.session.synthetic`.
  */
 export function getSyntheticText(context: SyntheticContext, callIndex = 0): string {
-  return (
-    (context.session.synthetic.mock.calls[callIndex]?.[0] as { text?: string } | undefined)?.text ??
-    ""
-  );
+  const call = context.session.synthetic.mock.calls[callIndex]?.[0] as
+    | { text?: string; description?: string }
+    | undefined;
+  return call?.description ?? call?.text ?? "";
 }

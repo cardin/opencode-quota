@@ -426,7 +426,9 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(context.session.synthetic).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionID: "phase5-session",
-        text: expect.any(String),
+        resume: false,
+        text: "",
+        description: expect.any(String),
       }),
     );
     const serverOutput = getSyntheticText(context, 0);

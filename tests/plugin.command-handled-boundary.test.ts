@@ -161,8 +161,12 @@ describe("plugin command handled boundary", () => {
     expect(context.session.synthetic).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionID: "session-2",
-        description: "OpenCode Quota",
-        text: expect.stringContaining("Quota unavailable"),
+        // V2 renders `description` in the transcript and treats `text` as
+        // model-facing input, so deterministic output lives in `description`
+        // with an empty `text` and `resume: false` (no model turn).
+        description: expect.stringContaining("Quota unavailable"),
+        text: "",
+        resume: false,
       }),
     );
     expect(getSyntheticText(context)).toContain("Quota unavailable");

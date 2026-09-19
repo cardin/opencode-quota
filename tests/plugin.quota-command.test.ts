@@ -816,7 +816,11 @@ describe("/quota command behavior", () => {
       const call = context.session.synthetic.mock.calls.find(
         (entry) => (entry[0] as { sessionID?: string }).sessionID === sessionID,
       );
-      return (call?.[0] as { text?: string } | undefined)?.text ?? "";
+      const synthetic = call?.[0] as
+        | { text?: string; description?: string; resume?: boolean }
+        | undefined;
+      expect(synthetic).toMatchObject({ text: "", resume: false });
+      return synthetic?.description ?? "";
     };
     const sessionAOutput = textFor("session-a");
     const sessionBOutput = textFor("session-b");

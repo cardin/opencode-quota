@@ -821,10 +821,15 @@ async function runQuotaDialogCommandAsync(
     }
 
     if (destination.type === "inline") {
+      // V2 renders a synthetic message's `description` in the transcript and
+      // treats `text` as model-facing input. `resume: false` admits the message
+      // without scheduling a model turn, so the deterministic output is visible
+      // without polluting the model context (V1's noReply + ignored injection).
       await context.client.session.synthetic({
         sessionID: destination.sessionID,
-        text: result.output,
-        description: result.title,
+        text: "",
+        description: result.output,
+        resume: false,
       });
       return;
     }
@@ -843,13 +848,13 @@ async function runQuotaDialogCommandAsync(
   }
 }
 
-function registerQuotaDialogCommands(
-  context: Context,
-  host: TuiHost,
-  gate: TuiRegistrationGate,
-): void {
+function QuotaDialogCommandLayer(props: {
+  context: Context;
+  host: TuiHost;
+  gate: TuiRegistrationGate;
+}) {
   const commandState: QuotaDialogCommandState = {};
-  context.keymap.layer(() => ({
+  props.context.keymap.layer(() => ({
     mode: "global",
     commands: QUOTA_DIALOG_COMMANDS.map((spec) => ({
       id: `opencode-quota.${spec.id}`,
@@ -860,13 +865,13 @@ function registerQuotaDialogCommands(
       slash: spec.acceptsArguments
         ? { name: spec.slashName, arguments: true as const }
         : { name: spec.slashName },
-      enabled: () => gate.current().status === "active",
+      enabled: () => props.gate.current().status === "active",
       run: (input?: string) => {
-        const state = gate.current();
+        const state = props.gate.current();
         if (state.status !== "active") return;
         void runQuotaDialogCommandAsync(
-          context,
-          host,
+          props.context,
+          props.host,
           spec.id,
           state.registration.commandDisplay,
           input,
@@ -875,83 +880,123 @@ function registerQuotaDialogCommands(
       },
     })),
   }));
+
+  return null;
 }
 
 function registerStableTuiSlots(
   context: Context,
   host: TuiHost,
-  current: () => TuiRegistrationState,
-): void {
-  context.ui.slot({
-    append: "sidebar.content",
-    render: (input) => {
-      const state = current();
-      if (state.status !== "active" || !state.registration.sidebar.enabled) return null;
-      return (
-        <SidebarContentView
-          host={host}
-          sessionID={input.sessionID}
-          initialLoads={state.initialLoads}
-        />
-      );
-    },
-  });
+  gate: TuiRegistrationGate,
+): () => void {
+  const cleanups: Array<() => void> = [];
+  const register = (name: string, claim: () => () => void) => {
+    try {
+      cleanups.push(claim());
+    } catch (error) {
+      void host.log(`Failed to register ${name} TUI slot`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
 
-  context.ui.slot({
-    append: "session.composer.top",
-    render: (input) => {
-      const state = current();
-      if (state.status !== "active") return null;
-      if (!state.registration.promptBar.enabled) return null;
-      return (
-        <SessionQuotaPromptBar
-          host={host}
-          sessionID={input.sessionID}
-          initialLoads={state.initialLoads}
-        />
-      );
-    },
-  });
+  // `keymap.layer` reads Solid context and throws `Keymap.Provider is missing`
+  // when called directly from plugin setup in OpenCode 2.0.9. Mount the layer
+  // from the global app slot so Solid owns its reactive lifecycle.
+  register("command layer", () =>
+    context.ui.slot({
+      append: "app",
+      render: () => <QuotaDialogCommandLayer context={context} host={host} gate={gate} />,
+    }),
+  );
 
-  context.ui.slot({
-    append: "prompt.footer",
-    render: (input) => {
-      const state = current();
-      if (state.status !== "active") return null;
-      if (!input.sessionID) return null;
-      if (state.registration.promptBar.enabled) return null;
-      if (!state.registration.compact.sessionPrompt) return null;
-      return (
-        <SessionCompactStatus
-          host={host}
-          sessionID={input.sessionID}
-          initialLoads={state.initialLoads}
-        />
-      );
-    },
-  });
+  register("sidebar content", () =>
+    context.ui.slot({
+      append: "sidebar.content",
+      render: (input) => {
+        const state = gate.current();
+        if (state.status !== "active" || !state.registration.sidebar.enabled) return null;
+        return (
+          <SidebarContentView
+            host={host}
+            sessionID={input.sessionID}
+            initialLoads={state.initialLoads}
+          />
+        );
+      },
+    }),
+  );
 
-  context.ui.slot({
-    append: "home.footer",
-    render: () => {
-      const state = current();
-      if (state.status !== "active" || !state.registration.homeBottom) return null;
-      return (
-        <HomeBottomView
-          host={host}
-          compactHomeBottomEnabled={state.registration.compact.homeBottom}
-          initialLoads={state.initialLoads}
-        />
-      );
-    },
-  });
+  register("session composer", () =>
+    context.ui.slot({
+      append: "session.composer.top",
+      render: (input) => {
+        const state = gate.current();
+        if (state.status !== "active") return null;
+        if (!state.registration.promptBar.enabled) return null;
+        return (
+          <SessionQuotaPromptBar
+            host={host}
+            sessionID={input.sessionID}
+            initialLoads={state.initialLoads}
+          />
+        );
+      },
+    }),
+  );
+
+  register("prompt footer", () =>
+    context.ui.slot({
+      append: "prompt.footer",
+      render: (input) => {
+        const state = gate.current();
+        if (state.status !== "active") return null;
+        if (!input.sessionID) return null;
+        if (state.registration.promptBar.enabled) return null;
+        if (!state.registration.compact.sessionPrompt) return null;
+        return (
+          <SessionCompactStatus
+            host={host}
+            sessionID={input.sessionID}
+            initialLoads={state.initialLoads}
+          />
+        );
+      },
+    }),
+  );
+
+  register("home footer", () =>
+    context.ui.slot({
+      append: "home.footer",
+      render: () => {
+        const state = gate.current();
+        if (state.status !== "active" || !state.registration.homeBottom) return null;
+        return (
+          <HomeBottomView
+            host={host}
+            compactHomeBottomEnabled={state.registration.compact.homeBottom}
+            initialLoads={state.initialLoads}
+          />
+        );
+      },
+    }),
+  );
+
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    for (let index = cleanups.length - 1; index >= 0; index -= 1) {
+      try {
+        cleanups[index]?.();
+      } catch {
+        // Slot disposal is best-effort during TUI shutdown or plugin reload.
+      }
+    }
+  };
 }
 
-async function initializeTuiRegistration(
-  context: Context,
-  host: TuiHost,
-  gate: TuiRegistrationGate,
-): Promise<void> {
+function initializeTuiRegistration(host: TuiHost, gate: TuiRegistrationGate): void {
   let initialRuntimeSeed: TuiInitialRuntimeSeed | undefined;
   let surfaceRegistration: Promise<{
     registration: TuiSurfaceRegistration;
@@ -969,14 +1014,9 @@ async function initializeTuiRegistration(
     surfaceRegistration = Promise.resolve({ registration: FALLBACK_SURFACE_REGISTRATION });
   }
 
-  registerQuotaDialogCommands(context, host, gate);
-  // Activate the gate before installing the optional slots: if one slot
-  // registration throws, the command layer and the slots already installed
-  // must stay active instead of leaving every surface permanently pending.
   void surfaceRegistration.then(({ registration, initialRuntimeSeed: seed }) =>
     gate.activate(registration, seed ? createTuiInitialLoadCoordinator(seed) : undefined),
   );
-  registerStableTuiSlots(context, host, gate.current);
 }
 
 export const TuiQuotaPlugin = Plugin.define({
@@ -985,15 +1025,13 @@ export const TuiQuotaPlugin = Plugin.define({
     const host = createTuiHost(context);
     const registrationGate = createTuiRegistrationGate();
     const stopToastRuntime = startTuiToastRuntime(context, host);
+    const stopTuiSlots = registerStableTuiSlots(context, host, registrationGate);
 
-    void initializeTuiRegistration(context, host, registrationGate).catch((error) => {
-      void host.log("Failed to initialize TUI registration", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    initializeTuiRegistration(host, registrationGate);
 
     return () => {
       stopToastRuntime();
+      stopTuiSlots();
       registrationGate.dispose();
       disposeQuotaTelemetryOwner(createTuiQuotaClient(host));
     };

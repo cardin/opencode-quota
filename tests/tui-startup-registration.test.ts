@@ -216,10 +216,14 @@ const scenarios: Scenario[] = [
     expected: {
       T_return: 0,
       T_plan_resolved: 0,
+      // Slots register synchronously during setup; only the command layer can
+      // be censored, because its `keymap.layer` call is what throws.
       T_command: null,
-      T_sidebar: null,
-      T_session_prompt: null,
-      T_home_bottom: null,
+      T_sidebar: 0,
+      T_session_prompt: 0,
+      T_home_bottom: 0,
+      // Completion is the max of every completion event; a missing command
+      // event keeps it censored.
       T_registration_complete: null,
     },
   },
@@ -301,7 +305,7 @@ async function runSample(scenario: Scenario): Promise<StartupSample> {
     options: {},
     location: { directory: process.cwd() },
     app: { version: "2.0.7", channel: "dev" },
-    theme: { text: { default: "text", subdued: "muted" } },
+    theme: { text: { base: "text", muted: "muted" } },
     client: {
       provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
       session: { get: vi.fn(), synthetic: vi.fn() },
@@ -317,7 +321,12 @@ async function runSample(scenario: Scenario): Promise<StartupSample> {
       location: { provider: { list: vi.fn(() => []) } },
     },
     ui: {
-      slot: vi.fn((claim: { append: string }) => {
+      slot: vi.fn((claim: { append: string; render: (input: unknown) => unknown }) => {
+        if (claim.append === "app") {
+          // OpenCode mounts app slots inside the Solid owner that provides the
+          // keymap context; render immediately so `keymap.layer` runs there.
+          claim.render({});
+        }
         if (claim.append === "sidebar.content") record("T_sidebar");
         if (claim.append === "session.composer.top") record("T_session_prompt");
         if (claim.append === "home.footer") record("T_home_bottom");
@@ -390,7 +399,8 @@ function formatValue(value: number | null): string {
 beforeAll(async () => {
   vi.useFakeTimers();
   (globalThis as { React?: unknown }).React = {
-    createElement: (type: unknown, props: unknown) => ({ type, props }),
+    createElement: (type: unknown, props: unknown) =>
+      typeof type === "function" ? (type as (p: unknown) => unknown)(props) : { type, props },
   };
   plugin = (await import("../src/tui.tsx")).default;
 });

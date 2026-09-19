@@ -74,9 +74,14 @@ export const QuotaToastPlugin = Plugin.define({
     }
 
     /**
-     * Inject tool output directly into the session without triggering an LLM
-     * response. V2 synthetic messages appear in the transcript but are not part
-     * of the model-visible conversation, matching V1's `noReply` + `ignored`.
+     * Inject deterministic output into the session transcript without
+     * triggering an LLM response or adding anything to the model context.
+     *
+     * OpenCode 2 renders a synthetic message's `description` in the transcript
+     * and treats `text` as model-facing input. `resume: false` admits the
+     * message without scheduling execution, so the output stays visible to the
+     * user while the model never runs and never sees the text, matching V1's
+     * `noReply` + `ignored` injection.
      */
     async function injectRawOutput(
       sessionID: string,
@@ -86,8 +91,9 @@ export const QuotaToastPlugin = Plugin.define({
       try {
         await ctx.session.synthetic({
           sessionID,
-          text: sanitizeDisplayText(output),
-          description: "OpenCode Quota",
+          text: "",
+          description: sanitizeDisplayText(output),
+          resume: false,
         });
       } catch (err) {
         await log("Failed to inject raw output", {

@@ -52,7 +52,7 @@ describe("tui dist packaging", () => {
     expect(source).toContain("loadTuiSessionQuotaSurfaces");
     expect(source).toContain("resolveTuiSurfaceRegistration");
     expect(source).toContain("TuiQuotaPlugin");
-    expect(source).toContain("registerQuotaDialogCommands");
+    expect(source).toContain("QuotaDialogCommandLayer");
     expect(source).toContain("CommandOutputDialog");
     expect(source).toContain("buildQuotaDialogCommandOutput");
     expect(source).toContain("keymap.layer");

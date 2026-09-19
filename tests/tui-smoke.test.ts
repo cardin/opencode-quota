@@ -183,6 +183,7 @@ function createApi() {
     order?: number;
     slots: Record<string, (ctx: unknown, props: any) => unknown>;
   }> = [];
+  const slotCleanups: Array<ReturnType<typeof vi.fn>> = [];
   const unsubscribers: Array<ReturnType<typeof vi.fn>> = [];
   const eventHandlers = new Map<string, Array<(event: any) => void>>();
   const kvStore: Record<string, unknown> = {};
@@ -197,7 +198,11 @@ function createApi() {
   };
 
   const slot = vi.fn((claim: { append: string; render: (input: any) => unknown }) => {
-    if (claim.append === "sidebar.content") {
+    if (claim.append === "app") {
+      // OpenCode renders app slots inside the Solid owner that provides the
+      // keymap context. Mount immediately so command-layer behavior is covered.
+      claim.render({});
+    } else if (claim.append === "sidebar.content") {
       registered.push({
         order: 150,
         slots: {
@@ -213,7 +218,9 @@ function createApi() {
     } else if (claim.append === "home.footer") {
       ensureCompactGroup().slots.home_bottom = () => claim.render({});
     }
-    return () => {};
+    const cleanup = vi.fn();
+    slotCleanups.push(cleanup);
+    return cleanup;
   });
 
   const keymapLayer = vi.fn((resolveLayer: () => unknown) => {
@@ -224,8 +231,8 @@ function createApi() {
   const api = {
     options: {},
     location: { directory: "/tmp/worktree" },
-    app: { version: "2.0.7", channel: "dev" },
-    theme: { text: { default: "text", subdued: "muted" } },
+    app: { version: "2.0.9", channel: "dev" },
+    theme: { text: { base: "text", muted: "muted" } },
     client: {
       provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
       app: { log: vi.fn().mockResolvedValue(undefined) },
@@ -295,6 +302,7 @@ function createApi() {
   return {
     api,
     registered,
+    slotCleanups,
     unsubscribers,
     eventHandlers,
     kvStore,
@@ -425,8 +433,9 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    // sidebar.content + session.composer.top + prompt.footer + home.footer
-    expect(api.slots.register).toHaveBeenCalledTimes(4);
+    // app command layer + sidebar.content + session.composer.top +
+    // prompt.footer + home.footer
+    expect(api.slots.register).toHaveBeenCalledTimes(5);
     expect(buildQuotaDialogCommandOutput).not.toHaveBeenCalled();
 
     keymapLayers[0]!.commands[0]!.run?.();
@@ -440,6 +449,18 @@ describe("tui plugin smoke", () => {
     expect(registered[1]!.slots.home_bottom({}, {})).not.toBeNull();
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
     expect(loadTuiHomeBottomStatus).toHaveBeenCalledOnce();
+  });
+
+  it("keeps compatibility with the OpenCode 2.0.7 theme leaf names", async () => {
+    const plugin = await loadTuiModule();
+    const { api, keymapLayers } = createApi();
+    (api as unknown as { theme: unknown }).theme = {
+      text: { default: "legacy-text", subdued: "legacy-muted" },
+    };
+
+    await startTui(plugin, api);
+
+    expect(keymapLayers).toHaveLength(1);
   });
 
   it("uses independent one-shot session and home registration tickets", async () => {
@@ -624,14 +645,14 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.slots.register).toHaveBeenCalledTimes(4);
+    expect(api.slots.register).toHaveBeenCalledTimes(5);
     registered[0]!.slots.sidebar_content({}, { session_id: "session-1" });
     expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
     expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
     expect(registered[1]!.slots.home_bottom({}, {})).toBeNull();
   });
 
-  it("consumes late registration errors without retrying fallback", async () => {
+  it("keeps surface slots active when the app command layer cannot mount", async () => {
     const plugin = await loadTuiModule();
     const { api, registered } = createApi();
     api.keymap.registerLayer.mockImplementationOnce(() => {
@@ -657,29 +678,29 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(registered).toEqual([]);
+    expect(registered).toHaveLength(2);
+    registered[0]!.slots.sidebar_content({}, { session_id: "session-1" });
+    await flushPromises();
+    expect(loadTuiSessionQuotaSurfaces).toHaveBeenCalledOnce();
   });
 
   it.each([
-    ["first", 1],
-    ["second", 2],
-  ] as const)("keeps the installed command layer active when the %s slot registration throws", async (_label, failedAttempt) => {
+    "sidebar.content",
+    "session.composer.top",
+  ] as const)("keeps the installed command layer active when the %s slot registration throws", async (failedSlot) => {
     const plugin = await loadTuiModule();
     const { api, keymapLayers, registered } = createApi();
     const registration = deferred<any>();
     resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
-    let attempts = 0;
+    const registerSlot = api.slots.register.getMockImplementation()!;
     api.slots.register.mockImplementation((entry: any) => {
-      attempts += 1;
-      if (attempts === failedAttempt) throw new Error("slot registration unavailable");
-      registered.push(entry);
-      return `slot-${registered.length}`;
+      if (entry.append === failedSlot) throw new Error("slot registration unavailable");
+      return registerSlot(entry);
     });
 
     await startTui(plugin, api);
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.slots.register).toHaveBeenCalledTimes(failedAttempt);
-    expect(registered).toHaveLength(failedAttempt - 1);
+    expect(api.slots.register).toHaveBeenCalledTimes(5);
 
     registration.resolve({
       commandDisplay: "inline",
@@ -706,7 +727,7 @@ describe("tui plugin smoke", () => {
 
   it("keeps eager hosts neutral and pending commands inert after disposal", async () => {
     const plugin = await loadTuiModule();
-    const { api, keymapLayers, registered } = createApi();
+    const { api, keymapLayers, registered, slotCleanups } = createApi();
     const registration = deferred<any>();
     resolveTuiSurfaceRegistration.mockReturnValueOnce(registration.promise);
 
@@ -723,7 +744,7 @@ describe("tui plugin smoke", () => {
     await flushPromises();
 
     expect(api.keymap.registerLayer).toHaveBeenCalledOnce();
-    expect(api.slots.register).toHaveBeenCalledTimes(4);
+    expect(api.slots.register).toHaveBeenCalledTimes(5);
     expect(registered[0]!.slots.sidebar_content({}, { session_id: "session-1" })).toBeNull();
     expect(registered[1]!.slots.session_prompt({}, { session_id: "session-1" })).toBeNull();
     expect(registered[1]!.slots.home_bottom({}, {})).toBeNull();
@@ -733,6 +754,10 @@ describe("tui plugin smoke", () => {
     // Called once by the toast runtime and once by the telemetry disposal.
     expect(createTuiQuotaClient).toHaveBeenCalledTimes(2);
     expect(disposeQuotaTelemetryOwner).toHaveBeenCalledOnce();
+    expect(slotCleanups).toHaveLength(5);
+    expect(slotCleanups.every((cleanup) => cleanup.mock.calls.length === 1)).toBe(true);
+    dispose?.();
+    expect(slotCleanups.every((cleanup) => cleanup.mock.calls.length === 1)).toBe(true);
   });
 
   it("registers every deterministic command through the palette keymap", async () => {
@@ -836,8 +861,9 @@ describe("tui plugin smoke", () => {
           expect(api.client.session.synthetic, command).toHaveBeenCalledOnce();
           expect(api.client.session.synthetic, command).toHaveBeenCalledWith({
             sessionID: "session-route",
-            text: output,
-            description: command,
+            text: "",
+            description: output,
+            resume: false,
           });
           expect(dialog.replace, command).not.toHaveBeenCalled();
         } else {
@@ -1031,8 +1057,9 @@ describe("tui plugin smoke", () => {
     expect(api.client.session.synthetic).toHaveBeenCalledOnce();
     expect(api.client.session.synthetic).toHaveBeenCalledWith({
       sessionID: "session-route",
-      text: "Quota line 1\n\nQuota line 3",
-      description: "OpenCode Quota",
+      text: "",
+      description: "Quota line 1\n\nQuota line 3",
+      resume: false,
     });
     expect(api.client.session.command).not.toHaveBeenCalled();
 
