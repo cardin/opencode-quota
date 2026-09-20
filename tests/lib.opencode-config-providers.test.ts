@@ -16,7 +16,10 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
 }));
 
-import { extractProviderIdsFromParsedConfig } from "../src/lib/config-file-utils.js";
+import {
+  extractPluginSpecsFromParsedConfig,
+  extractProviderIdsFromParsedConfig,
+} from "../src/lib/config-file-utils.js";
 import {
   loadConfiguredOpenCodeConfig,
   loadConfiguredProviderIds,
@@ -317,7 +320,7 @@ describe("opencode config provider discovery", () => {
       format: "json",
       addedProviderIds: ["deepseek"],
     });
-    expect(JSON.parse(readFileSync(globalPath, "utf8"))).toEqual({ provider: { deepseek: {} } });
+    expect(JSON.parse(readFileSync(globalPath, "utf8"))).toEqual({ providers: { deepseek: {} } });
     expect(existsSync(join(globalConfigDir, "opencode.jsonc"))).toBe(false);
     expect(readFileSync(projectPath, "utf8")).toBe(projectBefore);
   });
@@ -353,5 +356,93 @@ describe("opencode config provider discovery", () => {
     );
 
     await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
+  });
+
+  it("extracts native V2 providers and plugins alongside legacy keys", () => {
+    expect(extractProviderIdsFromParsedConfig({ providers: { copilot: {}, openai: {} } })).toEqual([
+      "copilot",
+      "openai",
+    ]);
+
+    expect(
+      extractProviderIdsFromParsedConfig({
+        providers: { copilot: {} },
+        provider: { openai: {} },
+      }),
+    ).toEqual(["copilot", "openai"]);
+
+    expect(extractProviderIdsFromParsedConfig({ providers: [] })).toEqual([]);
+
+    expect(extractPluginSpecsFromParsedConfig({ plugins: ["opencode-qwencode-auth"] })).toEqual([
+      "opencode-qwencode-auth",
+    ]);
+    expect(
+      extractPluginSpecsFromParsedConfig({
+        plugins: ["opencode-qwencode-auth"],
+        plugin: ["opencode-gemini-auth"],
+        tui: { plugins: ["opencode-antigravity-auth"] },
+      }),
+    ).toEqual(["opencode-qwencode-auth", "opencode-gemini-auth", "opencode-antigravity-auth"]);
+  });
+
+  it("loads native V2 provider declarations from global and workspace config", async () => {
+    writeFileSync(
+      join(globalConfigDir, "opencode.jsonc"),
+      '{\n  "providers": { "copilot": {} },\n}\n',
+      "utf8",
+    );
+    writeFileSync(
+      join(workspaceDir, "opencode.jsonc"),
+      '{\n  "providers": { "openai": {} },\n}\n',
+      "utf8",
+    );
+
+    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+      "copilot",
+      "openai",
+    ]);
+  });
+
+  it("adds detected providers to a native V2 global config using the providers key", async () => {
+    const globalPath = join(globalConfigDir, "opencode.jsonc");
+    writeFileSync(
+      globalPath,
+      '{\n  // keep this global setting and comment.\n  "providers": {\n    "global-only": {},\n  },\n}\n',
+      "utf8",
+    );
+
+    const result = await reconcileDetectedProvidersInGlobalConfig({
+      configRootDir: workspaceDir,
+      detectedProviderIds: ["deepseek"],
+    });
+
+    expect(result).toMatchObject({
+      path: globalPath,
+      format: "jsonc",
+      addedProviderIds: ["deepseek"],
+      changed: true,
+    });
+    const globalAfter = readFileSync(globalPath, "utf8");
+    expect(globalAfter).toContain("// keep this global setting and comment.");
+    expect(globalAfter).toContain(
+      "// Detected deepseek authentication; opencode-quota added this global provider declaration.",
+    );
+    expect(
+      JSON.parse(
+        JSON.stringify(await loadConfiguredOpenCodeConfig({ configRootDir: workspaceDir })),
+      ),
+    ).toMatchObject({
+      providers: {
+        "global-only": {},
+        deepseek: {},
+      },
+    });
+
+    const second = await reconcileDetectedProvidersInGlobalConfig({
+      configRootDir: workspaceDir,
+      detectedProviderIds: ["deepseek"],
+    });
+    expect(second).toMatchObject({ addedProviderIds: [], changed: false });
+    expect(readFileSync(globalPath, "utf8")).toBe(globalAfter);
   });
 });

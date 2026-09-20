@@ -169,23 +169,70 @@ export function getPluginSpecFromEntry(entry: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Plugin and provider maps use different key names in OpenCode V1 (`plugin`,
+ * `provider`) and OpenCode V2 (`plugins`, `providers`). V2 reads both shapes.
+ * Every key is listed here so readers and writers stay in sync.
+ */
+export const PLUGIN_CONFIG_KEYS = ["plugins", "plugin"] as const;
+export const PROVIDER_CONFIG_KEYS = ["providers", "provider"] as const;
+
+export type PluginConfigKey = (typeof PLUGIN_CONFIG_KEYS)[number];
+export type ProviderConfigKey = (typeof PROVIDER_CONFIG_KEYS)[number];
+
+/**
+ * Picks the key to write for a plugin container, preferring the native V2
+ * `plugins` key and falling back to legacy `plugin`. New documents default to
+ * `plugins`.
+ */
+export function resolvePluginConfigKey(root: Record<string, unknown>): PluginConfigKey {
+  if (root.plugins !== undefined) {
+    return "plugins";
+  }
+  if (root.plugin !== undefined) {
+    return "plugin";
+  }
+  return "plugins";
+}
+
+/**
+ * Picks the key to write for a provider map, preferring the native V2
+ * `providers` key and falling back to legacy `provider`. New documents default
+ * to `providers`.
+ */
+export function resolveProviderConfigKey(root: Record<string, unknown>): ProviderConfigKey {
+  if (root.providers !== undefined) {
+    return "providers";
+  }
+  if (root.provider !== undefined) {
+    return "provider";
+  }
+  return "providers";
+}
+
+function collectArrayEntries(target: Record<string, unknown>, keys: readonly string[]): unknown[] {
+  const entries: unknown[] = [];
+  for (const key of keys) {
+    const value = target[key];
+    if (Array.isArray(value)) {
+      entries.push(...value);
+    }
+  }
+  return entries;
+}
+
 export function extractPluginSpecsFromParsedConfig(parsed: unknown): string[] {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return [];
   }
 
   const root = parsed as Record<string, unknown>;
-  const pluginEntries: unknown[] = [];
-
-  if (Array.isArray(root.plugin)) {
-    pluginEntries.push(...root.plugin);
-  }
+  const pluginEntries = collectArrayEntries(root, PLUGIN_CONFIG_KEYS);
 
   if (root.tui && typeof root.tui === "object" && !Array.isArray(root.tui)) {
-    const tuiRoot = root.tui as Record<string, unknown>;
-    if (Array.isArray(tuiRoot.plugin)) {
-      pluginEntries.push(...tuiRoot.plugin);
-    }
+    pluginEntries.push(
+      ...collectArrayEntries(root.tui as Record<string, unknown>, PLUGIN_CONFIG_KEYS),
+    );
   }
 
   return dedupeNonEmptyStrings(
@@ -201,11 +248,15 @@ export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
   }
 
   const root = parsed as Record<string, unknown>;
-  if (!root.provider || typeof root.provider !== "object" || Array.isArray(root.provider)) {
-    return [];
+  const providerIds: string[] = [];
+  for (const key of PROVIDER_CONFIG_KEYS) {
+    const value = root[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      providerIds.push(...Object.keys(value));
+    }
   }
 
-  return dedupeNonEmptyStrings(Object.keys(root.provider));
+  return dedupeNonEmptyStrings(providerIds);
 }
 
 export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {

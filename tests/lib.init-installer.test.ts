@@ -142,13 +142,14 @@ describe("init installer planning and merge behavior", () => {
     expect(result.writtenPaths).toEqual([
       join(projectDir, "opencode.jsonc"),
       join(projectDir, "opencode-quota", "quota-toast.jsonc"),
-      join(projectDir, "tui.jsonc"),
     ]);
+    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(false);
+    expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
 
     const config = readJson(join(projectDir, "opencode.jsonc"));
     expect(config).toMatchObject({
       $schema: "https://opencode.ai/config.json",
-      plugin: ["@cardinal4/opencode-quota@latest"],
+      plugins: ["@cardinal4/opencode-quota@latest"],
     });
     expect(config.experimental).toBeUndefined();
 
@@ -211,13 +212,13 @@ describe("init installer planning and merge behavior", () => {
       "// Quota presentation and reset-period choices.",
     );
 
-    for (const hostPath of [join(projectDir, "opencode.jsonc"), join(projectDir, "tui.jsonc")]) {
-      const raw = readFileSync(hostPath, "utf8");
-      expect(raw).toContain(
-        "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.",
-      );
-      expect(() => parseJsonOrJsonc(raw, true)).not.toThrow();
-    }
+    const hostPath = join(projectDir, "opencode.jsonc");
+    const raw = readFileSync(hostPath, "utf8");
+    expect(raw).toContain(
+      "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.",
+    );
+    expect(() => parseJsonOrJsonc(raw, true)).not.toThrow();
+    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(false);
   });
 
   it("writes legacy experimental.quotaToast only when explicitly requested", async () => {
@@ -325,9 +326,7 @@ describe("init installer planning and merge behavior", () => {
       expect.arrayContaining(["quotaToast.showSessionTokens", "quotaToast.enabledProviders"]),
     );
     expect(tuiEdit?.addedPlugins).toEqual([]);
-    expect(tuiEdit?.skippedValues).toContain(
-      "tui config already includes @cardinal4/opencode-quota@latest",
-    );
+    expect(tuiEdit?.changed).toBe(false);
 
     await applyInitInstallerPlan(plan);
 
@@ -355,7 +354,7 @@ describe("init installer planning and merge behavior", () => {
       enabledProviders: ["cursor", "opencode-go"],
     });
 
-    const tui = readJson(join(projectDir, "tui.jsonc"));
+    const tui = readJson(join(projectDir, "tui.json"));
     expect(tui.$schema).toBeUndefined();
     expect(tui.theme).toBe("dark");
     expect(tui.plugin).toHaveLength(1);
@@ -406,13 +405,15 @@ describe("init installer planning and merge behavior", () => {
 
     await applyInitInstallerPlan(plan);
 
-    const tui = readJson(join(projectDir, "tui.json"));
-    expect(tui).toEqual({ plugin: ["@cardinal4/opencode-quota"] });
+    // The legacy tui config entry is redundant in V2 and is cleaned up when found.
+    const tui = readJson(join(projectDir, "tui.jsonc"));
+    expect(tui.plugin).toEqual([]);
+    expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.tuiSidebarPanel).toEqual({ enabled: false });
   });
 
-  it("adds the tui plugin when tui config only references the server entrypoint", async () => {
+  it("leaves a legacy tui config untouched when it has no canonical quota entry", async () => {
     const projectDir = join(tempDir, "project");
     mkdirSync(projectDir, { recursive: true });
 
@@ -427,18 +428,20 @@ describe("init installer planning and merge behavior", () => {
     const plan = await planSelections({ quotaUi: ["sidebar"] }, projectDir);
 
     const tuiEdit = plan.edits.find((edit) => edit.kind === "tui");
-    expect(tuiEdit?.addedPlugins).toEqual(["plugin: @cardinal4/opencode-quota@latest"]);
+    expect(tuiEdit?.addedPlugins).toEqual([]);
+    expect(tuiEdit?.changed).toBe(false);
 
     await applyInitInstallerPlan(plan);
 
-    const tui = readJson(join(projectDir, "tui.jsonc"));
+    // V2 loads the TUI component from the opencode.json plugins entry, so the
+    // legacy tui config is left as-is instead of being appended to.
+    const tui = readJson(join(projectDir, "tui.json"));
     expect(tui.plugin).toEqual([
       "file:///Users/test/Downloads/GitHub/opencode-quota/dist/index.js",
-      "@cardinal4/opencode-quota@latest",
     ]);
   });
 
-  it("creates both opencode and tui targets for sidebar mode and appends missing plugins", async () => {
+  it("registers the plugin in opencode.json only for sidebar mode", async () => {
     const projectDir = join(tempDir, "project");
     mkdirSync(projectDir, { recursive: true });
 
@@ -449,9 +452,8 @@ describe("init installer planning and merge behavior", () => {
     await applyInitInstallerPlan(plan);
 
     const opencode = readJson(join(projectDir, "opencode.jsonc"));
-    const tui = readJson(join(projectDir, "tui.jsonc"));
 
-    expect(opencode.plugin).toEqual(["@cardinal4/opencode-quota@latest"]);
+    expect(opencode.plugins).toEqual(["@cardinal4/opencode-quota@latest"]);
     expect(opencode.experimental).toBeUndefined();
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig).toMatchObject({
@@ -462,10 +464,9 @@ describe("init installer planning and merge behavior", () => {
       showSessionTokens: true,
       tuiSidebarPanel: { enabled: true },
     });
-    expect(tui).toEqual({
-      $schema: "https://opencode.ai/tui.json",
-      plugin: ["@cardinal4/opencode-quota@latest"],
-    });
+    // V2 needs no separate TUI config: the plugin is registered in opencode.json.
+    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(false);
+    expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
   });
 
   it("leaves compact TUI status alone when not selected for fresh sidebar installs", async () => {
@@ -480,7 +481,7 @@ describe("init installer planning and merge behavior", () => {
     await applyInitInstallerPlan(plan);
 
     expect(existsSync(join(projectDir, "opencode.jsonc"))).toBe(true);
-    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(true);
+    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(false);
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.tuiSidebarPanel).toEqual({ enabled: true });
     expect(quotaConfig.tuiCompactStatus).toBeUndefined();
@@ -500,7 +501,7 @@ describe("init installer planning and merge behavior", () => {
 
     await applyInitInstallerPlan(plan);
 
-    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(true);
+    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(false);
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.tuiSidebarPanel).toEqual({ enabled: true });
     expect(quotaConfig.tuiCompactStatus).toEqual({
@@ -1010,7 +1011,7 @@ describe("init installer planning and merge behavior", () => {
     expect(quotaConfig.maintainerAnnouncements).toEqual({ enabled: false });
   });
 
-  it("creates both opencode and tui targets for toast + sidebar mode with popup toasts enabled", async () => {
+  it("registers the plugin in opencode.json only for toast + sidebar mode with popup toasts enabled", async () => {
     const projectDir = join(tempDir, "project");
     mkdirSync(projectDir, { recursive: true });
 
@@ -1027,9 +1028,8 @@ describe("init installer planning and merge behavior", () => {
     await applyInitInstallerPlan(plan);
 
     const opencode = readJson(join(projectDir, "opencode.jsonc"));
-    const tui = readJson(join(projectDir, "tui.jsonc"));
 
-    expect(opencode.plugin).toEqual(["@cardinal4/opencode-quota@latest"]);
+    expect(opencode.plugins).toEqual(["@cardinal4/opencode-quota@latest"]);
     expect(opencode.experimental).toBeUndefined();
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig).toMatchObject({
@@ -1040,10 +1040,8 @@ describe("init installer planning and merge behavior", () => {
       showSessionTokens: true,
       tuiSidebarPanel: { enabled: true },
     });
-    expect(tui).toEqual({
-      $schema: "https://opencode.ai/tui.json",
-      plugin: ["@cardinal4/opencode-quota@latest"],
-    });
+    expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(false);
+    expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
   });
 
   it("does not touch tui config for none mode and disables popup toasts when missing", async () => {
@@ -1058,7 +1056,7 @@ describe("init installer planning and merge behavior", () => {
 
     expect(existsSync(join(projectDir, "tui.json"))).toBe(false);
     const opencode = readJson(join(projectDir, "opencode.jsonc"));
-    expect(opencode.plugin).toEqual(["@cardinal4/opencode-quota@latest"]);
+    expect(opencode.plugins).toEqual(["@cardinal4/opencode-quota@latest"]);
     expect(opencode.experimental).toBeUndefined();
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.enableToast).toBe(false);
@@ -1138,12 +1136,36 @@ describe("init installer planning and merge behavior", () => {
 
     const firstPlan = await planInitInstaller({ cwd: projectDir, selections });
     await applyInitInstallerPlan(firstPlan);
-    expect(readJson(join(projectDir, "opencode.jsonc")).plugin).toEqual([
+    expect(readJson(join(projectDir, "opencode.jsonc")).plugins).toEqual([
       "@cardinal4/opencode-quota@latest",
     ]);
 
     const secondPlan = await planInitInstaller({ cwd: projectDir, selections });
     expect(secondPlan.edits.find((edit) => edit.kind === "opencode")?.changed).toBe(false);
+  });
+
+  it("appends to a native V2 plugins array and leaves the providers key untouched", async () => {
+    const projectDir = join(tempDir, "project-v2-plugins");
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(
+      join(projectDir, "opencode.jsonc"),
+      `{
+  // native v2 config
+  "plugins": ["some-other-plugin"],
+  "providers": { "openai": {} },
+}
+`,
+      "utf8",
+    );
+
+    const plan = await planSelections({ quotaUi: ["sidebar"] }, projectDir);
+    await applyInitInstallerPlan(plan);
+
+    const opencode = readJson(join(projectDir, "opencode.jsonc"));
+    expect(opencode.plugins).toEqual(["some-other-plugin", "@cardinal4/opencode-quota@latest"]);
+    expect(opencode.plugin).toBeUndefined();
+    expect(opencode.providers).toEqual({ openai: {} });
+    expect(opencode.provider).toBeUndefined();
   });
 
   it("preserves existing exact, range, tag, tuple, and local specs", async () => {
@@ -1239,7 +1261,7 @@ describe("init installer planning and merge behavior", () => {
       },
       theme: "dark",
     });
-    expect(readJson(join(projectDir, "opencode.jsonc")).plugin).toEqual([
+    expect(readJson(join(projectDir, "opencode.jsonc")).plugins).toEqual([
       "@cardinal4/opencode-quota@latest",
     ]);
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.jsonc"));
@@ -1398,11 +1420,11 @@ describe("init installer planning and merge behavior", () => {
     mkdirSync(projectDir, { recursive: true });
     const plan = await planSelections({ quotaUi: ["sidebar"] }, projectDir);
 
-    writeFileSync(join(projectDir, "tui.jsonc"), '{"theme":"raced"}\n', "utf8");
+    writeFileSync(join(projectDir, "opencode.jsonc"), '{"theme":"raced"}\n', "utf8");
 
     await expect(applyInitInstallerPlan(plan)).rejects.toThrow("changed since preview");
-    expect(existsSync(join(projectDir, "opencode.jsonc"))).toBe(false);
-    expect(readFileSync(join(projectDir, "tui.jsonc"), "utf8")).toBe('{"theme":"raced"}\n');
+    expect(readFileSync(join(projectDir, "opencode.jsonc"), "utf8")).toBe('{"theme":"raced"}\n');
+    expect(existsSync(join(projectDir, "opencode-quota", "quota-toast.json"))).toBe(false);
   });
 
   it("fails when an existing plugin container is not an array", async () => {

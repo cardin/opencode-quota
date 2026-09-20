@@ -5,8 +5,11 @@ import {
   dedupeNonEmptyStrings,
   extractPluginSpecsFromParsedConfig,
   extractProviderIdsFromParsedConfig,
+  PLUGIN_CONFIG_KEYS,
+  PROVIDER_CONFIG_KEYS,
   resolveEditableConfigPath,
   resolveExistingConfigPath,
+  resolveProviderConfigKey,
 } from "./config-file-utils.js";
 import {
   applyConfigDocumentEdit,
@@ -96,18 +99,22 @@ function mergeOpenCodeConfig(
 ): Record<string, unknown> {
   const merged = { ...base, ...next };
 
-  if (isRecord(base.provider) || isRecord(next.provider)) {
-    merged.provider = {
-      ...(isRecord(base.provider) ? base.provider : {}),
-      ...(isRecord(next.provider) ? next.provider : {}),
-    };
+  for (const key of PROVIDER_CONFIG_KEYS) {
+    if (isRecord(base[key]) || isRecord(next[key])) {
+      merged[key] = {
+        ...(isRecord(base[key]) ? base[key] : {}),
+        ...(isRecord(next[key]) ? next[key] : {}),
+      };
+    }
   }
 
-  if (Array.isArray(base.plugin) || Array.isArray(next.plugin)) {
-    merged.plugin = [
-      ...(Array.isArray(base.plugin) ? base.plugin : []),
-      ...(Array.isArray(next.plugin) ? next.plugin : []),
-    ];
+  for (const key of PLUGIN_CONFIG_KEYS) {
+    if (Array.isArray(base[key]) || Array.isArray(next[key])) {
+      merged[key] = [
+        ...(Array.isArray(base[key]) ? base[key] : []),
+        ...(Array.isArray(next[key]) ? next[key] : []),
+      ];
+    }
   }
 
   return merged;
@@ -205,22 +212,23 @@ export async function reconcileDetectedProvidersInGlobalConfig(
   const raw = target.existed ? await readFile(target.sourcePath, "utf8") : "{}\n";
   const sourceFormat: ConfigFileFormat = target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json";
   const root = parseConfigDocument(raw, sourceFormat, target.sourcePath);
-  if (root.provider !== undefined && !isRecord(root.provider)) {
+  const providerKey = resolveProviderConfigKey(root);
+  if (root[providerKey] !== undefined && !isRecord(root[providerKey])) {
     throw new ConfigDocumentError(
-      `Cannot add detected providers because provider is not an object: ${target.sourcePath}`,
+      `Cannot add detected providers because ${providerKey} is not an object: ${target.sourcePath}`,
       target.sourcePath,
     );
   }
-  const provider = isRecord(root.provider) ? { ...root.provider } : {};
+  const provider = isRecord(root[providerKey]) ? { ...root[providerKey] } : {};
   for (const providerId of addedProviderIds) {
     provider[providerId] = {};
   }
 
   const edit = await planConfigDocumentEdit({
     target,
-    desiredData: { ...root, provider },
+    desiredData: { ...root, [providerKey]: provider },
     managedComments: addedProviderIds.map((providerId) => ({
-      path: ["provider", providerId],
+      path: [providerKey, providerId],
       text: `// Detected ${providerId} authentication; opencode-quota added this global provider declaration.`,
     })),
   });
