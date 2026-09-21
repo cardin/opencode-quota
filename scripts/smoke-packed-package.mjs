@@ -69,7 +69,7 @@ try {
 
     const tuiExportUrl = import.meta.resolve("@cardinal4/opencode-quota/tui");
     const tuiExportPath = fileURLToPath(tuiExportUrl);
-    assert.match(tuiExportPath, /node_modules\\/\\@cardin\\/opencode-quota\\/dist\\/tui\\.js$/);
+    assert.match(tuiExportPath, /node_modules\\/\\@cardinal4\\/opencode-quota\\/dist\\/tui\\.js$/);
     const tuiSource = await readFile(tuiExportPath, "utf8");
     assert.ok(tuiSource.includes("@cardinal4/opencode-quota"));
     assert.ok(tuiSource.includes("@opencode/plugin/tui"));
