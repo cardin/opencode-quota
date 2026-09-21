@@ -791,15 +791,13 @@ describe("tui plugin smoke", () => {
     expect(disposeQuotaTelemetryOwner).toHaveBeenCalledWith(
       createTuiQuotaClient.mock.results.at(-1)?.value,
     );
-    const commandNames = keymapLayers[0]?.commands.map(
-      (command) => (command.slash as { name: string } | undefined)?.name,
+    const commandNames = keymapLayers[0]?.commands.map((command) =>
+      command.id?.replace("opencode-quota.", ""),
     );
     expect(commandNames).toEqual(TUI_COMMAND_IDS);
-    for (const slashName of TUI_COMMAND_IDS) {
+    for (const commandID of TUI_COMMAND_IDS) {
       expect(
-        keymapLayers[0]?.commands.filter(
-          (command) => (command.slash as { name: string } | undefined)?.name === slashName,
-        ),
+        keymapLayers[0]?.commands.filter((command) => command.id === `opencode-quota.${commandID}`),
       ).toHaveLength(1);
     }
     expect(dialog.replace).not.toHaveBeenCalled();
@@ -843,7 +841,7 @@ describe("tui plugin smoke", () => {
           dialogSize: "xlarge",
         });
         const registeredCommand = keymapLayers[0]!.commands.find(
-          (item) => (item.slash as { name: string } | undefined)?.name === command,
+          (item) => item.id === `opencode-quota.${command}`,
         )!;
         (registeredCommand.run as (input?: unknown) => void)({ arguments: "" });
         await Promise.resolve();
@@ -908,7 +906,7 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const quota = keymapLayers[0]!.commands.find(
-      (command) => (command.slash as { name: string } | undefined)?.name === "quota",
+      (command) => command.id === "opencode-quota.quota",
     )!;
     (quota.run as (input?: unknown) => void)({ arguments: "" });
     await Promise.resolve();
@@ -952,7 +950,7 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const refresh = keymapLayers[0]!.commands.find(
-      (command) => (command.slash as { name: string } | undefined)?.name === "pricing_refresh",
+      (command) => command.id === "opencode-quota.pricing_refresh",
     )!;
     (refresh.run as (input?: unknown) => void)({ arguments: "" });
     await Promise.resolve();
@@ -993,7 +991,7 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const quota = keymapLayers[0]!.commands.find(
-      (command) => (command.slash as { name: string } | undefined)?.name === "quota",
+      (command) => command.id === "opencode-quota.quota",
     )!;
     (quota.run as (input?: unknown) => void)();
     await Promise.resolve();
@@ -1033,7 +1031,7 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const status = keymapLayers[0]!.commands.find(
-      (command) => (command.slash as { name: string } | undefined)?.name === "quota_status",
+      (command) => command.id === "opencode-quota.quota_status",
     )!;
 
     dialog.prompt.mockResolvedValueOnce('  {"force":true}  ');
@@ -1074,7 +1072,7 @@ describe("tui plugin smoke", () => {
     expect(api.client.session.synthetic).toHaveBeenCalledTimes(2);
 
     const announcements = keymapLayers[0]!.commands.find(
-      (command) => (command.slash as { name: string } | undefined)?.name === "quota_announcements",
+      (command) => command.id === "opencode-quota.quota_announcements",
     )!;
     dialog.prompt.mockResolvedValueOnce("   ");
     (announcements.run as (input?: unknown) => void)();
@@ -1107,7 +1105,7 @@ describe("tui plugin smoke", () => {
 
     await startTui(plugin, api);
     const between = keymapLayers[0]!.commands.find(
-      (command) => (command.slash as { name: string } | undefined)?.name === "tokens_between",
+      (command) => command.id === "opencode-quota.tokens_between",
     )!;
     dialog.prompt.mockResolvedValueOnce("2026-01-01 2026-01-15");
     (between.run as (input?: unknown) => void)();

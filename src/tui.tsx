@@ -862,9 +862,11 @@ function QuotaDialogCommandLayer(props: {
       description: spec.description,
       group: "OpenCode Quota",
       palette: true as const,
-      slash: spec.acceptsArguments
-        ? { name: spec.slashName, arguments: true as const }
-        : { name: spec.slashName },
+      // Slash names are owned by the server command catalog (src/plugin.ts).
+      // The prompt autocomplete merges keymap slash names with the server
+      // catalog without deduping, so registering them here too lists every
+      // quota command twice. The palette entry keeps the TUI dialog/prompt
+      // behavior; slash runs the server command.
       enabled: () => props.gate.current().status === "active",
       run: (input?: string) => {
         const state = props.gate.current();
