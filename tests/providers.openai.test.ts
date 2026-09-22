@@ -11,7 +11,7 @@ import { createProviderAvailabilityContext } from "./helpers/provider-test-harne
 vi.mock("../src/lib/openai.js", () => ({
   DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS: 5_000,
   hasOpenAIOAuthCached: vi.fn(),
-  resolveOpenAIOAuth: vi.fn(() => ({ state: "none" })),
+  resolveOpenAIOAuthCached: vi.fn(async () => ({ state: "none" })),
   queryOpenAIQuota: vi.fn(),
 }));
 

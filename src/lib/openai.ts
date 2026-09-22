@@ -1,15 +1,19 @@
 /**
  * OpenAI (ChatGPT) quota fetcher
  *
- * Uses OpenCode's auth.json native OpenCode OAuth entries and queries:
+ * Uses OpenCode's OpenAI OAuth credentials and queries:
  * https://chatgpt.com/backend-api/wham/usage
+ *
+ * Credentials resolve from OpenCode 2's v2 credential store (`opencode.db`)
+ * first, then fall back to legacy `auth.json` entries.
  */
 
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import type { FixedWindowProjectionEvidence } from "./entries.js";
 import { clampPercent } from "./format-utils.js";
 import { fetchWithTimeout } from "./http.js";
-import { readAuthFileCached } from "./opencode-auth.js";
+import * as openCodeAuth from "./opencode-auth.js";
+import { OPENCODE_CREDENTIAL_SOURCE } from "./opencode-credential-store.js";
 import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { AuthData, OpenAIOAuthData, QuotaError } from "./types.js";
 
@@ -208,6 +212,8 @@ export type ResolvedOpenAIOAuth =
   | {
       state: "configured";
       sourceKey: OpenAIAuthSourceKey;
+      /** Where the winning entry came from (legacy auth.json vs v2 credential store). */
+      store?: "auth.json" | typeof OPENCODE_CREDENTIAL_SOURCE;
       accessToken: string;
       refreshToken?: string;
       expiresAt?: number;
@@ -215,9 +221,88 @@ export type ResolvedOpenAIOAuth =
       accountId?: string;
     };
 
+/** Integration ids used by OpenCode 2's v2 credential store for ChatGPT auth. */
+const OPENAI_CREDENTIAL_INTEGRATION_IDS = ["openai", "chatgpt", "codex"] as const;
+
+function isOpenAIOAuthEntry(entry: unknown): entry is OpenAIOAuthData {
+  const record = entry as OpenAIOAuthData | undefined;
+  return (
+    !!record &&
+    record.type === "oauth" &&
+    typeof record.access === "string" &&
+    record.access.trim().length > 0
+  );
+}
+
+/**
+ * Read the v2 credential store through the OpenCode auth module.
+ *
+ * Mirrors `api-key-resolver.js`: providers (and tests) mock
+ * `opencode-auth.js`, so a mocked module without
+ * `readOpenCodeCredentialsCached` transparently disables the v2 source and
+ * preserves legacy resolution.
+ */
+function getOpenCodeCredentialReader():
+  | ((params?: { maxAgeMs?: number }) => Promise<Record<string, Record<string, unknown>> | null>)
+  | null {
+  let candidate: unknown;
+  try {
+    candidate = (openCodeAuth as { readOpenCodeCredentialsCached?: unknown })
+      .readOpenCodeCredentialsCached;
+  } catch {
+    // Mocked/partial modules may reject unknown exports; treat as unavailable.
+    return null;
+  }
+  return typeof candidate === "function"
+    ? (candidate as (params?: {
+        maxAgeMs?: number;
+      }) => Promise<Record<string, Record<string, unknown>> | null>)
+    : null;
+}
+
+/**
+ * Load auth candidates from both credential sources.
+ *
+ * v2 store entries (`opencode.db`) take precedence over legacy `auth.json`
+ * entries because OpenCode refreshes OAuth tokens in the database. Only
+ * OAuth-shaped v2 entries override; API-key credentials are ignored so
+ * callers keep their existing auth.json handling for those.
+ */
+async function readOpenAIAuthSources(
+  maxAgeMs?: number,
+): Promise<{ auth: AuthData | null; credentialKeys: ReadonlySet<string> }> {
+  const auth = await openCodeAuth.readAuthFileCached({ maxAgeMs });
+  const reader = getOpenCodeCredentialReader();
+  if (!reader) {
+    return { auth, credentialKeys: new Set() };
+  }
+
+  const credentials = await Promise.resolve(reader({ maxAgeMs })).catch(() => null);
+  if (!credentials) {
+    return { auth, credentialKeys: new Set() };
+  }
+
+  const merged: AuthData = { ...(auth ?? {}) };
+  const credentialKeys = new Set<string>();
+  for (const integrationId of OPENAI_CREDENTIAL_INTEGRATION_IDS) {
+    const entry = credentials[integrationId];
+    if (isOpenAIOAuthEntry(entry)) {
+      merged[integrationId] = entry;
+      credentialKeys.add(integrationId);
+    }
+  }
+  return { auth: merged, credentialKeys };
+}
+
 function getOpenAIOAuthEntry(
   auth: AuthData | null | undefined,
-): { sourceKey: OpenAIAuthSourceKey; entry: OpenAIOAuthData; accessToken: string } | null {
+  credentialKeys?: ReadonlySet<string>,
+): {
+  sourceKey: OpenAIAuthSourceKey;
+  entry: OpenAIOAuthData;
+  accessToken: string;
+  store: "auth.json" | typeof OPENCODE_CREDENTIAL_SOURCE;
+} | null {
   for (const sourceKey of OPENAI_AUTH_SOURCE_KEYS) {
     const entry = auth?.[sourceKey];
     if (!entry || entry.type !== "oauth") {
@@ -226,15 +311,21 @@ function getOpenAIOAuthEntry(
 
     const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";
     if (accessToken) {
-      return { sourceKey, entry, accessToken };
+      const store = credentialKeys?.has(sourceKey)
+        ? OPENCODE_CREDENTIAL_SOURCE
+        : ("auth.json" as const);
+      return { sourceKey, entry, accessToken, store };
     }
   }
 
   return null;
 }
 
-export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedOpenAIOAuth {
-  const resolved = getOpenAIOAuthEntry(auth);
+export function resolveOpenAIOAuth(
+  auth: AuthData | null | undefined,
+  credentialKeys?: ReadonlySet<string>,
+): ResolvedOpenAIOAuth {
+  const resolved = getOpenAIOAuthEntry(auth, credentialKeys);
   if (!resolved) {
     return { state: "none" };
   }
@@ -246,6 +337,7 @@ export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedO
   return {
     state: "configured",
     sourceKey: resolved.sourceKey,
+    store: resolved.store,
     accessToken: resolved.accessToken,
     refreshToken:
       typeof resolved.entry.refresh === "string" && resolved.entry.refresh.trim()
@@ -261,13 +353,20 @@ export function hasOpenAIOAuth(auth: AuthData | null | undefined): boolean {
   return resolveOpenAIOAuth(auth).state === "configured";
 }
 
+/** Resolve OpenAI OAuth from both credential sources (v2 store first). */
+export async function resolveOpenAIOAuthCached(params?: {
+  maxAgeMs?: number;
+}): Promise<ResolvedOpenAIOAuth> {
+  const { auth, credentialKeys } = await readOpenAIAuthSources(params?.maxAgeMs);
+  return resolveOpenAIOAuth(auth, credentialKeys);
+}
+
 export async function resolveOpenAIAuthIdentity(params?: {
   maxAgeMs?: number;
 }): Promise<ResolvedAuthIdentity | null> {
-  const auth = await readAuthFileCached({
+  const resolved = await resolveOpenAIOAuthCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
   });
-  const resolved = resolveOpenAIOAuth(auth);
   if (resolved.state !== "configured") return null;
 
   if (resolved.accountId) {
@@ -284,19 +383,18 @@ export async function resolveOpenAIAuthIdentity(params?: {
 }
 
 export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
-  const auth = await readAuthFileCached({
+  const resolved = await resolveOpenAIOAuthCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
   });
-  return hasOpenAIOAuth(auth);
+  return resolved.state === "configured";
 }
 
 export async function queryOpenAIQuota(
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OpenAIResult> {
-  const auth = await readAuthFileCached({
+  const resolvedAuth = await resolveOpenAIOAuthCached({
     maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
   });
-  const resolvedAuth = resolveOpenAIOAuth(auth);
   if (resolvedAuth.state !== "configured") return null;
 
   if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {

@@ -7,9 +7,8 @@ import {
   DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
   hasOpenAIOAuthCached,
   queryOpenAIQuota,
-  resolveOpenAIOAuth,
+  resolveOpenAIOAuthCached,
 } from "../lib/openai.js";
-import { readAuthFileCached } from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import {
@@ -43,7 +42,7 @@ export const openaiProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const auth = resolveOpenAIOAuth(await readAuthFileCached({ maxAgeMs: 5_000 }));
+    const auth = await resolveOpenAIOAuthCached({ maxAgeMs: 5_000 });
     const result = await queryOpenAIQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs });
     const providerResult = mapNullableProviderResult(result, {
       errorLabel: "OpenAI",
@@ -77,6 +76,7 @@ export const openaiProvider: QuotaProvider = {
       statusDetailsFromRecord({
         auth_configured: configured ? "true" : "false",
         auth_source: configured ? auth.sourceKey : "(none)",
+        auth_store: configured ? auth.store : "(none)",
         token_status: !configured
           ? "(none)"
           : expiresAt && expiresAt < Date.now()
