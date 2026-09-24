@@ -238,6 +238,28 @@ describe("quota toast runtime state machine", () => {
     expect(client.tui.showToast).toHaveBeenCalledOnce();
   });
 
+  it("tags the quota toast with the session it belongs to", async () => {
+    mocks.loadConfig.mockResolvedValueOnce(makeToastConfig());
+    const provider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue(makeProviderResult("OpenAI", 72)),
+    };
+    mocks.getProviders.mockReturnValue([provider]);
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
+    const toasts: Array<Record<string, unknown>> = [];
+    const { runtime } = await createRuntime(client, {
+      showToast: async (body) => {
+        toasts.push(body);
+      },
+    });
+
+    await runtime.handleTrigger({ sessionID: "session-toast-target", trigger: "session.idle" });
+
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]).toMatchObject({ sessionID: "session-toast-target" });
+  });
+
   it("owns current-model diagnostics and toast percentage formatting", async () => {
     mocks.loadConfig.mockResolvedValueOnce(
       makeToastConfig({ enabledProviders: ["openai"], onlyCurrentModel: true }),

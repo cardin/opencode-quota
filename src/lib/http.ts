@@ -2,6 +2,7 @@
  * HTTP utilities for provider API calls.
  */
 
+import { getAmbientAbortSignal } from "./abort-context.js";
 import { REQUEST_TIMEOUT_MS } from "./types.js";
 
 export type FetchWithTimeoutOptions<T> = {
@@ -17,6 +18,10 @@ export type FetchWithTimeoutOptions<T> = {
  * The response consumer must complete all status handling, body reads, and parsing
  * before returning so the request signal remains active for the full transaction.
  *
+ * When called inside `runWithAbortSignal` (a Promise tool execution), the ambient
+ * session-cancellation signal is merged with the timeout: aborting the session
+ * aborts the in-flight request instead of waiting out the timeout.
+ *
  * @throws Error with message "Request timeout after Xs" if the transaction times out
  */
 export async function fetchWithTimeout<T>(
@@ -25,6 +30,15 @@ export async function fetchWithTimeout<T>(
 ): Promise<T> {
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
+  const ambientSignal = getAmbientAbortSignal();
+  const abortFromAmbient = () => controller.abort(ambientSignal?.reason);
+  if (ambientSignal) {
+    if (ambientSignal.aborted) {
+      controller.abort(ambientSignal.reason);
+    } else {
+      ambientSignal.addEventListener("abort", abortFromAmbient, { once: true });
+    }
+  }
   let timedOut = false;
   const timeoutErrorMessage = `Request timeout after ${Math.round(timeoutMs / 1000)}s`;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -53,5 +67,6 @@ export async function fetchWithTimeout<T>(
     throw err;
   } finally {
     clearTimeout(timeoutId);
+    ambientSignal?.removeEventListener("abort", abortFromAmbient);
   }
 }

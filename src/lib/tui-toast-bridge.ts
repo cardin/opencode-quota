@@ -58,6 +58,9 @@ export function startTuiToastRuntime(context: Context, host: TuiHost): () => voi
         variant: body.variant,
         ...(body.title ? { title: body.title } : {}),
         ...(body.duration ? { duration: body.duration } : {}),
+        // The host titles the toast with the session and adds an "Open" action
+        // when that session's family is not the one on screen.
+        ...(body.sessionID ? { sessionID: body.sessionID } : {}),
       });
     },
     log: (message, extra) => host.log(message, extra),

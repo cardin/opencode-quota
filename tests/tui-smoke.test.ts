@@ -1005,6 +1005,7 @@ describe("tui plugin smoke", () => {
     expect(api.ui.toast).toHaveBeenCalledWith({
       variant: "error",
       message: "OpenCode Quota command failed",
+      sessionID: "session-route",
     });
     expect(api.client.session.command).not.toHaveBeenCalled();
   });

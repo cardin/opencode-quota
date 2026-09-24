@@ -844,6 +844,7 @@ async function runQuotaDialogCommandAsync(
     context.ui.toast.show({
       variant: "error",
       message: "OpenCode Quota command failed",
+      ...(sessionID ? { sessionID } : {}),
     });
   }
 }

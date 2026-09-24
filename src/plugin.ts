@@ -10,6 +10,7 @@
  */
 
 import { Plugin } from "@opencode/plugin";
+import { runWithAbortSignal } from "./lib/abort-context.js";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
@@ -233,21 +234,37 @@ export const QuotaToastPlugin = Plugin.define({
             skewMs?: number;
             force?: boolean;
           };
-          const result = await buildQuotaDialogCommandOutput({
-            command: "quota_status",
-            arguments: JSON.stringify({
-              refreshGoogleTokens: args.refreshGoogleTokens,
-              skewMs: args.skewMs,
-              force: args.force,
-            }),
-            client: quotaClient,
-            roots: getPluginRuntimeRootHints(),
-            sessionID: tool.sessionID,
-            resolveSessionMeta: (sessionID) => getSessionModelMeta(sessionID),
-            lastSessionTokenError,
-            onDetectedProviderIds: reconcileDetectedProviderConfig,
-            log,
-          });
+          // `ToolContext.signal` was added in OpenCode 2.0.12; read it
+          // defensively so the plugin still type-checks against the 2.0.7
+          // contract it declares as its peer while using it on newer hosts.
+          const signal = (tool as { signal?: AbortSignal }).signal;
+          let result: Awaited<ReturnType<typeof buildQuotaDialogCommandOutput>>;
+          try {
+            // Run the whole probe inside the tool's cancellation scope so the
+            // provider HTTP calls in `fetchWithTimeout` abort when the session
+            // stops instead of running to their timeout.
+            result = await runWithAbortSignal(signal, () =>
+              buildQuotaDialogCommandOutput({
+                command: "quota_status",
+                arguments: JSON.stringify({
+                  refreshGoogleTokens: args.refreshGoogleTokens,
+                  skewMs: args.skewMs,
+                  force: args.force,
+                }),
+                client: quotaClient,
+                roots: getPluginRuntimeRootHints(),
+                sessionID: tool.sessionID,
+                resolveSessionMeta: (sessionID) => getSessionModelMeta(sessionID),
+                lastSessionTokenError,
+                onDetectedProviderIds: reconcileDetectedProviderConfig,
+                log,
+              }),
+            );
+          } catch (error) {
+            // A cancelled tool call is not a failure; report no content.
+            if (signal?.aborted) return { content: "" };
+            throw error;
+          }
           if (result.state === "output") {
             await injectRawOutput(tool.sessionID, result.output);
           }
