@@ -40,11 +40,11 @@ vi.mock("fs", async (importOriginal) => {
 });
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [testPaths.dataDir],
-    configDirs: [testPaths.configDir],
-    cacheDirs: [testPaths.cacheDir],
-    stateDirs: [testPaths.stateDir],
+  getOpencodeRuntimeDirs: () => ({
+    dataDir: testPaths.dataDir,
+    configDir: testPaths.configDir,
+    cacheDir: testPaths.cacheDir,
+    stateDir: testPaths.stateDir,
   }),
 }));
 

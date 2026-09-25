@@ -43,7 +43,7 @@ vi.mock("../src/lib/modelsdev-pricing.js", async (importOriginal) => ({
   ...createPricingModuleMock(mocks),
 }));
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
-  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
+  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
 vi.mock("../src/lib/opencode-go-auth.js", () => ({
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS: 5_000,

@@ -56,7 +56,7 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
 );
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
-  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
+  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
 vi.mock("../src/lib/maintainer-announcements.js", () => ({
   BUNDLED_MAINTAINER_ANNOUNCEMENTS: [TEST_ANNOUNCEMENT],

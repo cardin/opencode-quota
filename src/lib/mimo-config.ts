@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
 
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 export interface MimoConfig {
   cookie: string;
@@ -35,8 +35,7 @@ const RETAINED_COOKIE_NAME_SET = new Set<string>(RETAINED_COOKIE_NAMES);
 const REQUIRED_COOKIE_NAMES = ["api-platform_serviceToken", "userId"] as const;
 
 function getConfigCandidatePaths(): string[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return configDirs.map((dir) => join(dir, "opencode-quota", "mimo.json"));
+  return [join(getOpencodeRuntimeDirs().configDir, "opencode-quota", "mimo.json")];
 }
 
 export function normalizeMimoCookieHeader(raw: string): string | null {

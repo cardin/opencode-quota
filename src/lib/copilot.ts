@@ -11,7 +11,7 @@ import { join } from "path";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFile } from "./opencode-auth.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type {
   AuthData,
@@ -209,20 +209,6 @@ const LEGACY_PREMIUM_REQUEST_TOTALS: Partial<Record<CopilotTier, number>> = {
   pro: 300,
   "pro+": 1500,
 };
-
-function dedupeStrings(values: Array<string | undefined | null>): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-
-  for (const value of values) {
-    const trimmed = value?.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-
-  return out;
-}
 
 function validateEnterpriseHost(value: unknown): { host?: string; error?: string } {
   if (value === undefined || value === null) return {};
@@ -431,10 +417,7 @@ function validatePatTargetCompatibility(
 }
 
 export function getCopilotPatConfigCandidatePaths(): string[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return dedupeStrings(
-    configDirs.map((configDir) => join(configDir, COPILOT_QUOTA_CONFIG_FILENAME)),
-  );
+  return [join(getOpencodeRuntimeDirs().configDir, COPILOT_QUOTA_CONFIG_FILENAME)];
 }
 
 function validateQuotaConfig(raw: unknown): { config: CopilotQuotaConfig | null; error?: string } {

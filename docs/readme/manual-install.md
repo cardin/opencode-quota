@@ -12,9 +12,9 @@ Use this guide only if you want to edit OpenCode files yourself.
 
 ## Choose where to install
 
-- **Global:** works in every project. Files usually live in `~/.config/opencode`.
+- **Global:** works in every project. Files live in `~/.config/opencode` on every OS (`$XDG_CONFIG_HOME/opencode` when `XDG_CONFIG_HOME` is set).
 - **Project:** works only in the current repo or worktree.
-- **Custom:** if `OPENCODE_CONFIG_DIR` is set, use that directory.
+- **Custom:** if `OPENCODE_CONFIG_DIR` is set, OpenCode uses that directory instead of the global one.
 
 Use `.jsonc` files if you want comments. Use `.json` files if another tool requires strict JSON.
 

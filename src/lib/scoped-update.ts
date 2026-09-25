@@ -15,10 +15,7 @@ import {
 } from "./config-write-target.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { editConfigDocumentPaths, parseConfigDocument } from "./opencode-config-editor.js";
-import {
-  getOpencodeRuntimeDirCandidates,
-  getOpencodeRuntimeDirs,
-} from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
   auditObsoleteUpdateSources,
   discoverExistingScopedUpdateMigrationCandidates,
@@ -197,16 +194,10 @@ export async function planScopedUpdate(
   const cwd = params.cwd ?? process.cwd();
   const env = params.env ?? process.env;
   const projectRoot = findGitWorktreeRoot(cwd) ?? cwd;
-  const primaryRuntime = getOpencodeRuntimeDirs({ env, homeDir: params.homeDir });
-  const runtime = getOpencodeRuntimeDirCandidates({
-    platform: params.platform,
-    env,
-    homeDir: params.homeDir,
-    primary: primaryRuntime,
-  });
+  const runtime = getOpencodeRuntimeDirs({ env, homeDir: params.homeDir });
   const configPaths = await dedupeByRealPath([
     ...selectedConfigPaths(projectRoot),
-    ...selectedConfigPaths(primaryRuntime.configDir),
+    ...selectedConfigPaths(runtime.configDir),
   ]);
 
   const workingDocuments = new Map<string, ScopedUpdateWorkingDocument>();
@@ -241,7 +232,7 @@ export async function planScopedUpdate(
   }
 
   const migrationDiscovery = await discoverExistingScopedUpdateMigrationCandidates({
-    globalRoots: runtime.configDirs,
+    globalRoot: runtime.configDir,
     workspaceRoot: projectRoot,
     selectedPackagePaths: configPaths,
   });
@@ -303,8 +294,7 @@ export async function planScopedUpdate(
   manualFindings.push(
     ...(await auditObsoleteUpdateSources({
       env,
-      configDirs: runtime.configDirs,
-      primaryConfigDir: primaryRuntime.configDir,
+      configDir: runtime.configDir,
     })),
   );
 
@@ -345,10 +335,8 @@ export async function planScopedUpdate(
 
   const uniqueSpecs = [...new Set(foundSpecs)];
   const cacheSpecs = [...new Set([...uniqueSpecs, QUOTA_LATEST_SPEC])];
-  const cacheCandidates = runtime.cacheDirs.flatMap((cacheDir) =>
-    cacheSpecs.map((spec) =>
-      join(cacheDir, "packages", sanitizeOpenCodePackageSpec(spec, params.platform)),
-    ),
+  const cacheCandidates = cacheSpecs.map((spec) =>
+    join(runtime.cacheDir, "packages", sanitizeOpenCodePackageSpec(spec, params.platform)),
   );
 
   return {

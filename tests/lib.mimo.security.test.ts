@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   readFile: vi.fn(),
-  getOpencodeRuntimeDirCandidates: vi.fn(),
+  getOpencodeRuntimeDirs: vi.fn(),
 }));
 
 vi.mock("fs/promises", () => ({
@@ -12,12 +12,11 @@ vi.mock("fs/promises", () => ({
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: mocks.getOpencodeRuntimeDirCandidates,
+  getOpencodeRuntimeDirs: mocks.getOpencodeRuntimeDirs,
 }));
 
 const originalEnv = process.env;
 const primaryConfigDir = join(tmpdir(), "trusted", "primary");
-const fallbackConfigDir = join(tmpdir(), "trusted", "fallback");
 
 describe("MiMo credential security boundary", () => {
   beforeEach(() => {
@@ -25,9 +24,7 @@ describe("MiMo credential security boundary", () => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
     delete process.env.MIMO_USAGE_COOKIE;
-    mocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primaryConfigDir, fallbackConfigDir],
-    });
+    mocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primaryConfigDir });
     mocks.readFile.mockImplementation(async () => {
       const error = new Error("missing") as NodeJS.ErrnoException;
       error.code = "ENOENT";
@@ -45,7 +42,6 @@ describe("MiMo credential security boundary", () => {
     await expect(resolveMimoConfig()).resolves.toEqual({ state: "none" });
     expect(mocks.readFile.mock.calls.map((call) => call[0])).toEqual([
       join(primaryConfigDir, "opencode-quota", "mimo.json"),
-      join(fallbackConfigDir, "opencode-quota", "mimo.json"),
     ]);
 
     const checked = JSON.stringify(mocks.readFile.mock.calls);

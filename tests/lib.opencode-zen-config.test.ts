@@ -5,11 +5,11 @@ import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimePathMocks = vi.hoisted(() => ({
-  getOpencodeRuntimeDirCandidates: vi.fn(),
+  getOpencodeRuntimeDirs: vi.fn(),
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: runtimePathMocks.getOpencodeRuntimeDirCandidates,
+  getOpencodeRuntimeDirs: runtimePathMocks.getOpencodeRuntimeDirs,
 }));
 
 const originalEnv = process.env;
@@ -38,7 +38,9 @@ describe("opencode-zen config resolution", () => {
     delete process.env.OPENCODE_AUTH_COOKIE;
     delete process.env.OPENCODE_GO_WORKSPACE_ID;
     delete process.env.OPENCODE_GO_AUTH_COOKIE;
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({
+      configDir: join(tmpdir(), "opencode-zen-config-missing"),
+    });
   });
 
   afterEach(async () => {
@@ -57,9 +59,7 @@ describe("opencode-zen config resolution", () => {
       path,
       JSON.stringify({ workspaceId: "wrk_file", consoleSessionCookie: "cookie-file" }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
 
@@ -86,9 +86,7 @@ describe("opencode-zen config resolution", () => {
       path,
       JSON.stringify({ workspaceId: " wrk_file ", consoleSessionCookie: " cookie-file " }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
 
@@ -103,9 +101,7 @@ describe("opencode-zen config resolution", () => {
     const [primary] = await createConfigDirs();
     const path = configPath(primary);
     await writeFile(path, JSON.stringify({ workspaceId: 123, consoleSessionCookie: "cookie" }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
 
@@ -120,9 +116,7 @@ describe("opencode-zen config resolution", () => {
     const [primary] = await createConfigDirs();
     const path = configPath(primary);
     await writeFile(path, JSON.stringify({ workspaceId: "wrk_file", authCookie: "old-cookie" }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { getOpenCodeZenConfigDiagnostics, resolveOpenCodeZenConfig } = await import(
       "../src/lib/opencode-zen-config.js"
@@ -151,9 +145,7 @@ describe("opencode-zen config resolution", () => {
         consoleSessionCookie: "session-file",
       }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
 
@@ -171,9 +163,7 @@ describe("opencode-zen config resolution", () => {
       configPath(fallback),
       JSON.stringify({ workspaceId: "wrk_ok", consoleSessionCookie: "cookie-ok" }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary, fallback],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
 
@@ -188,9 +178,7 @@ describe("opencode-zen config resolution", () => {
     const [primary] = await createConfigDirs();
     const path = configPath(primary);
     await writeFile(path, '{"consoleSessionCookie":super-secret}');
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveOpenCodeZenConfig } = await import("../src/lib/opencode-zen-config.js");
 
@@ -217,7 +205,7 @@ describe("opencode-zen config resolution", () => {
       JSON.stringify({ workspaceId: zenWorkspaceCanary, consoleSessionCookie: zenCookieCanary }),
     );
     await writeFile(obsoleteGoPath, JSON.stringify({ authCookie: goFileCanary }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { getOpenCodeZenConfigDiagnostics, resolveOpenCodeZenConfig } = await import(
       "../src/lib/opencode-zen-config.js"
@@ -229,8 +217,7 @@ describe("opencode-zen config resolution", () => {
     const { auditObsoleteUpdateSources } = await import("../src/lib/scoped-update-migration.js");
     const findings = await auditObsoleteUpdateSources({
       env: process.env,
-      configDirs: [primary],
-      primaryConfigDir: primary,
+      configDir: primary,
     });
     expect(await readFile(path)).toEqual(zenBytesBeforeAudit);
     expect(await readFile(obsoleteGoPath)).toEqual(goBytesBeforeAudit);
@@ -278,9 +265,7 @@ describe("opencode-zen config resolution", () => {
       path,
       JSON.stringify({ workspaceId: "wrk_initial", consoleSessionCookie: "cookie-initial" }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveOpenCodeZenConfigCached } = await import("../src/lib/opencode-zen-config.js");
     const first = await resolveOpenCodeZenConfigCached({ maxAgeMs: 5_000 });
@@ -299,9 +284,7 @@ describe("opencode-zen config resolution", () => {
       path,
       JSON.stringify({ workspaceId: "wrk_secret", consoleSessionCookie: "cookie-secret" }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { getOpenCodeZenConfigDiagnostics } = await import("../src/lib/opencode-zen-config.js");
     const diagnostics = await getOpenCodeZenConfigDiagnostics();

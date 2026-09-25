@@ -13,12 +13,6 @@ export function createRuntimePathsMockModule() {
   const stateDir = join(homedir(), ".local", "state", "opencode");
 
   return {
-    getOpencodeRuntimeDirCandidates: () => ({
-      dataDirs: [dataDir],
-      configDirs: [configDir],
-      cacheDirs: [cacheDir],
-      stateDirs: [stateDir],
-    }),
     getOpencodeRuntimeDirs: () => ({
       dataDir,
       configDir,

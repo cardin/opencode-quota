@@ -24,7 +24,7 @@ import {
   planConfigDocumentEdit,
   validateConfigDocumentEdit,
 } from "./opencode-config-editor.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
   getQuotaProviderDisplayLabel,
   normalizeQuotaProviderId,
@@ -973,11 +973,7 @@ export function resolveInitInstallerBaseDir(params: {
   homeDir?: string;
 }): string {
   if (params.scope === "global") {
-    const candidates = getOpencodeRuntimeDirCandidates({
-      env: params.env,
-      homeDir: params.homeDir,
-    });
-    return candidates.configDirs[0]!;
+    return getOpencodeRuntimeDirs({ env: params.env, homeDir: params.homeDir }).configDir;
   }
 
   const cwd = params.cwd ?? process.cwd();

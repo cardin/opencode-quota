@@ -9,13 +9,12 @@
 
 import { existsSync } from "fs";
 import { join } from "path";
-import { getEffectiveConfigRoot } from "./config-file-utils.js";
 import { isResetTimeDecimals } from "./format-utils.js";
 import {
   buildOpenCodeConfigCandidates,
   readOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderShape, normalizeQuotaProviderId } from "./provider-metadata.js";
 import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-style.js";
 import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
@@ -1192,13 +1191,11 @@ function buildConfigLayerCandidatesForRoot(
 }
 
 export function buildConfigLayerCandidates(
-  configDirs: string[],
+  globalConfigDir: string,
   configRootDir: string,
 ): ConfigLayerCandidate[] {
   const workspaceCandidates = buildConfigLayerCandidatesForRoot(configRootDir, "workspace");
-  const globalCandidates = configDirs.flatMap((dir) =>
-    buildConfigLayerCandidatesForRoot(dir, "global"),
-  );
+  const globalCandidates = buildConfigLayerCandidatesForRoot(globalConfigDir, "global");
   const globalPaths = new Set(globalCandidates.map((candidate) => candidate.path));
 
   return [
@@ -1253,9 +1250,8 @@ export async function loadConfig(
     networkSettingSources: Record<string, string>;
     configIssues: LoadConfigIssue[];
   }> {
-    const configRootDir =
-      options?.configRootDir ?? getEffectiveConfigRoot(options?.cwd ?? process.cwd());
-    const { configDirs } = getOpencodeRuntimeDirCandidates();
+    const configRootDir = options?.configRootDir ?? options?.cwd ?? process.cwd();
+    const { configDir } = getOpencodeRuntimeDirs();
     const config = cloneDefaultConfig();
     const usedPaths: string[] = [];
     const globalConfigPaths: string[] = [];
@@ -1264,7 +1260,7 @@ export async function loadConfig(
     const configIssues: LoadConfigIssue[] = [];
     const authoritativeSidecarRoots = new Set<string>();
 
-    for (const candidate of buildConfigLayerCandidates(configDirs, configRootDir)) {
+    for (const candidate of buildConfigLayerCandidates(configDir, configRootDir)) {
       const rootKey = `${candidate.scope}:${candidate.rootDir}`;
       if (candidate.kind === "legacy" && authoritativeSidecarRoots.has(rootKey)) {
         continue;

@@ -1,6 +1,6 @@
 import { resolve } from "path";
 import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
-import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils.js";
+import { findGitWorktreeRoot } from "./config-file-utils.js";
 import { sanitizeQuotaRenderData } from "./display-sanitize.js";
 import { formatQuotaRows } from "./format.js";
 import { formatQuotaModeHeading } from "./format-utils.js";
@@ -146,10 +146,9 @@ export function resolveCliRoots(cwd: string): {
 } {
   const fallbackDirectory = resolve(cwd);
   const worktreeRoot = findGitWorktreeRoot(fallbackDirectory) ?? fallbackDirectory;
-  const configRoot = getEffectiveConfigRoot(worktreeRoot);
   return {
     workspaceRoot: worktreeRoot,
-    configRoot,
+    configRoot: worktreeRoot,
     fallbackDirectory,
   };
 }

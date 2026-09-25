@@ -249,7 +249,7 @@ describe("legacy display inspection", () => {
 describe("migration candidate discovery", () => {
   it("reuses global-then-workspace candidate order and runtime relative paths", () => {
     const candidates = buildScopedUpdateMigrationCandidates({
-      globalRoots: ["/global-a", "/global-b"],
+      globalRoot: "/global-a",
       workspaceRoot: "/workspace",
     });
 
@@ -286,30 +286,6 @@ describe("migration candidate discovery", () => {
         format: "jsonc",
       },
       {
-        path: join("/global-b", "opencode-quota/quota-toast.jsonc"),
-        container: "quota-root",
-        scope: "global",
-        format: "jsonc",
-      },
-      {
-        path: join("/global-b", "opencode-quota/quota-toast.json"),
-        container: "quota-root",
-        scope: "global",
-        format: "json",
-      },
-      {
-        path: join("/global-b", "opencode.json"),
-        container: "experimental.quotaToast",
-        scope: "global",
-        format: "json",
-      },
-      {
-        path: join("/global-b", "opencode.jsonc"),
-        container: "experimental.quotaToast",
-        scope: "global",
-        format: "jsonc",
-      },
-      {
         path: join("/workspace", "opencode-quota/quota-toast.jsonc"),
         container: "quota-root",
         scope: "workspace",
@@ -339,7 +315,7 @@ describe("migration candidate discovery", () => {
   it("does not duplicate a workspace root already present globally", () => {
     const root = tempDir();
     const candidates = buildScopedUpdateMigrationCandidates({
-      globalRoots: [root],
+      globalRoot: root,
       workspaceRoot: root,
     });
 
@@ -357,7 +333,7 @@ describe("migration candidate discovery", () => {
     write(workspaceFile, "{}");
 
     const result = await discoverExistingScopedUpdateMigrationCandidates({
-      globalRoots: [globalRoot],
+      globalRoot: globalRoot,
       workspaceRoot,
     });
 
@@ -378,7 +354,7 @@ describe("migration candidate discovery", () => {
     symlinkSync(outsideParent, join(globalRoot, "opencode-quota"));
 
     const result = await discoverExistingScopedUpdateMigrationCandidates({
-      globalRoots: [globalRoot],
+      globalRoot: globalRoot,
       workspaceRoot: join(root, "workspace"),
     });
 
@@ -403,7 +379,7 @@ describe("migration candidate discovery", () => {
     symlinkSync(workspaceFile, symlinkPath);
 
     const result = await discoverExistingScopedUpdateMigrationCandidates({
-      globalRoots: [globalRoot],
+      globalRoot: globalRoot,
       workspaceRoot,
       selectedPackagePaths: [symlinkPath],
     });
@@ -438,7 +414,7 @@ describe("migration candidate discovery", () => {
     symlinkSync(workspaceFile, symlinkPath);
 
     const result = await discoverExistingScopedUpdateMigrationCandidates({
-      globalRoots: [globalRoot],
+      globalRoot: globalRoot,
       workspaceRoot,
       selectedPackagePaths: [workspaceFile],
     });
@@ -506,8 +482,7 @@ describe("obsolete source audit", () => {
 
     const findings = await auditObsoleteUpdateSources({
       env,
-      configDirs: [root],
-      primaryConfigDir: root,
+      configDir: root,
     });
 
     expect(findings.filter((finding) => finding.kind === "obsolete-go-env")).toEqual(
@@ -516,19 +491,14 @@ describe("obsolete source audit", () => {
     expect(JSON.stringify(findings)).not.toContain("go-secret-canary");
   });
 
-  it("reports the exact obsolete Go path under every global config candidate", async () => {
+  it("reports the exact obsolete Go path under the global config dir", async () => {
     const root = tempDir();
-    const configDirs = [join(root, "first"), join(root, "second")];
-    const paths = configDirs.map((dir) => join(dir, OBSOLETE_GO_FILE));
-    for (const path of paths) write(path, "legacy-file-secret-canary");
+    const path = join(root, OBSOLETE_GO_FILE);
+    write(path, "legacy-file-secret-canary");
 
-    const findings = await auditObsoleteUpdateSources({
-      env: {},
-      configDirs,
-      primaryConfigDir: configDirs[0] ?? root,
-    });
+    const findings = await auditObsoleteUpdateSources({ env: {}, configDir: root });
 
-    expect(findings).toEqual(paths.map((path) => ({ kind: "obsolete-go-file", path })));
+    expect(findings).toEqual([{ kind: "obsolete-go-file", path }]);
     expect(JSON.stringify(findings)).not.toContain("legacy-file-secret-canary");
   });
 
@@ -539,8 +509,7 @@ describe("obsolete source audit", () => {
 
     const findings = await auditObsoleteUpdateSources({
       env: {},
-      configDirs: [globalRoot],
-      primaryConfigDir: globalRoot,
+      configDir: globalRoot,
     });
 
     expect(findings).toEqual([]);
@@ -557,8 +526,7 @@ describe("obsolete source audit", () => {
 
     const findings = await auditObsoleteUpdateSources({
       env,
-      configDirs: [root],
-      primaryConfigDir: root,
+      configDir: root,
     });
 
     expect(findings).toEqual([
@@ -575,11 +543,10 @@ describe("obsolete source audit", () => {
     "malformed",
     "incomplete",
     "symlink",
-  ])("suppresses ambiguous Zen findings when any supported file path exists: %s", async (kind) => {
+  ])("suppresses ambiguous Zen findings when the supported file path exists: %s", async (kind) => {
     const root = tempDir();
-    const first = join(root, "first");
-    const second = join(root, "second");
-    const supportedPath = join(second, SUPPORTED_ZEN_FILE);
+    const configDir = join(root, "config");
+    const supportedPath = join(configDir, SUPPORTED_ZEN_FILE);
     if (kind === "symlink") {
       const target = join(root, "target.json");
       write(target, "supported-file-secret-canary");
@@ -594,30 +561,10 @@ describe("obsolete source audit", () => {
         OPENCODE_WORKSPACE_ID: "zen-workspace-secret",
         OPENCODE_AUTH_COOKIE: "zen-cookie-secret",
       },
-      configDirs: [first, second],
-      primaryConfigDir: first,
+      configDir,
     });
 
     expect(findings).toEqual([]);
-  });
-
-  it("deduplicates config paths while preserving first config-dir order", async () => {
-    const root = tempDir();
-    const first = join(root, "first");
-    const second = join(root, "second");
-    write(join(first, OBSOLETE_GO_FILE), "one");
-    write(join(second, OBSOLETE_GO_FILE), "two");
-
-    const findings = await auditObsoleteUpdateSources({
-      env: {},
-      configDirs: [first, first, second],
-      primaryConfigDir: first,
-    });
-
-    expect(findings).toEqual([
-      { kind: "obsolete-go-file", path: join(first, OBSOLETE_GO_FILE) },
-      { kind: "obsolete-go-file", path: join(second, OBSOLETE_GO_FILE) },
-    ]);
   });
 });
 

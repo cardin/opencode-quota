@@ -113,7 +113,7 @@ vi.mock("../src/lib/anthropic.js", () => ({
   queryAnthropicQuota: mocks.queryAnthropicQuota,
 }));
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
-  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
+  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
 
 const renderedSurfaces = vi.hoisted(() => ({ sidebar: [] as string[], compact: [] as string[] }));

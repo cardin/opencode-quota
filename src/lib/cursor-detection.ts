@@ -5,7 +5,7 @@ import { join } from "path";
 import { CURSOR_LEGACY_PROVIDER_ID } from "./cursor-pricing.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderRuntimeIds } from "./provider-metadata.js";
 import type { CursorOAuthAuthData } from "./types.js";
 
@@ -177,9 +177,9 @@ function parseOpenCodeConfig(
 }
 
 export async function inspectCursorOpenCodeIntegration(): Promise<CursorOpenCodeIntegration> {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
+  const { configDir } = getOpencodeRuntimeDirs();
   const checkedPaths = dedupe(
-    [...configDirs, process.cwd()].flatMap((dir) => [
+    [configDir, process.cwd()].flatMap((dir) => [
       join(dir, "opencode.json"),
       join(dir, "opencode.jsonc"),
     ]),

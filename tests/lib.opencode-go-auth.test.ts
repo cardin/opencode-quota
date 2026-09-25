@@ -242,8 +242,7 @@ describe("OpenCode Go auth resolution", () => {
     const readsBeforeAudit = authMocks.readFile.mock.calls.length;
     const findings = await auditObsoleteUpdateSources({
       env: process.env,
-      configDirs: [configDir],
-      primaryConfigDir: configDir,
+      configDir,
     });
     expect(authMocks.readFile).toHaveBeenCalledTimes(readsBeforeAudit);
     expect(process.env.OPENCODE_GO_WORKSPACE_ID).toBe("obsolete-go-workspace-canary");

@@ -9,8 +9,8 @@ Most people only need the examples on this page. The full option list is at the 
 OpenCode Quota normally keeps its settings in one separate file:
 
 - Project install: `<your-repo>/opencode-quota/quota-toast.jsonc`
-- Global install: usually `~/.config/opencode/opencode-quota/quota-toast.jsonc`
-- Custom config directory: `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.jsonc`
+- Global install: `~/.config/opencode/opencode-quota/quota-toast.jsonc` on every OS (`$XDG_CONFIG_HOME/opencode/...` when `XDG_CONFIG_HOME` is set)
+- Custom config directory: `$OPENCODE_CONFIG_DIR/opencode-quota/quota-toast.jsonc` (replaces the global folder, like OpenCode 2)
 
 Strict `.json` files also work. Run `/quota_status` if you are unsure which file is active.
 

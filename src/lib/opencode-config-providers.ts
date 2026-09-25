@@ -20,7 +20,7 @@ import {
   readOpenCodeConfigCandidate,
   selectFirstExistingOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
   getQuotaProviderRuntimeIds,
   getQuotaProviderShape,
@@ -50,18 +50,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function getCandidates(configRootDir: string): OpenCodeConfigCandidate[] {
-  return dedupeNonEmptyStrings([
-    ...getOpencodeRuntimeDirCandidates().configDirs,
-    configRootDir,
-  ]).flatMap((directory) => {
-    const selected = selectFirstExistingOpenCodeConfigCandidate(
-      buildOpenCodeConfigCandidates({
-        directories: [directory],
-        formatOrder: ["jsonc", "json"],
-      }),
-    );
-    return selected ? [selected] : [];
-  });
+  return dedupeNonEmptyStrings([getOpencodeRuntimeDirs().configDir, configRootDir]).flatMap(
+    (directory) => {
+      const selected = selectFirstExistingOpenCodeConfigCandidate(
+        buildOpenCodeConfigCandidates({
+          directories: [directory],
+          formatOrder: ["jsonc", "json"],
+        }),
+      );
+      return selected ? [selected] : [];
+    },
+  );
 }
 
 async function readConfig(
@@ -169,9 +168,8 @@ export async function reconcileDetectedProvidersInGlobalConfig(
         return Boolean(shape && shape.id !== "quota-providers");
       }),
   );
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  const globalConfigDir = configDirs[0];
-  if (!globalConfigDir || detectedProviderIds.length === 0) {
+  const globalConfigDir = getOpencodeRuntimeDirs().configDir;
+  if (detectedProviderIds.length === 0) {
     return { path: null, format: null, addedProviderIds: [], changed: false };
   }
 

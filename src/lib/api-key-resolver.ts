@@ -12,7 +12,7 @@ import {
   buildOpenCodeConfigCandidates,
   readOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 /** A candidate config file path with its format */
 export interface ConfigCandidate {
@@ -20,9 +20,9 @@ export interface ConfigCandidate {
   isJsonc: boolean;
 }
 
-function buildOpencodeConfigCandidates(configDirs: readonly string[]): ConfigCandidate[] {
+function buildOpencodeConfigCandidates(directories: readonly string[]): ConfigCandidate[] {
   return buildOpenCodeConfigCandidates({
-    directories: configDirs,
+    directories,
     formatOrder: ["jsonc", "json"],
   }).map((candidate) => ({
     path: candidate.path,
@@ -38,9 +38,9 @@ function buildOpencodeConfigCandidates(configDirs: readonly string[]): ConfigCan
  */
 export function getOpencodeConfigCandidatePaths(): ConfigCandidate[] {
   const cwd = process.cwd();
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
+  const { configDir } = getOpencodeRuntimeDirs();
 
-  return [...buildOpencodeConfigCandidates([cwd]), ...buildOpencodeConfigCandidates(configDirs)];
+  return [...buildOpencodeConfigCandidates([cwd]), ...buildOpencodeConfigCandidates([configDir])];
 }
 
 /**
@@ -50,8 +50,8 @@ export function getOpencodeConfigCandidatePaths(): ConfigCandidate[] {
  * current workspace may be untrusted.
  */
 export function getGlobalOpencodeConfigCandidatePaths(): ConfigCandidate[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return buildOpencodeConfigCandidates(configDirs);
+  const { configDir } = getOpencodeRuntimeDirs();
+  return buildOpencodeConfigCandidates([configDir]);
 }
 
 /**

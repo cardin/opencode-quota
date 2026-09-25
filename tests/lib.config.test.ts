@@ -4,21 +4,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type ConfigLoaderWorkspace,
   createConfigLoaderWorkspace,
-  createEmptyRuntimeDirCandidates,
+  createUnusedRuntimeDirs,
   quotaSidecarConfigSource,
 } from "./helpers/config-loader-test-harness.js";
 
 const runtimeDirs = vi.hoisted(() => ({
   value: {
-    dataDirs: [] as string[],
-    configDirs: [] as string[],
-    cacheDirs: [] as string[],
-    stateDirs: [] as string[],
+    dataDir: "",
+    configDir: "",
+    cacheDir: "",
+    stateDir: "",
   },
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
@@ -34,7 +34,7 @@ describe("loadConfig", () => {
     delete process.env.OPENCODE_CONFIG_DIR;
     workspace = createConfigLoaderWorkspace("opencode-quota-config-sdk-");
     isolatedCwd = workspace.workspaceDir;
-    runtimeDirs.value = createEmptyRuntimeDirCandidates();
+    runtimeDirs.value = createUnusedRuntimeDirs(workspace.tempDir);
   });
 
   afterEach(() => {
@@ -536,7 +536,9 @@ describe("loadConfig", () => {
     expect(explicit.meta.networkSettingSources).toEqual({});
   });
 
-  it("resolves relative OPENCODE_CONFIG_DIR against cwd for file loading", async () => {
+  it("keeps the workspace config root when OPENCODE_CONFIG_DIR is set, like OpenCode 2", async () => {
+    // OpenCode 2 uses OPENCODE_CONFIG_DIR as the global config dir (resolved by
+    // opencode-runtime-paths, mocked here); project config still comes from the workspace.
     process.env.OPENCODE_CONFIG_DIR = ".opencode";
     mkdirSync(join(isolatedCwd, ".opencode"), { recursive: true });
     writeFileSync(
@@ -544,14 +546,20 @@ describe("loadConfig", () => {
       JSON.stringify({ experimental: { quotaToast: { enabled: false } } }),
       "utf8",
     );
+    writeFileSync(
+      join(isolatedCwd, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { minIntervalMs: 12_345 } } }),
+      "utf8",
+    );
 
     const meta = createLoadConfigMeta();
     const config = await loadConfig(undefined, meta, { cwd: isolatedCwd });
 
-    expect(config.enabled).toBe(false);
-    expect(meta.paths).toContain(
-      `${join(isolatedCwd, ".opencode", "opencode.json")} (experimental.quotaToast)`,
-    );
+    expect(config.enabled).toBe(true);
+    expect(config.minIntervalMs).toBe(12_345);
+    expect(meta.workspaceConfigPaths).toEqual([
+      `${join(isolatedCwd, "opencode.json")} (experimental.quotaToast)`,
+    ]);
   });
 
   it("ignores invalid OpenCode Go windows without recording a setting source", async () => {

@@ -7,10 +7,10 @@ const { mockProviders, runtimeDirs, statusData } = vi.hoisted(() => ({
   mockProviders: [] as any[],
   runtimeDirs: {
     value: {
-      dataDirs: [] as string[],
-      configDirs: [] as string[],
-      cacheDirs: [] as string[],
-      stateDirs: [] as string[],
+      dataDir: "/tmp/opencode-quota-cli-status-data",
+      configDir: "/tmp/opencode-quota-cli-status-config",
+      cacheDir: "/tmp/opencode-quota-cli-status-cache",
+      stateDir: "/tmp/opencode-quota-cli-status-state",
     },
   },
   statusData: {
@@ -27,13 +27,7 @@ vi.mock("../src/providers/registry.js", () => ({
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: runtimeDirs.value.dataDirs[0] ?? "/tmp/opencode-quota-cli-status-data",
-    configDir: runtimeDirs.value.configDirs[0] ?? "/tmp/opencode-quota-cli-status-config",
-    cacheDir: runtimeDirs.value.cacheDirs[0] ?? "/tmp/opencode-quota-cli-status-cache",
-    stateDir: runtimeDirs.value.stateDirs[0] ?? "/tmp/opencode-quota-cli-status-state",
-  }),
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
 vi.mock("../src/lib/quota-dialog-commands.js", () => ({
@@ -132,10 +126,10 @@ describe("runCliStatusCommand", () => {
     mkdirSync(globalConfigDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
     runtimeDirs.value = {
-      dataDirs: [],
-      configDirs: [globalConfigDir],
-      cacheDirs: [join(tempDir, "cache")],
-      stateDirs: [],
+      dataDir: "/tmp/opencode-quota-cli-status-data",
+      configDir: globalConfigDir,
+      cacheDir: join(tempDir, "cache"),
+      stateDir: "/tmp/opencode-quota-cli-status-state",
     };
     mockProviders.length = 0;
     statusData.value = null;

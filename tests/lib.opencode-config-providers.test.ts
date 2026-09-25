@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeDirs = vi.hoisted(() => ({
   value: {
-    dataDirs: [] as string[],
-    configDirs: [] as string[],
-    cacheDirs: [] as string[],
-    stateDirs: [] as string[],
+    dataDir: "",
+    configDir: "",
+    cacheDir: "",
+    stateDir: "",
   },
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
 import { extractProviderIdsFromParsedConfig } from "../src/lib/config-file-utils.js";
@@ -35,10 +35,10 @@ describe("opencode config provider discovery", () => {
     mkdirSync(globalConfigDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
     runtimeDirs.value = {
-      dataDirs: [],
-      configDirs: [globalConfigDir],
-      cacheDirs: [],
-      stateDirs: [],
+      dataDir: join(tempDir, "data"),
+      configDir: globalConfigDir,
+      cacheDir: join(tempDir, "cache"),
+      stateDir: join(tempDir, "state"),
     };
   });
 

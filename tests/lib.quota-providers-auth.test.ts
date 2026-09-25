@@ -3,12 +3,6 @@ import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [join(homedir(), ".local", "share", "opencode")],
-    configDirs: [join(homedir(), ".config", "opencode")],
-    cacheDirs: [join(homedir(), ".cache", "opencode")],
-    stateDirs: [join(homedir(), ".local", "state", "opencode")],
-  }),
   getOpencodeRuntimeDirs: () => ({
     dataDir: join(homedir(), ".local", "share", "opencode"),
     configDir: join(homedir(), ".config", "opencode"),

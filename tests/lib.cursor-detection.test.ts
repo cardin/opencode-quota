@@ -50,11 +50,11 @@ vi.mock("../src/lib/opencode-auth.js", () => ({
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [testPaths.data],
-    configDirs: [testPaths.config],
-    cacheDirs: [testPaths.cache],
-    stateDirs: [testPaths.state],
+  getOpencodeRuntimeDirs: () => ({
+    dataDir: testPaths.data,
+    configDir: testPaths.config,
+    cacheDir: testPaths.cache,
+    stateDir: testPaths.state,
   }),
 }));
 

@@ -276,18 +276,16 @@ export function inspectLegacyDisplayDocument(params: {
 }
 
 export function buildScopedUpdateMigrationCandidates(params: {
-  globalRoots: readonly string[];
+  globalRoot: string;
   workspaceRoot: string;
 }): ScopedUpdateMigrationCandidate[] {
-  return buildConfigLayerCandidates([...params.globalRoots], params.workspaceRoot).map(
-    (candidate) => ({
-      path: candidate.path,
-      rootDir: candidate.rootDir,
-      scope: candidate.scope,
-      format: candidate.path.endsWith(".jsonc") ? "jsonc" : "json",
-      container: candidate.kind === "plugin" ? "quota-root" : "experimental.quotaToast",
-    }),
-  );
+  return buildConfigLayerCandidates(params.globalRoot, params.workspaceRoot).map((candidate) => ({
+    path: candidate.path,
+    rootDir: candidate.rootDir,
+    scope: candidate.scope,
+    format: candidate.path.endsWith(".jsonc") ? "jsonc" : "json",
+    container: candidate.kind === "plugin" ? "quota-root" : "experimental.quotaToast",
+  }));
 }
 
 function isMissing(error: unknown): boolean {
@@ -346,7 +344,7 @@ export async function resolveScopedUpdateMigrationBoundary(params: {
 }
 
 export async function discoverExistingScopedUpdateMigrationCandidates(params: {
-  globalRoots: readonly string[];
+  globalRoot: string;
   workspaceRoot: string;
   selectedPackagePaths?: readonly string[];
 }): Promise<{
@@ -430,8 +428,7 @@ async function knownPathExists(path: string, action: string): Promise<boolean> {
 
 export async function auditObsoleteUpdateSources(params: {
   env: NodeJS.ProcessEnv;
-  configDirs: string[];
-  primaryConfigDir: string;
+  configDir: string;
 }): Promise<ScopedUpdateManualFinding[]> {
   const findings: ScopedUpdateManualFinding[] = [];
 
@@ -441,32 +438,24 @@ export async function auditObsoleteUpdateSources(params: {
     }
   }
 
-  const configDirs = [...new Set(params.configDirs)];
-  const goPaths = configDirs.map((dir) => join(dir, OBSOLETE_GO_FILE));
-  const zenPaths = configDirs.map((dir) => join(dir, SUPPORTED_ZEN_FILE));
-  const [goPresence, zenPresence] = await Promise.all([
-    Promise.all(
-      goPaths.map((path) => knownPathExists(path, "inspect obsolete OpenCode Go source")),
-    ),
-    Promise.all(
-      zenPaths.map((path) => knownPathExists(path, "inspect supported OpenCode Zen source")),
-    ),
+  const goPath = join(params.configDir, OBSOLETE_GO_FILE);
+  const zenPath = join(params.configDir, SUPPORTED_ZEN_FILE);
+  const [goPresent, zenPresent] = await Promise.all([
+    knownPathExists(goPath, "inspect obsolete OpenCode Go source"),
+    knownPathExists(zenPath, "inspect supported OpenCode Zen source"),
   ]);
 
-  for (let index = 0; index < goPaths.length; index++) {
-    const path = goPaths[index];
-    if (goPresence[index] && path) {
-      findings.push({ kind: "obsolete-go-file", path });
-    }
+  if (goPresent) {
+    findings.push({ kind: "obsolete-go-file", path: goPath });
   }
 
-  if (!zenPresence.some(Boolean)) {
+  if (!zenPresent) {
     const names = AMBIGUOUS_ZEN_ENV_NAMES.filter((name) => Object.hasOwn(params.env, name));
     if (names.length > 0) {
       findings.push({
         kind: "ambiguous-zen-env",
         names: [...names],
-        suggestedPath: join(params.primaryConfigDir, SUPPORTED_ZEN_FILE),
+        suggestedPath: zenPath,
       });
     }
   }

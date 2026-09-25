@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
 
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 export interface OpenCodeZenConfig {
   workspaceId: string;
@@ -31,8 +31,7 @@ const LEGACY_AUTH_COOKIE_ERROR =
   "authCookie no longer works after the OpenCode Console redesign; paste the __Host-console_session cookie as consoleSessionCookie";
 
 function getConfigCandidatePaths(): string[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return configDirs.map((dir) => join(dir, "opencode-quota", "opencode.json"));
+  return [join(getOpencodeRuntimeDirs().configDir, "opencode-quota", "opencode.json")];
 }
 
 function getConfigFileError(error: unknown): string {

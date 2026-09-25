@@ -56,17 +56,6 @@ interface PluginRuntimeRoot {
   stateDir: string;
 }
 
-interface PluginRuntimePathCandidates {
-  cacheDirs: string[];
-  configDirs: string[];
-  dataDirs: string[];
-  stateDirs: string[];
-}
-
-interface PluginRuntimePathsMockOptions {
-  includeCandidates?: boolean;
-}
-
 export function createConfigModuleMock(loadConfig: MockFunction) {
   return {
     loadConfig,
@@ -121,27 +110,11 @@ export function createPluginBootstrapRuntimeRoot(root: string): PluginRuntimeRoo
   };
 }
 
-export function createPluginRuntimePathCandidates(root: string): PluginRuntimePathCandidates {
-  return {
-    dataDirs: [`${root}/data`],
-    configDirs: [`${root}/config`],
-    cacheDirs: [`${root}/cache`],
-    stateDirs: [`${root}/state`],
-  };
-}
-
-export function createPluginRuntimePathsMockModule(
-  root: string,
-  options: PluginRuntimePathsMockOptions = {},
-) {
+export function createPluginRuntimePathsMockModule(root: string) {
   const runtimeRoot = createPluginBootstrapRuntimeRoot(root);
-  const candidates = createPluginRuntimePathCandidates(root);
 
   return {
     getOpencodeRuntimeDirs: () => ({ ...runtimeRoot }),
-    ...(options.includeCandidates
-      ? { getOpencodeRuntimeDirCandidates: () => ({ ...candidates }) }
-      : {}),
   };
 }
 

@@ -29,9 +29,6 @@ importers:
       solid-js:
         specifier: ^1.9.12
         version: 1.9.12
-      xdg-basedir:
-        specifier: ^5.1.0
-        version: 5.1.0
     devDependencies:
       '@babel/core':
         specifier: ^7.28.0
@@ -2388,10 +2385,6 @@ packages:
         optional: true
       utf-8-validate:
         optional: true
-
-  xdg-basedir@5.1.0:
-    resolution: {integrity: sha512-GCPAHLvrIH13+c0SuacwvRYj2SxJXQ4kaVTT5xgL3kPrz56XxkF21IGhjSE1+W0aw7gpBWRGXLCPnPby6lSpmQ==}
-    engines: {node: '>=12'}
 
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
@@ -4810,8 +4803,6 @@ snapshots:
       signal-exit: 4.1.0
 
   ws@8.21.3: {}
-
-  xdg-basedir@5.1.0: {}
 
   yallist@3.1.1: {}
 

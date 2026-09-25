@@ -16,12 +16,6 @@ const TEST_ACCOUNTING = {
 } as const;
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [`${TEST_RUNTIME_ROOT}/data`],
-    configDirs: [`${TEST_RUNTIME_ROOT}/config`],
-    cacheDirs: [`${TEST_RUNTIME_ROOT}/cache`],
-    stateDirs: [`${TEST_RUNTIME_ROOT}/state`],
-  }),
   getOpencodeRuntimeDirs: () => ({
     dataDir: `${TEST_RUNTIME_ROOT}/data`,
     configDir: `${TEST_RUNTIME_ROOT}/config`,

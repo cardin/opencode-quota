@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readFile } from "fs/promises";
 
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 const require = createRequire(import.meta.url);
 
@@ -124,7 +124,7 @@ function resolveSpecifier(
 
     try {
       return require.resolve(specifier, {
-        paths: getOpencodeRuntimeDirCandidates().cacheDirs,
+        paths: [getOpencodeRuntimeDirs().cacheDir],
       });
     } catch (runtimeError) {
       markPackageFound(runtimeError, context);
@@ -134,36 +134,32 @@ function resolveSpecifier(
 }
 
 function getRuntimePackageRoots(descriptor: GoogleCompanionDescriptor): string[] {
-  const cacheDirs = getOpencodeRuntimeDirCandidates().cacheDirs;
-  const packageRoots = cacheDirs.map((cacheDir) =>
-    join(cacheDir, "node_modules", descriptor.packageName),
-  );
+  const { cacheDir } = getOpencodeRuntimeDirs();
+  const packageRoots = [join(cacheDir, "node_modules", descriptor.packageName)];
 
-  for (const cacheDir of cacheDirs) {
-    try {
-      const packagesDir = join(cacheDir, "packages");
-      if (descriptor.packageScan === "scoped") {
-        const [scope, name] = descriptor.packageName.split("/");
-        const scopeDir = join(packagesDir, scope!);
-        for (const entry of readdirSync(scopeDir, { withFileTypes: true })) {
-          if (entry.isDirectory() && entry.name.startsWith(name!)) {
-            const packagePath = join(scopeDir, entry.name);
-            packageRoots.push(packagePath);
-            packageRoots.push(join(packagePath, "node_modules", descriptor.packageName));
-          }
-        }
-      } else {
-        for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-          if (entry.isDirectory() && entry.name.startsWith(descriptor.packageName)) {
-            const packagePath = join(packagesDir, entry.name);
-            packageRoots.push(packagePath);
-            packageRoots.push(join(packagePath, "node_modules", descriptor.packageName));
-          }
+  try {
+    const packagesDir = join(cacheDir, "packages");
+    if (descriptor.packageScan === "scoped") {
+      const [scope, name] = descriptor.packageName.split("/");
+      const scopeDir = join(packagesDir, scope!);
+      for (const entry of readdirSync(scopeDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith(name!)) {
+          const packagePath = join(scopeDir, entry.name);
+          packageRoots.push(packagePath);
+          packageRoots.push(join(packagePath, "node_modules", descriptor.packageName));
         }
       }
-    } catch {
-      // A missing runtime packages directory is not an installed companion.
+    } else {
+      for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith(descriptor.packageName)) {
+          const packagePath = join(packagesDir, entry.name);
+          packageRoots.push(packagePath);
+          packageRoots.push(join(packagePath, "node_modules", descriptor.packageName));
+        }
+      }
     }
+  } catch {
+    // A missing runtime packages directory is not an installed companion.
   }
 
   return packageRoots;

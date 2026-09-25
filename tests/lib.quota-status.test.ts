@@ -67,9 +67,6 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
     cacheDir: "/tmp/cache",
     stateDir: "/tmp/state",
   }),
-  getOpencodeRuntimeDirCandidates: () => ({
-    configDirs: ["/tmp/config"],
-  }),
 }));
 
 vi.mock("../src/lib/synthetic.js", () => ({
