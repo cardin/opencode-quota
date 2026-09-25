@@ -6,28 +6,17 @@
  */
 
 import { existsSync } from "fs";
-import { createRequire } from "module";
 import { isAbsolute, join, resolve } from "path";
 
 import {
   getOpencodeRuntimeDirCandidates,
   getOpencodeRuntimeDirs,
 } from "./opencode-runtime-paths.js";
+import { openOpenCodeSqliteReadOnly, type SqliteConn } from "./opencode-sqlite.js";
 
 import type { AuthData } from "./types.js";
 
 const DEFAULT_AUTH_CACHE_MAX_AGE_MS = 5_000;
-const runtimeRequire = createRequire(import.meta.url);
-
-type CredentialDatabase = {
-  close(): void;
-  prepare(sql: string): { all(...params: string[]): unknown[] };
-};
-
-type CredentialDatabaseConstructor = new (
-  path: string,
-  options?: Record<string, unknown>,
-) => CredentialDatabase;
 
 type AuthCacheEntry = {
   timestamp: number;
@@ -147,9 +136,9 @@ export function selectConnectionCredentialRows(
   return selected;
 }
 
-function readCredentialRowsFromDatabases(paths: string[]): CredentialRow[] {
+async function readCredentialRowsFromDatabases(paths: string[]): Promise<CredentialRow[]> {
   for (const path of paths) {
-    const rows = readCredentialDatabase(path);
+    const rows = await readCredentialDatabase(path);
     if (rows.length > 0) return rows;
   }
 
@@ -169,17 +158,15 @@ function getCredentialDatabasePathsForDataDirs(dataDirs: string[]): string[] {
   return dataDirs.map((dataDir) => join(dataDir, "opencode.db"));
 }
 
-function readCredentialDatabase(path: string): CredentialRow[] {
+async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {
   if (!existsSync(path)) return [];
 
-  let database: CredentialDatabase | undefined;
+  let database: SqliteConn | undefined;
   try {
-    database = openCredentialDatabase(path);
-    const rows = database
-      .prepare(
-        "SELECT id, integration_id, label, active, value FROM credential WHERE integration_id IS NOT NULL ORDER BY active DESC, time_updated DESC, id DESC",
-      )
-      .all() as Array<Record<string, unknown>>;
+    database = await openOpenCodeSqliteReadOnly(path);
+    const rows = database.all<Record<string, unknown>>(
+      "SELECT id, integration_id, label, active, value FROM credential WHERE integration_id IS NOT NULL ORDER BY active DESC, time_updated DESC, id DESC",
+    );
     const credentials: CredentialRow[] = [];
 
     for (const row of rows) {
@@ -208,20 +195,6 @@ function readCredentialDatabase(path: string): CredentialRow[] {
   } finally {
     database?.close();
   }
-}
-
-function openCredentialDatabase(path: string): CredentialDatabase {
-  if ("Bun" in globalThis) {
-    const { Database } = runtimeRequire("bun:sqlite") as {
-      Database: CredentialDatabaseConstructor;
-    };
-    return new Database(path, { readonly: true });
-  }
-
-  const { DatabaseSync } = runtimeRequire("node:sqlite") as {
-    DatabaseSync: CredentialDatabaseConstructor;
-  };
-  return new DatabaseSync(path, { readOnly: true, timeout: 5_000 });
 }
 
 function parseCredentialValue(value: string): Record<string, unknown> | null {

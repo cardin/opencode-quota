@@ -147,7 +147,7 @@ describe("package manifest compatibility", () => {
 
     expect(packageManagerMatch).not.toBeNull();
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
-    expect(pkg.engines?.node).toBe(">=22.0.0");
+    expect(pkg.engines?.node).toBe(">=22.13.0");
     expect(pkg.devDependencies?.typescript).toBe("7.0.2");
     expect(pkg.devDependencies?.yaml).toBe("^2.8.3");
   });
@@ -239,22 +239,15 @@ describe("package manifest compatibility", () => {
   });
 
   it("ships the OpenTelemetry API while keeping the metrics SDK host-owned", () => {
+    expect(pkg).not.toHaveProperty("optionalDependencies");
     expect(pkg.dependencies?.["@opentelemetry/api"]).toBe("^1.9.1");
-    for (const dependencyType of [
-      pkg.devDependencies,
-      pkg.optionalDependencies,
-      pkg.peerDependencies,
-    ]) {
+    for (const dependencyType of [pkg.devDependencies, pkg.peerDependencies]) {
       expect(dependencyType).not.toHaveProperty("@opentelemetry/api");
     }
     expect(pkg.peerDependenciesMeta?.["@opentelemetry/api"]).toBeUndefined();
 
     expect(pkg.devDependencies?.["@opentelemetry/sdk-metrics"]).toBe("2.10.0");
-    for (const dependencyType of [
-      pkg.dependencies,
-      pkg.optionalDependencies,
-      pkg.peerDependencies,
-    ]) {
+    for (const dependencyType of [pkg.dependencies, pkg.peerDependencies]) {
       expect(dependencyType).not.toHaveProperty("@opentelemetry/sdk-metrics");
     }
   });
@@ -265,7 +258,6 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
     expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
     expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
-      "better-sqlite3": true,
       esbuild: true,
       lefthook: true,
       "msgpackr-extract": true,

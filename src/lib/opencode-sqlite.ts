@@ -19,13 +19,10 @@ interface BunSqliteModule {
   Database: new (path: string, options: { readonly: boolean }) => BunSqliteDatabase;
 }
 
-interface PreparedSqliteDatabase {
+interface NodeSqliteDatabase {
   prepare(sql: string): SqliteStatement;
-  close(): void;
-}
-
-interface NodeSqliteDatabase extends PreparedSqliteDatabase {
   exec(sql: string): unknown;
+  close(): void;
 }
 
 interface NodeSqliteModule {
@@ -37,10 +34,6 @@ interface NodeSqliteModule {
       open?: boolean;
     },
   ) => NodeSqliteDatabase;
-}
-
-interface BetterSqlite3Module {
-  default: new (path: string, options?: { readonly?: boolean }) => PreparedSqliteDatabase;
 }
 
 function toParams(params?: unknown[]): unknown[] {
@@ -55,14 +48,6 @@ function runBunPragma(db: BunSqliteDatabase, sql: string): void {
   }
 }
 
-function runPreparedPragma(db: PreparedSqliteDatabase, sql: string): void {
-  try {
-    db.prepare(sql).run();
-  } catch {
-    // ignore
-  }
-}
-
 function runNodePragma(db: NodeSqliteDatabase, sql: string): void {
   try {
     db.exec(sql);
@@ -71,7 +56,20 @@ function runNodePragma(db: NodeSqliteDatabase, sql: string): void {
   }
 }
 
-function createPreparedSqliteConn(db: PreparedSqliteDatabase): SqliteConn {
+async function openWithNodeSqlite(dbPath: string): Promise<SqliteConn> {
+  const mod = (await import("node:sqlite")) as unknown as NodeSqliteModule;
+  const db = new mod.DatabaseSync(dbPath, {
+    readOnly: true,
+    enableForeignKeyConstraints: true,
+    open: true,
+  });
+
+  // Keep reads deterministic and avoid accidental writes.
+  runNodePragma(db, "PRAGMA query_only = ON;");
+
+  // Avoid transient SQLITE_BUSY errors (WAL).
+  runNodePragma(db, "PRAGMA busy_timeout = 5000;");
+
   return {
     all<T = unknown>(sql: string, params?: unknown[]): T[] {
       const stmt = db.prepare(sql);
@@ -126,64 +124,14 @@ async function openWithBunSqlite(dbPath: string): Promise<SqliteConn> {
   };
 }
 
-async function importNodeSqlite(): Promise<NodeSqliteModule | null> {
-  try {
-    return (await import("node:sqlite")) as unknown as NodeSqliteModule;
-  } catch {
-    return null;
-  }
-}
-
-async function openWithNodeSqlite(dbPath: string, mod: NodeSqliteModule): Promise<SqliteConn> {
-  const db = new mod.DatabaseSync(dbPath, {
-    readOnly: true,
-    enableForeignKeyConstraints: true,
-    open: true,
-  });
-
-  // Keep reads deterministic and avoid accidental writes.
-  runNodePragma(db, "PRAGMA query_only = ON;");
-
-  // Avoid transient SQLITE_BUSY errors (WAL).
-  runNodePragma(db, "PRAGMA busy_timeout = 5000;");
-
-  return createPreparedSqliteConn(db);
-}
-
-async function openWithBetterSqlite3(dbPath: string): Promise<SqliteConn> {
-  const mod = (await import("better-sqlite3")) as unknown as BetterSqlite3Module;
-  const db = new mod.default(dbPath, { readonly: true });
-
-  // Keep reads deterministic and avoid accidental writes.
-  runPreparedPragma(db, "PRAGMA query_only = ON;");
-
-  // Avoid transient SQLITE_BUSY errors (WAL).
-  runPreparedPragma(db, "PRAGMA busy_timeout = 5000;");
-
-  return createPreparedSqliteConn(db);
-}
-
-async function openWithNodeRuntimeSqlite(dbPath: string): Promise<SqliteConn> {
-  const nodeSqlite = await importNodeSqlite();
-
-  if (nodeSqlite) {
-    return openWithNodeSqlite(dbPath, nodeSqlite);
-  }
-
-  try {
-    return await openWithBetterSqlite3(dbPath);
-  } catch (cause) {
-    throw new Error(
-      "OpenCode SQLite backend unavailable in this Node runtime; node:sqlite or optional better-sqlite3 is required for local history reads.",
-      { cause },
-    );
-  }
-}
-
+/**
+ * Open OpenCode's SQLite database read-only.
+ * Inside OpenCode 2 (Bun) this uses bun:sqlite; the Node CLI uses node:sqlite.
+ */
 export async function openOpenCodeSqliteReadOnly(dbPath: string): Promise<SqliteConn> {
-  if (typeof globalThis === "object" && "Bun" in globalThis) {
+  if ("Bun" in globalThis) {
     return openWithBunSqlite(dbPath);
   }
 
-  return openWithNodeRuntimeSqlite(dbPath);
+  return openWithNodeSqlite(dbPath);
 }
