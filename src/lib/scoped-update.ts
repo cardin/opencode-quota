@@ -117,11 +117,23 @@ async function dedupeByRealPath(paths: string[]): Promise<string[]> {
   return output;
 }
 
+/** OpenCode 2 native `plugins` entry: `{ "package": "...", "options": { ... } }`. */
+function isPackageEntry(entry: unknown): entry is { package: string } {
+  return (
+    !!entry &&
+    typeof entry === "object" &&
+    !Array.isArray(entry) &&
+    typeof (entry as { package?: unknown }).package === "string"
+  );
+}
+
+/** OpenCode 2 reads both the legacy `plugin` array and the native `plugins` array. */
 function pluginArrays(config: unknown): Array<{ path: (string | number)[]; entries: unknown[] }> {
   if (!config || typeof config !== "object" || Array.isArray(config)) return [];
   const root = config as Record<string, unknown>;
   const arrays: Array<{ path: (string | number)[]; entries: unknown[] }> = [];
   if (Array.isArray(root.plugin)) arrays.push({ path: ["plugin"], entries: root.plugin });
+  if (Array.isArray(root.plugins)) arrays.push({ path: ["plugins"], entries: root.plugins });
   return arrays;
 }
 
@@ -152,12 +164,19 @@ function updateConfig(
           ? entry
           : Array.isArray(entry) && typeof entry[0] === "string"
             ? entry[0]
-            : null;
+            : isPackageEntry(entry)
+              ? entry.package
+              : null;
       if (spec === null || !isCanonicalQuotaUpdateSpec(spec)) continue;
       specs.push(spec);
       if (spec === QUOTA_LATEST_SPEC) continue;
+      // Replace only the package spec; keep the entry's plugin options.
       const targetPath =
-        typeof entry === "string" ? [...array.path, index] : [...array.path, index, 0];
+        typeof entry === "string"
+          ? [...array.path, index]
+          : Array.isArray(entry)
+            ? [...array.path, index, 0]
+            : [...array.path, index, "package"];
       edits.push({ path: targetPath, value: QUOTA_LATEST_SPEC });
       replacements++;
     }

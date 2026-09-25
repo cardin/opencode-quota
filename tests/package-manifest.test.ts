@@ -147,7 +147,7 @@ describe("package manifest compatibility", () => {
 
     expect(packageManagerMatch).not.toBeNull();
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
-    expect(pkg.engines?.node).toBe(">=22.13.0");
+    expect(pkg.engines?.node).toBe("^22.13.0 || >=23.4.0");
     expect(pkg.devDependencies?.typescript).toBe("7.0.2");
     expect(pkg.devDependencies?.yaml).toBe("^2.8.3");
   });
@@ -157,7 +157,9 @@ describe("package manifest compatibility", () => {
     expect(pkg.devDependencies?.["@opencode/plugin"]).toBe("2.0.16");
     expect(pkg.dependencies?.["@opentui/core"]).toBe("^0.5.10");
     expect(pkg.dependencies?.["@opentui/solid"]).toBe("^0.5.10");
-    expect(readme).toContain("Node.js `>= 22.13` is required");
+    expect(readme).toContain(
+      "Node.js `22.13+` is required for `npx @slkiser/opencode-quota ...` (on Node 23, `23.4+`)",
+    );
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
   });

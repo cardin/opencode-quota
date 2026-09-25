@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const build = vi.hoisted(() => vi.fn());
@@ -15,9 +18,10 @@ type RegisteredCommand = {
   run: (input?: string) => Promise<void>;
 };
 
-function startTui() {
+function startTui(location?: { directory: string }) {
   let layer: { commands: RegisteredCommand[] } | undefined;
   const context = {
+    location,
     data: {
       on: vi.fn(() => vi.fn()),
       session: {
@@ -126,6 +130,45 @@ describe("V2 quota TUI commands", () => {
 
     expect(context.ui.dialog.prompt).toHaveBeenCalledTimes(2);
     expect(build).not.toHaveBeenCalled();
+  });
+
+  it("runs /quota_announcements and /pricing_refresh without a prompt and forwards typed arguments", async () => {
+    const { context, command } = startTui();
+
+    for (const id of ["quota_announcements", "pricing_refresh"]) {
+      await command(id).run("");
+      await command(id).run();
+      await command(id).run(" extra ");
+    }
+
+    expect(context.ui.dialog.prompt).not.toHaveBeenCalled();
+    expect(build.mock.calls.map(([params]) => [params.command, params.arguments])).toEqual([
+      ["quota_announcements", undefined],
+      ["quota_announcements", undefined],
+      ["quota_announcements", "extra"],
+      ["pricing_refresh", undefined],
+      ["pricing_refresh", undefined],
+      ["pricing_refresh", "extra"],
+    ]);
+  });
+
+  it("reads project config from the location's Git worktree root, like the server plugin", async () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), "opencode-quota-tui-roots-")));
+    try {
+      mkdirSync(join(repo, ".git"));
+      mkdirSync(join(repo, "packages", "app"), { recursive: true });
+      const { command } = startTui({ directory: join(repo, "packages", "app") });
+
+      await command("quota").run();
+
+      expect(build.mock.calls[0][0].roots).toEqual({
+        workspaceRoot: repo,
+        configRoot: repo,
+        fallbackDirectory: join(repo, "packages", "app"),
+      });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it("reads the session model from the OpenCode 2 session store", async () => {

@@ -1,6 +1,6 @@
 /** OpenCode V2 server plugin: deterministic quota diagnostics tool. */
 import { Plugin } from "@opencode/plugin";
-import { findGitWorktreeRoot } from "./lib/config-file-utils.js";
+import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
@@ -8,13 +8,7 @@ import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
 export const QuotaToastPlugin = Plugin.define({
   id: "@slkiser/opencode-quota.server",
   async setup(ctx) {
-    const directory = ctx.location.directory;
-    const workspaceRoot = findGitWorktreeRoot(directory) ?? directory;
-    const roots = {
-      workspaceRoot,
-      configRoot: workspaceRoot,
-      fallbackDirectory: directory,
-    };
+    const roots = resolveOpenCodeLocationRoots(ctx.location.directory);
     // The quota collector accepts a small V1-shaped configuration client. V2
     // does not expose a mutable global config to plugins; quota settings are
     // read from the plugin's own config file by the collector.

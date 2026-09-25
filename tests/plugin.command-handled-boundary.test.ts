@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resolveOpenCodeLocationRoots } from "../src/lib/config-file-utils.js";
 import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-commands.js";
 import tuiPlugin from "../src/tui-v2.js";
 
@@ -87,7 +88,7 @@ describe("V2 CLI command boundary", () => {
       expect.objectContaining({
         command: "quota",
         sessionID: undefined,
-        roots: { fallbackDirectory: process.cwd() },
+        roots: resolveOpenCodeLocationRoots(process.cwd()),
       }),
     );
     expect(tui.alert).toHaveBeenCalledWith({ title: "Quota", message: "Quota ready" });

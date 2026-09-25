@@ -10,6 +10,7 @@ import {
   getApiKeyCheckedPaths,
   getFirstAuthEntryValue,
   getGlobalOpencodeConfigCandidatePaths,
+  getProviderConfigSettings,
   readOpencodeConfig,
 } from "./api-key-resolver.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
@@ -113,10 +114,6 @@ function sanitizeMiniMaxAuthValue(value: string): string {
   return (sanitized || "unknown").slice(0, 120);
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
 function getConfigOptionString(options: Record<string, unknown>, key: string): string | null {
   const value = options[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -126,11 +123,8 @@ function extractMiniMaxConfigAuth(
   config: unknown,
   spec: MiniMaxAuthSpec,
 ): { state: "configured"; apiKey: string; endpoint: MiniMaxQuotaEndpointId } | null {
-  const provider = asRecord(asRecord(config)?.provider);
-  if (!provider) return null;
-
   for (const providerKey of spec.providerKeys) {
-    const options = asRecord(asRecord(provider[providerKey])?.options);
+    const options = getProviderConfigSettings(config, providerKey);
     if (!options) continue;
 
     const apiKey = getConfigOptionString(options, "apiKey");

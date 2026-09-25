@@ -100,10 +100,24 @@ function mergeOpenCodeConfig(
     };
   }
 
+  if (isRecord(base.providers) || isRecord(next.providers)) {
+    merged.providers = {
+      ...(isRecord(base.providers) ? base.providers : {}),
+      ...(isRecord(next.providers) ? next.providers : {}),
+    };
+  }
+
   if (Array.isArray(base.plugin) || Array.isArray(next.plugin)) {
     merged.plugin = [
       ...(Array.isArray(base.plugin) ? base.plugin : []),
       ...(Array.isArray(next.plugin) ? next.plugin : []),
+    ];
+  }
+
+  if (Array.isArray(base.plugins) || Array.isArray(next.plugins)) {
+    merged.plugins = [
+      ...(Array.isArray(base.plugins) ? base.plugins : []),
+      ...(Array.isArray(next.plugins) ? next.plugins : []),
     ];
   }
 

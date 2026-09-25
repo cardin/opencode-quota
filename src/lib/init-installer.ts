@@ -279,15 +279,17 @@ function ensureSchema(root: JsonObject, schemaUrl: string, edit: PlannedConfigEd
   pushSkippedIfChanged(edit, "$schema", root.$schema, schemaUrl);
 }
 
+function isQuotaPluginEntry(entry: unknown): boolean {
+  const spec = getPluginSpecFromEntry(entry);
+  return typeof spec === "string" && isQuotaPluginSpec(spec);
+}
+
 function appendQuotaPluginIfMissing(params: {
   container: unknown[];
   pathLabel: string;
   edit: PlannedConfigEdit;
 }): void {
-  const alreadyConfigured = params.container.some((entry) => {
-    const spec = getPluginSpecFromEntry(entry);
-    return typeof spec === "string" && isQuotaPluginSpec(spec);
-  });
+  const alreadyConfigured = params.container.some(isQuotaPluginEntry);
 
   if (alreadyConfigured) {
     params.edit.skippedValues.push(`${params.pathLabel} already includes ${QUOTA_PLUGIN_SPEC}`);
@@ -635,12 +637,17 @@ async function planOpencodeEdit(params: {
     ensureSchema(root, OPENCODE_SCHEMA_URL, edit);
   }
 
-  const plugin = ensureTopLevelPluginArray(root, edit);
-  appendQuotaPluginIfMissing({
-    container: plugin,
-    pathLabel: "plugin",
-    edit,
-  });
+  // OpenCode 2 also loads plugins from the native `plugins` array; never add a second entry.
+  if (Array.isArray(root.plugins) && root.plugins.some(isQuotaPluginEntry)) {
+    edit.skippedValues.push(`plugins already includes ${QUOTA_PLUGIN_SPEC}`);
+  } else {
+    const plugin = ensureTopLevelPluginArray(root, edit);
+    appendQuotaPluginIfMissing({
+      container: plugin,
+      pathLabel: "plugin",
+      edit,
+    });
+  }
 
   if (params.legacyQuotaToastToSync) {
     syncLegacyQuotaToast({

@@ -38,10 +38,17 @@ async function flushPromises(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
 }
 
-function setupFooterSlots(): Map<string, () => unknown> {
-  const renderers = new Map<string, () => unknown>();
+function setupFooterSlots(
+  handlers = new Map<string, (event: unknown) => void>(),
+): Map<string, (props?: any) => unknown> {
+  const renderers = new Map<string, (props?: any) => unknown>();
   plugin.setup({
-    data: { on: vi.fn(() => vi.fn()) },
+    data: {
+      on: vi.fn((event: string, handler: (event: unknown) => void) => {
+        handlers.set(event, handler);
+        return vi.fn();
+      }),
+    },
     keymap: { layer: vi.fn() },
     ui: {
       slot: vi.fn((claim) => {
@@ -55,11 +62,19 @@ function setupFooterSlots(): Map<string, () => unknown> {
   return renderers;
 }
 
-function mountSlot(render: (() => unknown) | undefined): () => void {
+function mountSlot(render: ((props?: any) => unknown) | undefined, props?: unknown): () => void {
   return createRoot((dispose) => {
-    render?.();
+    render?.(props);
     return dispose;
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }
 
 describe("V2 footer refresh timer", () => {
@@ -140,5 +155,78 @@ describe("V2 footer refresh timer", () => {
     await flushPromises();
     expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
     expect(writeQuotaExport).not.toHaveBeenCalled();
+  });
+
+  it("loads Home for every enabled provider without a session, even with onlyCurrentModel", async () => {
+    const runtime = await resolveQuotaRuntimeContext();
+    resolveQuotaRuntimeContext.mockResolvedValue({
+      ...runtime,
+      config: { ...runtime.config, onlyCurrentModel: true, showSessionTokens: true },
+      session: { sessionID: "ses_1", sessionMeta: { modelID: "m", providerID: "p" } },
+    });
+    const renderers = setupFooterSlots();
+    const dispose = mountSlot(renderers.get("home.footer.status"));
+    await flushPromises();
+
+    const params = collectQuotaRenderData.mock.calls[0][0];
+    expect(params.config).toMatchObject({ onlyCurrentModel: false, showSessionTokens: false });
+    expect(params.request).toEqual({ sessionID: undefined, sessionMeta: undefined });
+    dispose();
+  });
+
+  it("drops a Home result and skips the export when the view unmounts mid-load", async () => {
+    const load = deferred<unknown>();
+    collectQuotaRenderData.mockReturnValueOnce(load.promise);
+    const renderers = setupFooterSlots();
+    const dispose = mountSlot(renderers.get("home.footer.status"));
+    await flushPromises();
+    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+
+    dispose();
+    load.resolve({ active: [], data: { entries: [], errors: [] } });
+    await flushPromises();
+    expect(writeQuotaExport).not.toHaveBeenCalled();
+  });
+
+  it("coalesces refreshes that arrive while a footer load is running into one follow-up load", async () => {
+    const load = deferred<unknown>();
+    collectQuotaRenderData.mockReturnValueOnce(load.promise);
+    const handlers = new Map<string, (event: unknown) => void>();
+    const renderers = setupFooterSlots(handlers);
+    const dispose = mountSlot(renderers.get("home.footer.status"));
+    await flushPromises();
+
+    handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
+    handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
+    await flushPromises();
+    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+
+    load.resolve({ active: [], data: { entries: [], errors: [] } });
+    await flushPromises();
+    expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
+    expect(writeQuotaExport).toHaveBeenCalledTimes(2);
+    dispose();
+  });
+
+  it("stops sidebar refreshes and drops their results after unmount", async () => {
+    const runtime = await resolveQuotaRuntimeContext();
+    resolveQuotaRuntimeContext.mockResolvedValue({
+      ...runtime,
+      config: { ...runtime.config, tuiSidebarPanel: { enabled: true } },
+    });
+    const load = deferred<unknown>();
+    collectQuotaRenderData.mockReturnValueOnce(load.promise);
+    const handlers = new Map<string, (event: unknown) => void>();
+    const renderers = setupFooterSlots(handlers);
+    const dispose = mountSlot(renderers.get("sidebar.content"), { sessionID: "ses_1" });
+    await flushPromises();
+    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+
+    handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
+    dispose();
+    load.resolve({ active: [], data: undefined });
+    await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS * 2);
+    await flushPromises();
+    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
   });
 });

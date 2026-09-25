@@ -5,6 +5,7 @@ import { RGBA } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
 import { createSignal, onCleanup, Show } from "solid-js";
 
+import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { formatQuotaRows } from "./lib/format.js";
 import {
@@ -125,6 +126,11 @@ function quotaClient(context: TuiContext) {
   };
 }
 
+/** Same project roots as the server plugin: the location's Git worktree, else the location directory. */
+function quotaRoots(context: TuiContext) {
+  return resolveOpenCodeLocationRoots(context.location?.directory ?? process.cwd());
+}
+
 async function getSessionModelMeta(
   context: TuiContext,
   sessionID: string,
@@ -143,7 +149,7 @@ async function getQuotaMessage(
 > {
   const runtime = await resolveQuotaRuntimeContext({
     client: quotaClient(context),
-    roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
+    roots: quotaRoots(context),
     sessionID,
     resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     includeSessionMeta: (config) => config.onlyCurrentModel,
@@ -341,13 +347,23 @@ async function getQuotaFooter(
   sessionID: string | undefined,
   surface: "prompt" | "home",
 ): Promise<string[]> {
-  const runtime = await resolveQuotaRuntimeContext({
+  const resolvedRuntime = await resolveQuotaRuntimeContext({
     client: quotaClient(context),
-    roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
+    roots: quotaRoots(context),
     sessionID,
     resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     includeSessionMeta: (config) => config.onlyCurrentModel && surface === "prompt",
   });
+  // Home has no session: as in v4, it shows every enabled provider and no session
+  // tokens, and shares its cache keys with the export (createExportProviderContext).
+  const runtime: QuotaRuntimeContext =
+    surface === "home"
+      ? {
+          ...resolvedRuntime,
+          config: { ...resolvedRuntime.config, onlyCurrentModel: false, showSessionTokens: false },
+          session: {},
+        }
+      : resolvedRuntime;
   const config = runtime.config;
   if (!config.enabled) return [];
   if (
@@ -421,30 +437,75 @@ async function getQuotaFooter(
   return [announcement, compact].filter(Boolean);
 }
 
+/**
+ * One view's refresh loop, as in v4 (tui-refresh-lifecycle.ts): a refresh that
+ * arrives while a load runs is coalesced into one follow-up load, and a result is
+ * dropped when the view was disposed or a newer load started.
+ */
+function createViewRefresh<T>(
+  load: () => Promise<T>,
+  apply: (value: T) => void,
+): { refresh: () => void; dispose: () => void } {
+  let disposed = false;
+  let loadVersion = 0;
+  let inFlight = false;
+  let queued = false;
+  const refresh = () => {
+    if (disposed) return;
+    if (inFlight) {
+      queued = true;
+      return;
+    }
+    inFlight = true;
+    const currentVersion = ++loadVersion;
+    void load()
+      .then((value) => {
+        if (disposed || currentVersion !== loadVersion) return;
+        apply(value);
+      })
+      .catch(reportFailure)
+      .finally(() => {
+        if (disposed) return;
+        inFlight = false;
+        if (queued) {
+          queued = false;
+          refresh();
+        }
+      });
+  };
+  return {
+    refresh,
+    dispose: () => {
+      disposed = true;
+    },
+  };
+}
+
 function QuotaFooter(props: {
   context: TuiContext;
   sessionID?: string;
   surface: "prompt" | "home";
 }): JSX.Element {
   const [lines, setLines] = createSignal<string[]>([]);
-  const refresh = () =>
-    void getQuotaFooter(props.context, props.sessionID, props.surface)
-      .then((next) => {
-        setLines(next);
-        if (props.surface !== "home") return;
-        // Fire-and-forget: write the export file if enabled. A failed write
-        // must never affect rendering, so log a warning and continue.
-        void writeQuotaExportIfEnabled(props.context).catch((error) => {
-          console.warn(`[opencode-quota] quota export write failed: ${String(error)}`);
-        });
-      })
-      .catch(reportFailure);
-  refresh();
-  const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
+  const view = createViewRefresh(
+    () => getQuotaFooter(props.context, props.sessionID, props.surface),
+    (next) => {
+      setLines(next);
+      if (props.surface !== "home") return;
+      // Fire-and-forget: write the export file if enabled. A failed write
+      // must never affect rendering, so log a warning and continue.
+      void writeQuotaExportIfEnabled(props.context).catch((error) => {
+        console.warn(`[opencode-quota] quota export write failed: ${String(error)}`);
+      });
+    },
+  );
+  view.refresh();
+  const interval = setInterval(view.refresh, REFRESH_INTERVAL_MS);
   const stop = props.context.data.on("session.step.ended", (event) => {
-    if (props.surface === "home" || getSessionID(event) === props.sessionID) refresh();
+    if (props.surface === "home" || getSessionID(event) === props.sessionID) view.refresh();
   });
   onCleanup(() => {
+    view.dispose();
     clearInterval(interval);
     stop();
   });
@@ -463,7 +524,7 @@ function QuotaFooter(props: {
 async function writeQuotaExportIfEnabled(context: TuiContext): Promise<void> {
   const runtime = await resolveQuotaRuntimeContext({
     client: quotaClient(context),
-    roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
+    roots: quotaRoots(context),
   });
   if (!runtime.config.enabled || !runtime.config.export.enabled) return;
 
@@ -489,10 +550,12 @@ async function runQuotaCommand(
 ): Promise<void> {
   const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === command)!;
   let argumentsText = input?.trim() || undefined;
-  if (spec.acceptsArguments && argumentsText === undefined) {
+  // Only /tokens_between needs arguments. /quota_announcements and /pricing_refresh
+  // accept typed arguments only to reject them, so they run without a prompt.
+  if (command === "tokens_between" && argumentsText === undefined) {
     const value = await context.ui.dialog.prompt({
       title: spec.title,
-      placeholder: command === "tokens_between" ? "YYYY-MM-DD YYYY-MM-DD" : "Optional arguments",
+      placeholder: "YYYY-MM-DD YYYY-MM-DD",
     });
     if (value === undefined) return;
     argumentsText = value.trim() || undefined;
@@ -503,7 +566,7 @@ async function runQuotaCommand(
       command,
       arguments: argumentsText,
       client: quotaClient(context),
-      roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
+      roots: quotaRoots(context),
       sessionID,
       resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     });
@@ -548,17 +611,17 @@ function SidebarQuotaView(props: {
   >(undefined);
   const lines = () => quota()?.message.split("\n") ?? [];
   const expandable = () => lines().length > 2;
-  const refresh = () => {
-    void getQuotaMessage(props.context, props.sessionID, "sidebar")
-      .then((result) => setQuota(result))
-      .catch(reportFailure);
-  };
-  refresh();
-  const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
+  const view = createViewRefresh(
+    () => getQuotaMessage(props.context, props.sessionID, "sidebar"),
+    setQuota,
+  );
+  view.refresh();
+  const interval = setInterval(view.refresh, REFRESH_INTERVAL_MS);
   const unsubscribe = props.context.data.on("session.step.ended", (event) => {
-    if (getSessionID(event) === props.sessionID) refresh();
+    if (getSessionID(event) === props.sessionID) view.refresh();
   });
   onCleanup(() => {
+    view.dispose();
     clearInterval(interval);
     unsubscribe();
   });

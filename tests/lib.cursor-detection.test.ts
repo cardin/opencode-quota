@@ -135,6 +135,23 @@ describe("cursor detection", () => {
     expect(result.matchedPaths).toEqual([testPaths.opencodeConfig]);
   });
 
+  it("detects the Cursor companion and provider in OpenCode 2 native plugins and providers", async () => {
+    mockFiles.set(
+      testPaths.opencodeConfig,
+      JSON.stringify({
+        plugins: [{ package: "@playwo/opencode-cursor-oauth", options: {} }],
+        providers: { cursor: { name: "Cursor" } },
+      }),
+    );
+
+    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
+    const result = await inspectCursorOpenCodeIntegration();
+
+    expect(result.pluginEnabled).toBe(true);
+    expect(result.providerConfigured).toBe(true);
+    expect(result.matchedPaths).toEqual([testPaths.opencodeConfig]);
+  });
+
   it("keeps legacy Cursor plugin names as compatibility aliases", async () => {
     const aliases = [
       "opencode-cursor-oauth",

@@ -26,7 +26,7 @@ npx @slkiser/opencode-quota init
 ```
 
 > [!IMPORTANT]
-> Requires OpenCode `2.0.16` or newer. Node.js `>= 22.13` is required for `npx @slkiser/opencode-quota ...`.
+> Requires OpenCode `2.0.16` or newer. Node.js `22.13+` is required for `npx @slkiser/opencode-quota ...` (on Node 23, `23.4+`).
 
 Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 

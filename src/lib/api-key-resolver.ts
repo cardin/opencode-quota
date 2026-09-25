@@ -106,6 +106,22 @@ export function getFirstAuthEntryRecord(
   return asRecord(getFirstAuthEntryValue(auth, authKeys));
 }
 
+/**
+ * Read one provider's settings the way OpenCode 2 normalizes its config.
+ *
+ * A native `providers.<id>` entry replaces the legacy `provider.<id>` entry,
+ * whose `options` OpenCode 2 migrates into `settings`.
+ */
+export function getProviderConfigSettings(
+  config: unknown,
+  providerKey: string,
+): Record<string, unknown> | null {
+  const root = asRecord(config);
+  const nativeProvider = asRecord(asRecord(root?.providers)?.[providerKey]);
+  if (nativeProvider) return asRecord(nativeProvider.settings);
+  return asRecord(asRecord(asRecord(root?.provider)?.[providerKey])?.options);
+}
+
 export function extractProviderOptionsApiKey(
   config: unknown,
   params: {
@@ -113,12 +129,8 @@ export function extractProviderOptionsApiKey(
     allowedEnvVars?: readonly string[];
   },
 ): string | null {
-  const provider = asRecord(asRecord(config)?.provider);
-  if (!provider) return null;
-
   for (const providerKey of params.providerKeys) {
-    const options = asRecord(asRecord(provider[providerKey])?.options);
-    const apiKey = options?.apiKey;
+    const apiKey = getProviderConfigSettings(config, providerKey)?.apiKey;
     if (typeof apiKey !== "string" || apiKey.trim().length === 0) continue;
 
     const trimmed = apiKey.trim();

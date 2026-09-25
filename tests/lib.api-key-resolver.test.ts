@@ -22,6 +22,7 @@ vi.mock("fs/promises", () => ({
 import {
   createProviderApiKeyResolver,
   extractAuthApiKeyEntry,
+  extractProviderOptionsApiKey,
   getApiKeyCheckedPaths,
   resolveApiKey,
   resolveApiKeyFromEnvAndConfig,
@@ -191,6 +192,55 @@ describe("api-key-resolver", () => {
       error: 'Unsupported Provider auth type: "oauth"',
     });
     expect(invalidReadAuth).toHaveBeenCalledWith(0);
+  });
+
+  it("reads OpenCode 2 native provider settings before the legacy provider options", () => {
+    const params = { providerKeys: ["deepseek"], allowedEnvVars: ["DEEPSEEK_API_KEY"] };
+
+    expect(
+      extractProviderOptionsApiKey(
+        { providers: { deepseek: { settings: { apiKey: " native-key " } } } },
+        params,
+      ),
+    ).toBe("native-key");
+    expect(
+      extractProviderOptionsApiKey(
+        {
+          provider: { deepseek: { options: { apiKey: "legacy-key" } } },
+          providers: { deepseek: { settings: { apiKey: "native-key" } } },
+        },
+        params,
+      ),
+    ).toBe("native-key");
+    expect(
+      extractProviderOptionsApiKey(
+        {
+          provider: { deepseek: { options: { apiKey: "legacy-key" } } },
+          providers: { deepseek: { name: "DeepSeek" } },
+        },
+        params,
+      ),
+    ).toBeNull();
+    expect(
+      extractProviderOptionsApiKey(
+        { provider: { deepseek: { options: { apiKey: "legacy-key" } } } },
+        params,
+      ),
+    ).toBe("legacy-key");
+
+    process.env.TEST_PROVIDER_KEY = "templated-key";
+    expect(
+      extractProviderOptionsApiKey(
+        { providers: { deepseek: { settings: { apiKey: "{env:TEST_PROVIDER_KEY}" } } } },
+        params,
+      ),
+    ).toBeNull();
+    expect(
+      extractProviderOptionsApiKey(
+        { providers: { deepseek: { settings: { apiKey: "{env:TEST_PROVIDER_KEY}" } } } },
+        { providerKeys: ["deepseek"], allowedEnvVars: ["TEST_PROVIDER_KEY"] },
+      ),
+    ).toBe("templated-key");
   });
 
   it("extracts only strict api key auth entries", () => {

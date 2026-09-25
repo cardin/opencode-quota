@@ -135,6 +135,27 @@ describe("scoped update config planning", () => {
     expect(readFileSync(ignoredJson, "utf8")).toContain("@1.0.0");
   });
 
+  it("updates OpenCode 2 native plugins entries and keeps their options", async () => {
+    const f = fixture();
+    const config = join(f.project, "opencode.json");
+    write(
+      config,
+      `{"plugins":["@slkiser/opencode-quota@3.11.1",{"package":"@slkiser/opencode-quota@3.11.1","options":{"setting":true}},{"package":"@slkiser/opencode-quota@next"},"other"]}`,
+    );
+    const params = { cwd: f.project, env: f.env, homeDir: join(f.root, "home") };
+    const plan = await planScopedUpdate(params);
+    expect(plan.foundSpecs).toEqual(["@slkiser/opencode-quota@3.11.1"]);
+    await applyScopedUpdatePlan(plan);
+    expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({
+      plugins: [
+        QUOTA_LATEST_SPEC,
+        { package: QUOTA_LATEST_SPEC, options: { setting: true } },
+        { package: "@slkiser/opencode-quota@next" },
+        "other",
+      ],
+    });
+  });
+
   it("leaves tui.json files untouched", async () => {
     const f = fixture();
     const projectTui = join(f.project, "tui.json");

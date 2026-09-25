@@ -192,6 +192,23 @@ describe("minimax auth resolution", () => {
       expect(mocks.readAuthFileCached).not.toHaveBeenCalled();
     });
 
+    it("reads OpenCode 2 native provider settings before legacy provider options", async () => {
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
+        JSON.stringify({
+          provider: { "minimax-coding-plan": { options: { apiKey: "legacy-key" } } },
+          providers: { "minimax-coding-plan": { settings: { apiKey: "native-key" } } },
+        }),
+      );
+
+      await expect(resolveMiniMaxAuthCached()).resolves.toEqual({
+        state: "configured",
+        apiKey: "native-key",
+        endpoint: "international",
+      });
+    });
+
     it("resolves China from trusted config China aliases", async () => {
       mockTrustedConfigFile(
         fsConfigMocks,

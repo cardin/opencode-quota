@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
+import { getPluginSpecFromEntry } from "./config-file-utils.js";
 import { CURSOR_LEGACY_PROVIDER_ID } from "./cursor-pricing.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
@@ -162,6 +163,7 @@ function providerConfigIncludesCursor(value: unknown): boolean {
   return getQuotaProviderRuntimeIds("cursor").some((id) => Object.hasOwn(providerConfig, id));
 }
 
+/** OpenCode 2 reads both the legacy `plugin`/`provider` keys and the native `plugins`/`providers` keys. */
 function parseOpenCodeConfig(
   raw: string,
   isJsonc: boolean,
@@ -170,9 +172,14 @@ function parseOpenCodeConfig(
   provider: Record<string, unknown> | null;
 } {
   const parsed = asRecord(parseJsonOrJsonc(raw, isJsonc));
+  const legacyProvider = asRecord(parsed?.provider);
+  const nativeProviders = asRecord(parsed?.providers);
   return {
-    plugin: Array.isArray(parsed?.plugin) ? parsed.plugin : [],
-    provider: asRecord(parsed?.provider),
+    plugin: [
+      ...(Array.isArray(parsed?.plugin) ? parsed.plugin : []),
+      ...(Array.isArray(parsed?.plugins) ? parsed.plugins.map(getPluginSpecFromEntry) : []),
+    ],
+    provider: legacyProvider || nativeProviders ? { ...legacyProvider, ...nativeProviders } : null,
   };
 }
 

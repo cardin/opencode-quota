@@ -52,7 +52,7 @@ The `opencode.json` plugin entry loads both the server and the TUI; no `tui.json
 
 The preview can contain three sections:
 
-- **Safe changes this command can make:** package-spec edits and recognized file-backed display-setting migration.
+- **Safe changes this command can make:** package-spec edits (in `plugin` and OpenCode 2 `plugins` entries; plugin options are kept) and recognized file-backed display-setting migration.
 - **Manual actions — this command will not change these sources:** credential findings or config cases that require your review.
 - **Package-cache candidates:** directories considered for removal. A candidate is removed only after current config and the package manifest are verified.
 

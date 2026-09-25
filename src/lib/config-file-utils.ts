@@ -76,6 +76,17 @@ export function findGitWorktreeRoot(startDir: string): string | null {
   }
 }
 
+/**
+ * Roots for an OpenCode location, shared by the server plugin and the TUI so both
+ * read the same project config: the enclosing Git worktree, else the location directory.
+ */
+export function resolveOpenCodeLocationRoots(
+  directory: string,
+): RuntimeContextRoots & { fallbackDirectory: string } {
+  const workspaceRoot = findGitWorktreeRoot(directory) ?? directory;
+  return { workspaceRoot, configRoot: workspaceRoot, fallbackDirectory: directory };
+}
+
 export function getConfigFileCandidatePaths(dir: string, kind: ConfigFileKind): string[] {
   return [join(dir, `${kind}.jsonc`), join(dir, `${kind}.json`)];
 }
@@ -130,13 +141,18 @@ export function resolveEditableConfigPath(params: {
   };
 }
 
+/** Reads the package spec from a legacy `plugin` entry or an OpenCode 2 native `plugins` entry. */
 export function getPluginSpecFromEntry(entry: unknown): string | null {
   const spec =
     typeof entry === "string"
       ? entry
       : Array.isArray(entry) && typeof entry[0] === "string"
         ? entry[0]
-        : null;
+        : entry &&
+            typeof entry === "object" &&
+            typeof (entry as { package?: unknown }).package === "string"
+          ? (entry as { package: string }).package
+          : null;
 
   if (typeof spec !== "string") {
     return null;
@@ -158,6 +174,10 @@ export function extractPluginSpecsFromParsedConfig(parsed: unknown): string[] {
     pluginEntries.push(...root.plugin);
   }
 
+  if (Array.isArray(root.plugins)) {
+    pluginEntries.push(...root.plugins);
+  }
+
   if (root.tui && typeof root.tui === "object" && !Array.isArray(root.tui)) {
     const tuiRoot = root.tui as Record<string, unknown>;
     if (Array.isArray(tuiRoot.plugin)) {
@@ -177,12 +197,16 @@ export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
     return [];
   }
 
+  // OpenCode 2 reads both the legacy `provider` map and the native `providers` map.
   const root = parsed as Record<string, unknown>;
-  if (!root.provider || typeof root.provider !== "object" || Array.isArray(root.provider)) {
-    return [];
+  const providerIds: string[] = [];
+  for (const providerMap of [root.provider, root.providers]) {
+    if (providerMap && typeof providerMap === "object" && !Array.isArray(providerMap)) {
+      providerIds.push(...Object.keys(providerMap));
+    }
   }
 
-  return dedupeNonEmptyStrings(Object.keys(root.provider));
+  return dedupeNonEmptyStrings(providerIds);
 }
 
 export function isQuotaPluginSpec(spec: string): boolean {

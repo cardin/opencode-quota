@@ -362,6 +362,35 @@ describe("init installer planning and merge behavior", () => {
     ]);
   });
 
+  it("does not add a legacy plugin entry when OpenCode 2 native plugins already load quota", async () => {
+    const projectDir = join(tempDir, "project");
+    mkdirSync(projectDir, { recursive: true });
+
+    writeFileSync(
+      join(projectDir, "opencode.json"),
+      JSON.stringify({
+        plugins: [{ package: "@slkiser/opencode-quota@latest", options: { keep: true } }],
+      }),
+      "utf8",
+    );
+
+    const plan = await planSelections({}, projectDir);
+
+    const opencodeEdit = plan.edits.find((edit) => edit.kind === "opencode");
+    expect(opencodeEdit?.addedPlugins).toEqual([]);
+    expect(opencodeEdit?.skippedValues).toContain(
+      "plugins already includes @slkiser/opencode-quota@latest",
+    );
+
+    await applyInitInstallerPlan(plan);
+
+    const opencode = readJson(join(projectDir, "opencode.jsonc"));
+    expect(opencode.plugin).toBeUndefined();
+    expect(opencode.plugins).toEqual([
+      { package: "@slkiser/opencode-quota@latest", options: { keep: true } },
+    ]);
+  });
+
   it("leaves an existing tui.json untouched and writes sidebar disabled when sidebar is not selected", async () => {
     const projectDir = join(tempDir, "project");
     mkdirSync(projectDir, { recursive: true });

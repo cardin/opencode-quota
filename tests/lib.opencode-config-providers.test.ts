@@ -120,6 +120,29 @@ describe("opencode config provider discovery", () => {
     ]);
   });
 
+  it("reads OpenCode 2 native providers and plugins alongside the legacy keys", async () => {
+    writeFileSync(
+      join(globalConfigDir, "opencode.json"),
+      JSON.stringify({ providers: { deepseek: {} }, plugins: ["opencode-gemini-auth"] }),
+      "utf8",
+    );
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        provider: { openai: {} },
+        plugins: [{ package: "@playwo/opencode-cursor-oauth", options: { enabled: true } }],
+      }),
+      "utf8",
+    );
+
+    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+      "openai",
+      "deepseek",
+      "google-gemini-cli",
+      "cursor",
+    ]);
+  });
+
   it("loads a merged OpenCode config view for standalone clients", async () => {
     writeFileSync(
       join(globalConfigDir, "opencode.json"),
