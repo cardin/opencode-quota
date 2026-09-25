@@ -8,7 +8,7 @@
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Provider support                     | [Pre-configured providers](#pre-configured-providers) · [Custom providers](#custom-providers)                                                                                                                         |
 | Billing, API key, or dashboard setup | [GitHub Copilot](#github-copilot) · [DeepSeek](#deepseek) · [Kilo Gateway](#kilo-gateway) · [Xiaomi MiMo](#xiaomi-mimo) · [Ollama Cloud](#ollama-cloud) · [OpenCode Go](#opencode-go) · [OpenCode Zen](#opencode-zen) |
-| CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Qwen Code](#qwen-code) · [Alibaba Personal Token Plan](#alibaba-personal-token-plan) · [Google Antigravity](#google-antigravity) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI (deprecated)](#gemini-cli) |
+| CLI or companion-plugin setup        | [Anthropic](#anthropic-claude) · [Cursor](#cursor) · [Alibaba Personal Token Plan](#alibaba-personal-token-plan) · [Google AGY](#google-agy-quick-setup) · [Gemini CLI](#gemini-cli) |
 
 ## Pre-configured providers
 
@@ -26,13 +26,12 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the c
 | Cursor             | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
 | GitHub Copilot     | Automatic                              | Remote API         | Budget and usage   |
 | Google AGY         | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
-| Google Antigravity | [Needs setup](#google-antigravity)     | Remote API         | Quota              |
 | Kilo Gateway       | Automatic                              | Remote API         | Quota and balance  |
 | NanoGPT            | Automatic                              | Remote API         | Quota and balance  |
 | Ollama Cloud       | Automatic                              | Remote API         | Quota and usage    |
 | OpenAI             | Automatic                              | Remote API         | Quota              |
 | OpenCode Go        | Automatic                              | Remote API         | Quota              |
-| OpenCode Zen       | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenCode Zen       | [Needs setup](#opencode-zen)           | Dashboard API      | Budget and balance |
 | OpenRouter         | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                              | Remote API         | Quota              |
 | xAI                | Automatic                              | Remote API         | Quota              |
@@ -47,13 +46,12 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the c
 | Anthropic (Claude)      | [Needs setup](#anthropic-claude)       | Local CLI/OAuth    | Quota              |
 | Chutes AI               | Automatic                              | Remote API         | Quota              |
 | Cursor                  | [Needs setup](#cursor)                 | Local estimate     | Budget and spend   |
-| Gemini CLI (deprecated) | [Existing setups only](#gemini-cli)    | Remote API         | Quota              |
+| Gemini CLI              | [Needs setup](#gemini-cli)             | Remote API         | Quota              |
 | GitHub Copilot          | [Needs setup](#github-copilot)         | Remote API         | Budget and usage   |
 | Google AGY              | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
-| Google Antigravity      | [Needs setup](#google-antigravity)     | Remote API         | Quota              |
 | NanoGPT                 | Automatic                              | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                              | Remote API         | Quota              |
-| OpenCode Zen            | [Needs setup](#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenCode Zen            | [Needs setup](#opencode-zen)           | Dashboard API      | Budget and balance |
 | OpenRouter              | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                              | Remote API         | Quota              |
 | xAI                     | Automatic                              | Remote API         | Quota              |
@@ -75,7 +73,6 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Kimi Code                     | Automatic                                                           | Remote API     | Quota              |
 | MiniMax Token Plan            | Automatic                                                           | Remote API     | Quota              |
 | MiniMax Token Plan (CN)       | Automatic                                                           | Remote API     | Quota              |
-| Qwen Code                     | [Needs setup](#qwen-code)                                           | Local estimate | Quota              |
 | Xiaomi MiMo                   | [Needs setup](#xiaomi-mimo)                                         | Dashboard API  | Quota and balance  |
 | Z.ai Coding Plan              | Automatic                                                           | Remote API     | Quota              |
 | Zhipu Coding Plan             | Automatic                                                           | Remote API     | Quota              |
@@ -115,7 +112,6 @@ The optional `quotaProjection: "runway"` estimate is intentionally limited to fi
 - **OpenAI:** recognized 5-hour, weekly, or monthly rate-limit API windows with `limit_window_seconds` and an exact reset. Individual spend-control rows, code-review rows, and unknown durations are excluded.
 - **xAI:** credits responses with both explicit `currentPeriod.start` and `currentPeriod.end` around the observation. A billing-end fallback without a period start is excluded.
 - **Cursor:** included API budget when `cursorBillingCycleStartDay` defines the cycle. The unconfigured calendar-month fallback, partial/unknown model spend, and spend-only rows are excluded.
-- **Qwen Code:** the maintained UTC-day request window. Its RPM window is excluded.
 - **Configured local estimates:** `utc-day` request percentages and priced budget percentages. Every `rolling` window and unpriced value row is excluded.
 
 Other providers and window shapes remain unchanged. The estimate uses the average use since the fixed window began, not a recent-rate trend. Exact reset remains separate; **lasts past reset** means the linear exhaustion instant is at or beyond that reset.
@@ -279,7 +275,7 @@ Project secrets are never read. Custom definitions cannot add scripts, methods, 
 
 `modelIds` only filters `onlyCurrentModel`. Use exact, case-sensitive model IDs without the outer provider prefix, or omit it to cover every model for the provider.
 
-To tune Qwen Code or Alibaba Coding Plan, use its reserved `qwen-code` or `alibaba-coding-plan` ID and maintained window shape. Do not add a duplicate normal provider block. Alibaba Personal Token Plan uses the reserved `alibaba-token-plan` ID and stays a separate official-CLI provider. Do not fold it into `alibaba-coding-plan`.
+To tune Alibaba Coding Plan, use its reserved `alibaba-coding-plan` ID and maintained window shape. Do not add a duplicate normal provider block. Alibaba Personal Token Plan uses the reserved `alibaba-token-plan` ID and stays a separate official-CLI provider. Do not fold it into `alibaba-coding-plan`.
 
 A custom model provider still needs its normal OpenCode provider/model config. `/connect` → **Other** stores its credential, not its model setup.
 
@@ -437,21 +433,7 @@ Team plans, China-only `alibaba-token-plan-cn` runtimes, and cookie-based consol
 
 If you use manual provider selection, include `alibaba-token-plan` in `enabledProviders`.
 
-<a id="qwen-code"></a>
-
-### Qwen Code
-
-Use companion plugin [`opencode-qwencode-auth`](https://github.com/gustavodiasdev/opencode-qwencode-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`.
-
-Qwen's maintained UTC-day request window can show the optional runs-out projection. Its RPM window is rolling and never qualifies.
-
 OpenCode Quota's Google integrations use independent community companion plugins. They are not endorsed by Google.
-
-<a id="google-antigravity"></a>
-
-### Google Antigravity
-
-Use companion plugin [`opencode-antigravity-auth`](https://github.com/NoeFabris/opencode-antigravity-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`.
 
 <a id="google-agy-quick-setup"></a>
 
@@ -489,13 +471,9 @@ If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_I
 
 <a id="gemini-cli"></a>
 
-### Gemini CLI (deprecated)
+### Gemini CLI
 
-**Deprecated in v4.1:** Existing configurations, aliases, companion detection, authentication, and quota fetching continue to work unchanged. Do not use this provider for a new install. Removal is planned for v5.0.0, and OpenCode Quota does not switch providers or authentication automatically.
-
-Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. Within OpenCode Quota, `google-agy` is the suggested successor for quota reporting; this is an OpenCode Quota recommendation, not a Google endorsement.
-
-The instructions below remain available only to maintain an existing setup.
+Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Google ended personal Gemini Code Assist accounts (individual, AI Pro, and AI Ultra) on 2026-06-18; see [Google's notice](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals). Personal Google users should use [Google AGY](#google-agy-quick-setup).
 
 Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
 
@@ -600,7 +578,7 @@ Per-API-key costs remain unsupported until Xiaomi exposes endpoint and schema ev
 
 ### Ollama Cloud
 
-Ollama Cloud calls `https://ollama.com/api/usage` and reports session and weekly usage fractions. The API-key response does not include quota reset timestamps or per-model request rows. Create an Ollama API key, then set:
+Ollama Cloud calls `https://ollama.com/api/usage` and reports session, weekly, or monthly usage fractions (newer plans report only a monthly usage pool). The API-key response does not include quota reset timestamps or per-model request rows. Create an Ollama API key, then set:
 
 ```bash
 export OLLAMA_API_KEY="your-api-key"
@@ -636,16 +614,22 @@ The updater reports obsolete `OPENCODE_GO_WORKSPACE_ID`, `OPENCODE_GO_AUTH_COOKI
 
 ### OpenCode Zen
 
-OpenCode Zen balance scrapes `opencode.ai/workspace/{id}/billing`. Provide its own workspace ID and `auth` cookie via the plugin config file `~/.config/opencode/opencode-quota/opencode.json`:
+OpenCode Zen reads billing and usage from the OpenCode Console API (`opencode.ai/console/api/...`). These routes are unofficial, so OpenCode may change them. Provide your workspace ID and Console session cookie via the plugin config file `~/.config/opencode/opencode-quota/opencode.json`:
 
 ```json
 {
-  "workspaceId": "your-workspace-id",
-  "authCookie": "your-auth-cookie"
+  "workspaceId": "wrk_your-workspace-id",
+  "consoleSessionCookie": "your-console-session-cookie"
 }
 ```
 
-Find both values in your browser: the workspace ID is in the billing-page URL, and the `auth` cookie is under Developer Tools → Storage → Cookies for `opencode.ai`.
+Find both values in your browser:
+
+1. Open https://opencode.ai/console and sign in.
+2. `workspaceId`: copy the `wrk_...` part of the Console URL.
+3. `consoleSessionCookie`: open Developer Tools → **Application** (Firefox: **Storage**) → **Cookies** → `https://opencode.ai`, then copy the **Value** of `__Host-console_session`.
+
+When the cookie expires, Zen reports `OpenCode Console session expired or invalid`; paste a fresh value. The old `authCookie` key no longer works and is reported as a setup error. OpenCode Quota never reads browser cookie stores.
 
 > The credentials are read only from this config file. They are not read from
 > the `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` environment variables,
@@ -653,6 +637,6 @@ Find both values in your browser: the workspace ID is in the billing-page URL, a
 > cautiously report those names when no supported global file exists; review
 > [Updating safely](updating.md#opencode-zen-findings) before changing them.
 
-Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly budget from the billing page. With valid monthly usage and a positive page/configured limit, Zen shows a primary **Monthly budget** percentage with used, limit, and locally derived remaining USD facts. The current account balance is separate and supplementary; without a valid budget percentage, that balance becomes the primary row. **Auto-reload** is a supplementary enabled/disabled row. Its raw amount and trigger remain diagnostics because their monetary units are not confirmed.
+Set `opencodeMonthlyLimit` in `opencode-quota/quota-toast.json` to override the monthly budget from the Console credit limit. With valid monthly usage and a positive Console/configured limit, Zen shows a primary **Monthly budget** percentage with used, limit, and locally derived remaining USD facts. The current account balance is separate and supplementary; without a valid budget percentage, that balance becomes the primary row. **Auto-reload** is a supplementary enabled/disabled row. Its raw amount and trigger remain diagnostics. The balance is required; if the credit-limit, auto-reload, or usage route fails, Zen still shows the balance, omits only the rows that need the failed data, and lists each failed route as an error.
 
 Use root `accountingDetail: "detailed"` to admit the supplementary balance and auto-reload rows. At runtime, the removed `opencodeZenDisplay` key remains diagnostic-only. The explicit `update` command can migrate recognized file-backed `default` and `detailed` values; unsupported cases remain unchanged for manual review. See [Updating safely](updating.md#what-can-change-automatically).

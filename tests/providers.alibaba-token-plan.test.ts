@@ -25,8 +25,9 @@ vi.mock("../src/lib/alibaba-token-plan.js", async () => {
   };
 });
 
-vi.mock("../src/lib/qwen-local-quota.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/lib/qwen-local-quota.js")>();
+vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/lib/alibaba-coding-plan-local-quota.js")>();
   return {
     ...actual,
     readAlibabaCodingPlanQuotaState: vi.fn(actual.readAlibabaCodingPlanQuotaState),
@@ -175,7 +176,9 @@ describe("alibaba-token-plan provider", () => {
       const tokenOut = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
       expectAttemptedWithErrorLabel(tokenOut, "Alibaba Personal Token Plan");
 
-      const { readAlibabaCodingPlanQuotaState } = await import("../src/lib/qwen-local-quota.js");
+      const { readAlibabaCodingPlanQuotaState } = await import(
+        "../src/lib/alibaba-coding-plan-local-quota.js"
+      );
       vi.mocked(readAlibabaCodingPlanQuotaState).mockResolvedValue({
         version: 1,
         recent: [],

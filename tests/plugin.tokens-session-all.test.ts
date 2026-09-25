@@ -6,7 +6,6 @@ import {
   createConfigModuleMock,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  createQwenAuthModuleMock,
   createSessionTokensModuleMock,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -22,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   setPricingSnapshotAutoRefresh: vi.fn(),
   setPricingSnapshotSelection: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
-  resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   aggregateUsage: vi.fn(),
   resolveSessionTree: vi.fn(),
@@ -50,10 +48,6 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks))
 
 vi.mock("../src/lib/session-tokens.js", () =>
   createSessionTokensModuleMock(mocks.fetchSessionTokensForDisplay),
-);
-
-vi.mock("../src/lib/qwen-auth.js", () =>
-  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
 );
 
 vi.mock("../src/lib/alibaba-auth.js", () =>
@@ -103,7 +97,6 @@ describe("/tokens_session_all command", () => {
       resetModules: true,
       resetPluginState: true,
     });
-    mocks.resolveQwenLocalPlanCached.mockResolvedValue({ state: "none" });
     mocks.resolveAlibabaCodingPlanAuthCached.mockResolvedValue({ state: "none" });
     mocks.aggregateUsage.mockResolvedValue({ totals: {}, bySession: [] });
     mocks.formatQuotaStatsReport.mockReturnValue("formatted token report");

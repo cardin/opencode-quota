@@ -154,7 +154,9 @@ describe("opencode storage multi-session reads", () => {
     const conn = {
       get: vi.fn(() => ({ r: "assistant" })),
       all: vi.fn((sql: string) => {
-        expect(sql).toContain("CASE WHEN json_valid(data) THEN json_extract(data, '$.tokens.input') END");
+        expect(sql).toContain(
+          "CASE WHEN json_valid(data) THEN json_extract(data, '$.tokens.input') END",
+        );
         expect(sql).not.toMatch(/SELECT[\s\S]*\bdata\b\s+FROM/);
         return [];
       }),

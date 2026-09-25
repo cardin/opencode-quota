@@ -35,13 +35,12 @@ describe("V2 server plugin", () => {
 
     await plugin.setup(ctx as never);
     expect(registered?.name).toBe("quota_status");
-    const output = await registered?.execute({ force: true }, { sessionID: "session-test" });
+    const output = await registered?.execute({}, { sessionID: "session-test" });
     expect(output).toEqual({ content: "Quota ready" });
     expect(buildOutput).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "quota_status",
         sessionID: "session-test",
-        arguments: '{"force":true}',
       }),
     );
     expect(ctx.provider.list).toHaveBeenCalledTimes(0);

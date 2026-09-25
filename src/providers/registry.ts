@@ -19,7 +19,6 @@ import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";
 import { deepseekProvider } from "./deepseek.js";
 import { googleAgyProvider } from "./google-agy.js";
-import { googleAntigravityProvider } from "./google-antigravity.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
 import { kiloProvider } from "./kilo.js";
 import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "./kimi-code.js";
@@ -35,7 +34,6 @@ import { opencodeGoProvider } from "./opencode-go.js";
 import { opencodeZenProvider } from "./opencode-zen.js";
 import { openRouterProvider } from "./openrouter.js";
 import { quotaProvidersProvider } from "./quota-providers.js";
-import { qwenCodeProvider } from "./qwen-code.js";
 import { syntheticProvider } from "./synthetic.js";
 import { xaiProvider } from "./xai.js";
 import { zaiProvider } from "./zai.js";
@@ -48,12 +46,10 @@ const PROVIDERS_BY_ID = {
   openrouter: openRouterProvider,
   kilo: kiloProvider,
   cursor: cursorProvider,
-  "qwen-code": qwenCodeProvider,
   "alibaba-coding-plan": alibabaCodingPlanProvider,
   "alibaba-token-plan": alibabaTokenPlanProvider,
   synthetic: syntheticProvider,
   chutes: chutesProvider,
-  "google-antigravity": googleAntigravityProvider,
   "google-gemini-cli": googleGeminiCliProvider,
   "google-agy": googleAgyProvider,
   zai: zaiProvider,

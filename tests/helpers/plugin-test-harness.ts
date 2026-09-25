@@ -32,7 +32,6 @@ interface SessionTokenMocks {
 
 interface AuthPlanMocks {
   resolveAlibabaCodingPlanAuthCached?: MockFunction;
-  resolveQwenLocalPlanCached?: MockFunction;
 }
 
 interface PluginBootstrapMocks extends PricingMocks, AuthPlanMocks {
@@ -133,14 +132,6 @@ export function createSessionTokensModuleMock(fetchSessionTokensForDisplay: Mock
   return { fetchSessionTokensForDisplay };
 }
 
-export function createQwenAuthModuleMock(resolveQwenLocalPlanCached: MockFunction) {
-  return {
-    isQwenCodeModelId: (model?: string) =>
-      typeof model === "string" && model.toLowerCase().startsWith("qwen-code/"),
-    resolveQwenLocalPlanCached,
-  };
-}
-
 export function createAlibabaAuthModuleMock(resolveAlibabaCodingPlanAuthCached: MockFunction) {
   return {
     DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS: 5000,
@@ -218,7 +209,6 @@ export function makeQuotaToastTestConfig(
         : Array.isArray(DEFAULT_CONFIG.enabledProviders)
           ? [...DEFAULT_CONFIG.enabledProviders]
           : DEFAULT_CONFIG.enabledProviders,
-    googleModels: [...(overrides.googleModels ?? DEFAULT_CONFIG.googleModels)],
     opencodeGoWindows: [...(overrides.opencodeGoWindows ?? DEFAULT_CONFIG.opencodeGoWindows)],
     resetNotifications: {
       ...DEFAULT_CONFIG.resetNotifications,
@@ -280,7 +270,6 @@ export function seedDefaultSessionTokenMocks(mocks: SessionTokenMocks): void {
 }
 
 export function seedDefaultAuthPlanMocks(mocks: AuthPlanMocks): void {
-  mocks.resolveQwenLocalPlanCached?.mockResolvedValue({ state: "none" });
   mocks.resolveAlibabaCodingPlanAuthCached?.mockResolvedValue({ state: "none" });
 }
 

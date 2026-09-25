@@ -1,31 +1,46 @@
+import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 
-const CONSOLE_BASE_URL = "https://opencode.ai/console";
-const SCRAPE_TIMEOUT_MS = 10_000;
+const CONSOLE_API_URL = "https://opencode.ai/console/api";
+const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/148.0";
+const CONSOLE_TIMEOUT_MS = 10_000;
+const SESSION_ERROR =
+  "OpenCode Console session expired or invalid — paste a fresh __Host-console_session cookie as consoleSessionCookie";
 
 /**
- * Conversion used by the OpenCode Console billing APIs.
- * The source represents one US dollar as 100,000,000 microcents.
+ * The OpenCode Console reports amounts in micro-cents:
+ * one US dollar is 100,000,000 micro-cents (billing units).
  */
 export const OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR = 100_000_000;
 
 export interface OpenCodeZenBillingData {
   balance: number;
+  /** Credit limit in USD; null when the account has no limit or billing/account failed. */
   monthlyLimit: number | null;
+  /** Current-month usage in billing units; null when usage/cost-by-day failed. */
   monthlyUsage: number | null;
   lastPayment: number | null;
-  reload: boolean;
+  /** Auto-reload state; null (unknown) when billing/auto-recharge failed. */
+  reload: boolean | null;
   reloadAmount: number | null;
   reloadTrigger: number | null;
 }
 
+/**
+ * billing/status (balance) is required. The other routes are optional: when one fails,
+ * its fields are null and its error is listed in `errors`.
+ */
 export type OpenCodeZenResult =
-  | { success: true; data: OpenCodeZenBillingData }
+  | { success: true; data: OpenCodeZenBillingData; errors: string[] }
   | { success: false; error: string };
 
-export interface OpenCodeConsoleQuotaAuth {
-  accessToken: string;
-}
+type ConsoleRoute =
+  | "billing/status"
+  | "billing/account"
+  | "billing/auto-recharge"
+  | "usage/cost-by-day";
+
+type ConsoleRouteResult<T> = { success: true; data: T } | { success: false; error: string };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -33,133 +48,177 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function asMicroCents(value: unknown): number | null {
-  const parsed = typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function asDollars(microCents: number | null): number | null {
-  return microCents === null ? null : microCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
-}
-
-function currentMonthStartDate(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
-}
-
-type ConsoleJsonResponse =
-  | { ok: true; json: unknown }
-  | { ok: false; error: string };
-
-async function getConsoleJson(
-  path: string,
-  accessToken: string,
-  timeoutMs: number,
-): Promise<ConsoleJsonResponse> {
-  try {
-    return await fetchWithTimeout<ConsoleJsonResponse>(`${CONSOLE_BASE_URL}${path}`, {
-      request: {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/json",
-        },
-      },
-      timeoutMs,
-      consume: async (response) => {
-        if (!response.ok) {
-          return { ok: false, error: `OpenCode Console API error ${response.status} (${path})` };
-        }
-        let json: unknown = null;
-        try {
-          json = JSON.parse(await response.text());
-        } catch {
-          json = null;
-        }
-        return { ok: true, json };
-      },
-    });
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+/** Console micro-cent amounts arrive as decimal strings; numbers are accepted too. */
+function parseMicroCents(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && /^-?\d+(?:\.\d+)?$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
+  return null;
 }
 
-function contractError(path: string): { success: false; error: string } {
+function invalidResponse(): never {
+  throw new Error("Unexpected OpenCode Console response");
+}
+
+function parseDollars(value: unknown): number | null {
+  if (value === null) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return invalidResponse();
+}
+
+function parseBalance(json: unknown): number {
+  const balance = parseMicroCents(asRecord(json)?.balanceMicroCents);
+  return balance === null ? invalidResponse() : Math.max(0, balance);
+}
+
+/** Returns the credit limit in USD, or null when the account has no limit. */
+function parseCreditLimit(json: unknown): number | null {
+  const value = asRecord(json)?.creditLimitMicroCents;
+  if (value === null) return null;
+
+  const limit = parseMicroCents(value);
+  return limit === null ? invalidResponse() : limit / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
+}
+
+function parseAutoRecharge(
+  json: unknown,
+): Pick<OpenCodeZenBillingData, "reload" | "reloadAmount" | "reloadTrigger"> {
+  const autoRecharge = asRecord(json);
+  if (!autoRecharge || typeof autoRecharge.enabled !== "boolean") return invalidResponse();
+
   return {
-    success: false,
-    error: `Could not parse OpenCode Console response (${path})`,
+    reload: autoRecharge.enabled,
+    reloadAmount: parseDollars(autoRecharge.rechargeAmountDollars),
+    reloadTrigger: parseDollars(autoRecharge.thresholdDollars),
   };
 }
 
+function currentUtcMonth(now: Date): string {
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Sums the current UTC month's daily costs in micro-cents; an empty list means no usage. */
+function parseMonthlyUsage(json: unknown, now: Date): number {
+  if (!Array.isArray(json)) return invalidResponse();
+
+  const month = currentUtcMonth(now);
+  let total = 0;
+  for (const item of json) {
+    const day = asRecord(item);
+    const cost = parseMicroCents(day?.totalCostMicroCents);
+    if (typeof day?.date !== "string" || cost === null) return invalidResponse();
+    if (day.date.slice(0, 7) === month) total += cost;
+  }
+  return Number.isFinite(total) ? total : invalidResponse();
+}
+
+function sanitizeMessage(text: string, secrets: string[] = [], maxLength = 120): string {
+  let sanitized = sanitizeDisplayText(text).replace(/\s+/g, " ").trim();
+  for (const secret of secrets) {
+    if (secret) sanitized = sanitized.split(secret).join("[redacted]");
+  }
+  return (sanitized || "unknown").slice(0, maxLength);
+}
+
+async function fetchConsoleRoute<T>(params: {
+  route: ConsoleRoute;
+  workspaceId: string;
+  consoleSessionCookie: string;
+  timeoutMs: number;
+  parse: (json: unknown) => T;
+}): Promise<ConsoleRouteResult<T>> {
+  try {
+    return await fetchWithTimeout(`${CONSOLE_API_URL}/${params.route}`, {
+      request: {
+        method: "GET",
+        redirect: "manual",
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "application/json",
+          Cookie: `__Host-console_session=${params.consoleSessionCookie}`,
+          "x-org-id": params.workspaceId,
+        },
+      },
+      timeoutMs: params.timeoutMs,
+      consume: async (response): Promise<ConsoleRouteResult<T>> => {
+        if (
+          (response.status >= 300 && response.status < 400) ||
+          response.status === 401 ||
+          response.status === 403
+        ) {
+          return { success: false, error: SESSION_ERROR };
+        }
+        if (!response.ok) {
+          return {
+            success: false,
+            error: `OpenCode Console ${params.route} error ${response.status}`,
+          };
+        }
+        if (response.headers.get("content-type")?.includes("text/html")) {
+          return { success: false, error: SESSION_ERROR };
+        }
+
+        const text = await response.text();
+        try {
+          return { success: true, data: params.parse(JSON.parse(text)) };
+        } catch {
+          return {
+            success: false,
+            error: `Could not parse OpenCode Console ${params.route} response`,
+          };
+        }
+      },
+    });
+  } catch (error) {
+    const message = sanitizeMessage(error instanceof Error ? error.message : String(error), [
+      params.consoleSessionCookie,
+      params.workspaceId,
+    ]);
+    return { success: false, error: `OpenCode Console ${params.route} request failed: ${message}` };
+  }
+}
+
 export async function queryOpenCodeZenQuota(
-  auth: { accessToken: string },
+  workspaceId: string,
+  consoleSessionCookie: string,
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OpenCodeZenResult> {
-  const timeoutMs = options.requestTimeoutMs ?? SCRAPE_TIMEOUT_MS;
+  const request = {
+    workspaceId,
+    consoleSessionCookie,
+    timeoutMs: options.requestTimeoutMs ?? CONSOLE_TIMEOUT_MS,
+  };
+  const now = new Date();
+  const [balance, creditLimit, autoRecharge, monthlyUsage] = await Promise.all([
+    fetchConsoleRoute({ ...request, route: "billing/status", parse: parseBalance }),
+    fetchConsoleRoute({ ...request, route: "billing/account", parse: parseCreditLimit }),
+    fetchConsoleRoute({ ...request, route: "billing/auto-recharge", parse: parseAutoRecharge }),
+    fetchConsoleRoute({
+      ...request,
+      route: "usage/cost-by-day",
+      parse: (json) => parseMonthlyUsage(json, now),
+    }),
+  ]);
 
-  const statusResponse = await getConsoleJson("/api/billing/status", auth.accessToken, timeoutMs);
-  if (!statusResponse.ok) return { success: false, error: statusResponse.error };
-  const status = asRecord(statusResponse.json);
-  const balanceMicroCents = status ? asMicroCents(status.balanceMicroCents) : null;
-  if (status === null || balanceMicroCents === null || balanceMicroCents < 0) {
-    return contractError("/api/billing/status");
+  const optional = [creditLimit, autoRecharge, monthlyUsage];
+  if ([balance, ...optional].some((result) => !result.success && result.error === SESSION_ERROR)) {
+    return { success: false, error: SESSION_ERROR };
   }
-
-  const accountResponse = await getConsoleJson("/api/billing/account", auth.accessToken, timeoutMs);
-  const account = accountResponse.ok ? asRecord(accountResponse.json) : null;
-  const creditLimitMicroCents = account ? asMicroCents(account.creditLimitMicroCents) : null;
-
-  const autoRechargeResponse = await getConsoleJson(
-    "/api/billing/auto-recharge",
-    auth.accessToken,
-    timeoutMs,
-  );
-  const autoRecharge = autoRechargeResponse.ok ? asRecord(autoRechargeResponse.json) : null;
-  const rechargeEnabled = autoRecharge?.enabled === true;
-  const rechargeAmount =
-    rechargeEnabled && typeof autoRecharge?.rechargeAmountDollars === "number"
-      ? autoRecharge.rechargeAmountDollars
-      : null;
-  const rechargeTrigger =
-    rechargeEnabled && typeof autoRecharge?.thresholdDollars === "number"
-      ? autoRecharge.thresholdDollars
-      : null;
-
-  let monthlyUsageMicroCents: number | null = null;
-  const costByDayResponse = await getConsoleJson("/api/usage/cost-by-day", auth.accessToken, timeoutMs);
-  if (!costByDayResponse.ok) return { success: false, error: costByDayResponse.error };
-  if (Array.isArray(costByDayResponse.json)) {
-    const monthStart = currentMonthStartDate();
-    let sum = 0;
-    let seen = false;
-    for (const entry of costByDayResponse.json) {
-      const record = asRecord(entry);
-      const day = typeof record?.date === "string" ? record.date : "";
-      if (!day || day < monthStart) continue;
-      const cost = asMicroCents(record?.totalCostMicroCents);
-      if (cost === null) continue;
-      sum += cost;
-      seen = true;
-    }
-    if (seen) monthlyUsageMicroCents = sum;
-  }
+  if (!balance.success) return balance;
 
   return {
     success: true,
     data: {
-      balance: balanceMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
-      monthlyLimit:
-        creditLimitMicroCents === null || creditLimitMicroCents < 0
-          ? null
-          : creditLimitMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
-      monthlyUsage:
-        monthlyUsageMicroCents === null
-          ? null
-          : monthlyUsageMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
+      balance: balance.data,
+      monthlyLimit: creditLimit.success ? creditLimit.data : null,
+      monthlyUsage: monthlyUsage.success ? monthlyUsage.data : null,
       lastPayment: null,
-      reload: rechargeEnabled,
-      reloadAmount: rechargeAmount,
-      reloadTrigger: rechargeTrigger,
+      ...(autoRecharge.success
+        ? autoRecharge.data
+        : { reload: null, reloadAmount: null, reloadTrigger: null }),
     },
+    errors: optional.flatMap((result) => (result.success ? [] : [result.error])),
   };
 }

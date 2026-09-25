@@ -84,22 +84,15 @@ vi.mock("../src/lib/openrouter.js", () => ({
   resolveOpenRouterApiKey: openrouterMocks.resolveOpenRouterApiKey,
 }));
 
-vi.mock("../src/lib/qwen-local-quota.js", () => ({
-  QWEN_LOCAL_QUOTA_STATE_VERSION: 1,
+vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", () => ({
   ALIBABA_CODING_PLAN_STATE_VERSION: 1,
-  computeQwenQuota: () => ({
-    day: { used: 0, limit: 1000 },
-    rpm: { used: 0, limit: 60 },
-  }),
   computeAlibabaCodingPlanQuota: () => ({
     tier: "lite",
     fiveHour: { used: 0, limit: 1200 },
     weekly: { used: 0, limit: 9000 },
     monthly: { used: 0, limit: 18000 },
   }),
-  getQwenLocalQuotaPath: () => "/tmp/qwen-state.json",
   getAlibabaCodingPlanQuotaPath: () => "/tmp/alibaba-state.json",
-  readQwenLocalQuotaState: vi.fn(async () => ({})),
   readAlibabaCodingPlanQuotaState: vi.fn(async () => ({})),
 }));
 
@@ -233,56 +226,6 @@ describe("buildQuotaStatusReport", () => {
     );
   });
 
-  it("reports effective googleModels and whether they came from defaults or a config file", async () => {
-    const defaultsReport = await buildQuotaStatusReportForTest({
-      configSource: "defaults",
-      googleModels: ["CLAUDE"],
-    });
-    expect(defaultsReport).toContain("- googleModels: CLAUDE");
-    expect(defaultsReport).toContain("- googleModels_source: default");
-
-    const configPath =
-      "/tmp/config/opencode-quota/quota-toast.json (opencode-quota/quota-toast.json)";
-    const configuredReport = await buildQuotaStatusReportForTest({
-      configSource: "files",
-      googleModels: ["CLAUDE", "G3PRO"],
-      settingSources: { googleModels: configPath },
-    });
-    expect(configuredReport).toContain("- googleModels: CLAUDE,G3PRO");
-    expect(configuredReport).toContain(`- googleModels_source: configuration file (${configPath})`);
-  });
-
-  it("keeps the raw Antigravity family in live quota diagnostics", async () => {
-    const report = await buildProviderStatusReport("google-antigravity", {
-      providerLiveProbes: [
-        makeProviderSuccessProbe(
-          "google-antigravity",
-          {},
-          {
-            entries: [
-              {
-                accounting: QUOTA_ACCOUNTING,
-                name: "Antigravity (ali…): Claude",
-                group: "[Antigravity (ali…)]",
-                label: "Claude:",
-                metricLabel: "Claude",
-                percentRemaining: 64,
-              },
-            ],
-            presentation: {
-              classicStrategy: "preserve",
-              redundantQuotaFamily: "Claude",
-            },
-          },
-        ),
-      ],
-    });
-
-    const section = getReportSection(report, "google_antigravity:");
-    expect(section).toContain("- live_entry_1: Claude: percent_remaining=64");
-    expect(section).not.toContain("- live_entry_1: Quota:");
-  });
-
   it("renders only safe quota-provider identity and diagnostic fields", async () => {
     const report = await buildQuotaStatusReportForTest({
       enabledProviders: ["quota-providers"],
@@ -364,19 +307,10 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("401");
   });
 
-  it("uses maintained Qwen and Alibaba probes and state paths for tuning diagnostics", async () => {
+  it("uses maintained Alibaba probes and state paths for tuning diagnostics", async () => {
     const report = await buildQuotaStatusReportForTest({
-      enabledProviders: ["qwen-code", "alibaba-coding-plan"],
+      enabledProviders: ["alibaba-coding-plan"],
       quotaProviders: [
-        {
-          id: "qwen-code",
-          providerId: "qwen-code",
-          mode: "local-estimate",
-          windows: [
-            { id: "daily", type: "utc-day", requestLimit: 900 },
-            { id: "rpm", type: "rolling", durationMinutes: 1, requestLimit: 50 },
-          ],
-        },
         {
           id: "alibaba-coding-plan",
           providerId: "alibaba-coding-plan",
@@ -389,27 +323,6 @@ describe("buildQuotaStatusReport", () => {
         },
       ],
       providerLiveProbes: [
-        {
-          providerId: "qwen-code",
-          result: {
-            attempted: true,
-            entries: [
-              {
-                accounting: QUOTA_ACCOUNTING,
-                name: "Qwen Free Daily",
-                percentRemaining: 90,
-              },
-            ],
-            errors: [{ label: "Qwen", message: "one local row failed" }],
-            statusDetails: makeStatusDetails({
-              local_state_path: "/tmp/qwen-state.json",
-              local_state_exists: "true",
-              local_state_health: "valid",
-              local_state_version: "1",
-              local_state_last_update: "2026-03-12T12:00:00.000Z",
-            }),
-          },
-        },
         {
           providerId: "alibaba-coding-plan",
           result: {
@@ -436,16 +349,10 @@ describe("buildQuotaStatusReport", () => {
 
     const section = getReportSection(report, "quota_providers:");
     expect(section).toContain(
-      "provider_qwen-code: provider_id=qwen-code mode=local-estimate coverage=all_models outcome=partial",
-    );
-    expect(section).toContain("limits=daily:900,rpm:50");
-    expect(section).toContain("state_path=/tmp/qwen-state.json");
-    expect(section).toContain(
       "provider_alibaba-coding-plan: provider_id=alibaba-coding-plan mode=local-estimate coverage=all_models outcome=success",
     );
     expect(section).toContain("limits=five-hour:1000,weekly:8000,monthly:16000");
     expect(section).toContain("state_path=/tmp/alibaba-state.json");
-    expect(section).not.toContain("quota-providers/qwen-code.json");
     expect(section).not.toContain("quota-providers/alibaba-coding-plan.json");
   });
 
@@ -766,12 +673,10 @@ describe("buildQuotaStatusReport", () => {
     const report = await buildQuotaStatusReportForTest({
       enabledProviders: [
         "openai",
-        "qwen-code",
         "alibaba-coding-plan",
         "alibaba-token-plan",
         "minimax-coding-plan",
         "copilot",
-        "google-antigravity",
         "google-gemini-cli",
         "chutes",
       ],
@@ -784,18 +689,6 @@ describe("buildQuotaStatusReport", () => {
               name: "OpenAI Pro",
               percentRemaining: 91,
               right: "91/100",
-              resetTimeIso: "2026-04-22T00:00:00.000Z",
-            },
-          ],
-        }),
-        makeProviderProbe("qwen-code", {
-          attempted: true,
-          entries: [
-            {
-              label: "Daily",
-              name: "Qwen Code Daily",
-              percentRemaining: 88,
-              right: "120/1000",
               resetTimeIso: "2026-04-22T00:00:00.000Z",
             },
           ],
@@ -830,7 +723,6 @@ describe("buildQuotaStatusReport", () => {
           },
         ),
         makeProviderSafeFailureProbe("copilot", {}, "Billing endpoint unavailable"),
-        makeProviderProbe("google-antigravity"),
         makeProviderSuccessProbe(
           "google-gemini-cli",
           { auth_state: "missing", companion_package_state: "missing" },
@@ -860,11 +752,7 @@ describe("buildQuotaStatusReport", () => {
       "- live_entry_1: Pro 91/100 percent_remaining=91 reset_at=2026-04-22T00:00:00.000Z",
     );
 
-    const qwenSection = getReportSection(report, "qwen_code:");
-    expect(qwenSection).toContain("- live_probe: success");
-    expect(qwenSection).toContain(
-      "- live_entry_1: Daily 120/1000 percent_remaining=88 reset_at=2026-04-22T00:00:00.000Z",
-    );
+    expect(report).not.toContain("qwen_code:");
 
     const alibabaSection = getReportSection(report, "alibaba_coding_plan:");
     expect(alibabaSection).toContain("- live_probe: no_data");
@@ -885,8 +773,7 @@ describe("buildQuotaStatusReport", () => {
     expect(copilotSection).toContain("- live_probe: error");
     expect(copilotSection).toContain("- live_error_1: Billing endpoint unavailable");
 
-    const googleSection = getReportSection(report, "google_antigravity:");
-    expect(googleSection).toContain("- live_probe: no_data");
+    expect(report).not.toContain("google_antigravity:");
 
     const geminiCliSection = getReportSection(report, "google_gemini_cli:");
     expect(geminiCliSection).toContain("- auth_state: missing");
@@ -1560,11 +1447,6 @@ describe("buildQuotaStatusReport", () => {
     const report = await buildProviderStatusReport("copilot", {
       configSource: "defaults",
       providerLiveProbes: [
-        makeProviderSuccessProbe("qwen-code", {
-          "qwen oauth auth configured": "false",
-          qwen_oauth_source: "(none)",
-          qwen_local_plan: "(none)",
-        }),
         makeProviderSuccessProbe("alibaba-coding-plan", {
           "alibaba auth configured": "false",
           alibaba_api_key_source: "(none)",
@@ -1604,7 +1486,7 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(blank).toBe("");
 
-    const excerpt = body.slice(0, 48).join("\n");
+    const excerpt = body.slice(0, 47).join("\n");
     expect(excerpt).toMatchInlineSnapshot(`
       "toast:
       - configSource: defaults
@@ -1614,8 +1496,6 @@ describe("buildQuotaStatusReport", () => {
       - workspace_config_paths: (none)
       - setting_sources: (none)
       - enabledProviders: copilot
-      - googleModels: CLAUDE
-      - googleModels_source: default
       - onlyCurrentModel: false
       - currentModel: (unknown)
       - providers:
@@ -1624,9 +1504,7 @@ describe("buildQuotaStatusReport", () => {
       paths:
       - opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state
       - opencode.db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db
-      - qwen oauth auth configured: false
-      - qwen_oauth_source: (none)
-      - qwen_local_plan: (none)
+      - opencode db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db
       - alibaba auth configured: false
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
@@ -1653,7 +1531,10 @@ describe("buildQuotaStatusReport", () => {
       cursor:
       - plan: none
       - included_api_usd: (none)
-      - billing_cycle_start_day: (calendar month)"
+      - billing_cycle_start_day: (calendar month)
+
+      minimax:
+      "
     `);
 
     const titles = report
@@ -1682,7 +1563,6 @@ xai:
 nanogpt:
 openrouter:
 copilot_quota_auth:
-google_antigravity:
 google_gemini_cli:
 google_agy:
 storage:

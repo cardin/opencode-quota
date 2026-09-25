@@ -10,7 +10,6 @@ import {
   createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  createQwenAuthModuleMock,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -42,7 +41,6 @@ const mocks = vi.hoisted(() => ({
   getRuntimePricingSnapshotPath: vi.fn(),
   setPricingSnapshotAutoRefresh: vi.fn(),
   setPricingSnapshotSelection: vi.fn(),
-  resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
 }));
 
@@ -65,9 +63,6 @@ vi.mock("../src/providers/registry.js", () =>
   createProvidersRegistryModuleMock(mocks.getProviders),
 );
 vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
-vi.mock("../src/lib/qwen-auth.js", () =>
-  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
-);
 vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
 );

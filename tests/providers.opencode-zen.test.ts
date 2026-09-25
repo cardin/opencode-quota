@@ -8,7 +8,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   queryOpenCodeZenQuota: vi.fn(),
-  resolveOpenCodeConsoleAuth: vi.fn(),
+  resolveOpenCodeZenConfigCached: vi.fn(),
 }));
 
 vi.mock("../src/lib/opencode-zen.js", async (importOriginal) => {
@@ -19,16 +19,23 @@ vi.mock("../src/lib/opencode-zen.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/lib/opencode-console-auth.js", () => ({
-  OPENCODE_CONSOLE_BASE_URL: "https://opencode.ai/console",
-  resolveOpenCodeConsoleAuth: mocks.resolveOpenCodeConsoleAuth,
+vi.mock("../src/lib/opencode-zen-config.js", () => ({
+  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS: 30_000,
+  resolveOpenCodeZenConfigCached: mocks.resolveOpenCodeZenConfigCached,
+  getOpenCodeZenConfigDiagnostics: vi.fn(async () => ({
+    state: "configured",
+    source: "test",
+    missing: null,
+    error: null,
+    checkedPaths: [],
+  })),
 }));
 
 import { opencodeZenProvider } from "../src/providers/opencode-zen.js";
 
 const balanceAccounting = {
   resultType: "balance",
-  acquisitionMethod: "remote_api",
+  acquisitionMethod: "dashboard_scrape",
   ownership: "maintained",
   authority: "provider_reported",
 } as const;
@@ -42,7 +49,7 @@ const statusAccounting = {
   resultType: "status",
 } as const;
 
-function balanceEntry(prominence: "primary" | "supplementary", decimal = "42.5") {
+function balanceEntry(prominence: "primary" | "supplementary") {
   return {
     accounting: balanceAccounting,
     kind: "quantity",
@@ -52,7 +59,7 @@ function balanceEntry(prominence: "primary" | "supplementary", decimal = "42.5")
       metric: { kind: "component", component: "current_balance" },
       prominence,
     },
-    quantity: { decimal, unit: { kind: "currency", code: "USD" } },
+    quantity: { decimal: "42.5", unit: { kind: "currency", code: "USD" } },
   } as const;
 }
 
@@ -114,36 +121,20 @@ function budgetEntry(
   } as const;
 }
 
-function consoleAuth(state: "configured" | "expired" | "none" | "invalid"): void {
-  if (state === "configured") {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "configured",
-      credential: { accessToken: "console-token", orgId: "wrk_1", orgName: "WSC Sports" },
-    });
-    return;
-  }
-  if (state === "expired") {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "expired",
-      credential: { accessToken: "console-token", orgId: "wrk_1" },
-    });
-    return;
-  }
-  if (state === "invalid") {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
-      state: "invalid",
-      error: "OpenCode Console credential has no access token",
-    });
-    return;
-  }
-  mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({ state: "none" });
+function configured(): void {
+  mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce({
+    state: "configured",
+    config: { workspaceId: "wrk_123", consoleSessionCookie: "cookie-abc" },
+    source: "env(OPENCODE_*)",
+  });
 }
 
-function success(overrides: Record<string, unknown> = {}): void {
+function success(overrides: Record<string, unknown> = {}, errors: string[] = []): void {
   mocks.queryOpenCodeZenQuota.mockResolvedValueOnce({
     success: true,
+    errors,
     data: {
-      balance: 42.5,
+      balance: 4_250_000_000,
       monthlyLimit: null,
       monthlyUsage: null,
       lastPayment: null,
@@ -169,152 +160,266 @@ describe("opencode Zen provider", () => {
   });
 
   it.each([
-    [{ state: "configured", credential: { accessToken: "token" } }, true],
-    [{ state: "expired", credential: { accessToken: "console-token" } }, true],
+    [
+      {
+        state: "configured",
+        config: { workspaceId: "wrk", consoleSessionCookie: "cookie" },
+        source: "env(OPENCODE_*)",
+      },
+      true,
+    ],
+    [{ state: "incomplete", source: "env", missing: "consoleSessionCookie" }, false],
+    [{ state: "invalid", source: "/tmp/opencode.json", error: "broken" }, false],
     [{ state: "none" }, false],
-    [{ state: "invalid", error: "bad" }, false],
-  ])("reports availability for console auth state %j as %s", async (state, expected) => {
-    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce(state as any);
+  ])("reports availability for config state %j", async (configState, expected) => {
+    mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce(configState);
     await expect(opencodeZenProvider.isAvailable(context())).resolves.toBe(expected);
   });
 
-  it("returns attempted:false when no console credential exists", async () => {
-    consoleAuth("none");
-
-    const out = await opencodeZenProvider.fetch(context());
-
-    expectNotAttempted(out);
-    expect(out.statusDetails).toContainEqual({ key: "console_auth_state", value: "none" });
+  it.each([
+    ["opencode/gpt-5", true],
+    ["opencode-zen/claude-opus", true],
+    ["OPENCODE/gemini", true],
+    ["openai/gpt-5", false],
+    ["opencode-go/model", false],
+  ])("matchesCurrentModel(%s) -> %s", (model, expected) => {
+    expect(opencodeZenProvider.matchesCurrentModel?.(model)).toBe(expected);
   });
 
-  it("reports an expired console credential with a refresh hint", async () => {
-    consoleAuth("expired");
-
-    const out = await opencodeZenProvider.fetch(context());
-
-    expectAttemptedWithErrorLabel(out, "OpenCode");
-    expect(out.errors[0]?.message).toContain("opencode auth login");
-    expect(out.statusDetails).toContainEqual({ key: "console_auth_state", value: "expired" });
+  it("returns attempted:false when configuration is absent", async () => {
+    mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce({ state: "none" });
+    expectNotAttempted(await opencodeZenProvider.fetch(context()));
     expect(mocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
   });
 
-  it("projects invalid console credentials as an attempted error", async () => {
-    consoleAuth("invalid");
+  it.each([
+    [
+      { state: "incomplete", source: "env(OPENCODE_*)", missing: "OPENCODE_AUTH_COOKIE" },
+      "Missing OPENCODE_AUTH_COOKIE",
+    ],
+    [{ state: "invalid", source: "/tmp/opencode.json", error: "bad JSON" }, "Invalid config"],
+    [
+      {
+        state: "invalid",
+        source: "/tmp/opencode.json",
+        error:
+          "authCookie no longer works after the OpenCode Console redesign; paste the __Host-console_session cookie as consoleSessionCookie",
+      },
+      "paste the __Host-console_session cookie as consoleSessionCookie",
+    ],
+  ])("projects config state as an attempted error", async (configState, message) => {
+    mocks.resolveOpenCodeZenConfigCached.mockResolvedValueOnce(configState);
+    const result = await opencodeZenProvider.fetch(context());
 
-    const out = await opencodeZenProvider.fetch(context());
-
-    expectAttemptedWithErrorLabel(out, "OpenCode");
-    expect(out.errors[0]?.message).toBe("OpenCode Console credential has no access token");
+    expectAttemptedWithErrorLabel(result, "OpenCode");
+    expect(result.errors[0]?.message).toContain(message);
     expect(mocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
+  });
+
+  it("projects Console failures as attempted errors", async () => {
+    const sessionError =
+      "OpenCode Console session expired or invalid — paste a fresh __Host-console_session cookie as consoleSessionCookie";
+    configured();
+    mocks.queryOpenCodeZenQuota.mockResolvedValueOnce({ success: false, error: sessionError });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithErrorLabel(result, "OpenCode");
+    expect(result.errors[0]?.message).toBe(sessionError);
   });
 
   it("makes structured balance primary when no monthly budget is available", async () => {
-    consoleAuth("configured");
+    configured();
     success();
 
     const result = await opencodeZenProvider.fetch(context());
 
     expectAttemptedWithNoErrors(result);
-    expect(result.entries).toEqual([
-      balanceEntry("primary"),
-      autoReloadEntry(false),
-    ]);
-    expect(mocks.queryOpenCodeZenQuota).toHaveBeenCalledWith(
-      { accessToken: "console-token" },
-      { requestTimeoutMs: undefined },
-    );
+    expect(result.entries).toEqual([balanceEntry("primary"), autoReloadEntry()]);
+    expect(result.presentation).toBeUndefined();
   });
 
   it("calculates monthly-limit remaining from monthly usage (default display)", async () => {
-    consoleAuth("configured");
-    success({ balance: 12, monthlyLimit: 100, monthlyUsage: 5.75 });
+    configured();
+    success({ monthlyLimit: 100, monthlyUsage: 575_000_000 });
 
     const result = await opencodeZenProvider.fetch(context());
 
     expectAttemptedWithNoErrors(result);
     expect(result.entries).toEqual([
-      budgetEntry({ percentRemaining: 94.25, used: "5.75", limit: "100", remaining: "94.25" }),
-      balanceEntry("supplementary", "12"),
-      autoReloadEntry(false),
+      budgetEntry(),
+      balanceEntry("supplementary"),
+      autoReloadEntry(),
     ]);
-  });
-
-  it("prefers the positive plugin monthly-limit override", async () => {
-    consoleAuth("configured");
-    success({ balance: 1, monthlyLimit: 100, monthlyUsage: 5.75 });
-
-    const result = await opencodeZenProvider.fetch(
-      context({ opencodeMonthlyLimit: 10 }),
-    );
-
-    expectAttemptedWithNoErrors(result);
-    expect(result.entries).toEqual([
-      budgetEntry({
-        percentRemaining: 42.5,
-        used: "5.75",
-        limit: "10",
-        remaining: "4.25",
-        limitAuthority: "user_configured",
-      }),
-      balanceEntry("supplementary", "1"),
-      autoReloadEntry(false),
+    expect(result.statusDetails).toEqual([
+      { key: "config_state", value: "configured" },
+      { key: "config_source", value: "test" },
+      { key: "config_checked_paths", value: "(none)" },
+      { key: "balance_usd", value: "USD 42.5" },
+      { key: "monthly_limit_usd", value: "USD 100" },
+      { key: "last_payment_usd", value: "(none)" },
+      { key: "auto_reload", value: "false" },
+      { key: "auto_reload_amount_raw", value: "(none)" },
+      { key: "auto_reload_trigger_raw", value: "(none)" },
     ]);
   });
 
   it("emits only the contract-backed reload boolean and keeps ambiguous values diagnostic", async () => {
-    consoleAuth("configured");
-    success({ reload: true, reloadAmount: 20, reloadTrigger: 5 });
-
-    const result = await opencodeZenProvider.fetch(context());
-
-    expectAttemptedWithNoErrors(result);
-    expect(result.entries).toContainEqual(autoReloadEntry(true));
-  });
-
-  it("clamps monthly usage above the limit to zero remaining", async () => {
-    consoleAuth("configured");
-    success({ balance: 1, monthlyLimit: 100, monthlyUsage: 150 });
+    configured();
+    success({
+      monthlyLimit: 100,
+      monthlyUsage: 575_000_000,
+      reload: true,
+      reloadAmount: 20,
+      reloadTrigger: 5,
+    });
 
     const result = await opencodeZenProvider.fetch(context());
 
     expectAttemptedWithNoErrors(result);
     expect(result.entries).toEqual([
-      budgetEntry({ percentRemaining: 0, used: "150", limit: "100", remaining: "0" }),
-      balanceEntry("supplementary", "1"),
-      autoReloadEntry(false),
+      budgetEntry(),
+      balanceEntry("supplementary"),
+      autoReloadEntry(true),
+    ]);
+    expect(
+      result.entries.some(
+        (entry) =>
+          entry.semantic?.metric.kind === "component" &&
+          (entry.semantic.metric.component === "auto_reload_amount" ||
+            entry.semantic.metric.component === "auto_reload_trigger"),
+      ),
+    ).toBe(false);
+    expect(result.statusDetails).toContainEqual({ key: "auto_reload_amount_raw", value: "20" });
+    expect(result.statusDetails).toContainEqual({ key: "auto_reload_trigger_raw", value: "5" });
+    expect(result.presentation).toBeUndefined();
+  });
+
+  it("prefers the positive plugin monthly-limit override", async () => {
+    configured();
+    success({ monthlyLimit: 100, monthlyUsage: 575_000_000 });
+
+    const result = await opencodeZenProvider.fetch(context({ opencodeMonthlyLimit: 200 }));
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toEqual([
+      budgetEntry({
+        percentRemaining: 97.125,
+        limit: "200",
+        remaining: "194.25",
+        limitAuthority: "user_configured",
+      }),
+      balanceEntry("supplementary"),
+      autoReloadEntry(),
     ]);
   });
 
-  it("projects query failures as attempted errors with live_fetch_error", async () => {
-    consoleAuth("configured");
-    mocks.queryOpenCodeZenQuota.mockResolvedValueOnce({
-      success: false,
-      error: "OpenCode Console API error 403 (/api/billing/status)",
-    });
+  it("keeps the balance and reports failed optional Console routes", async () => {
+    configured();
+    success({ reload: null }, [
+      "OpenCode Console billing/auto-recharge error 500",
+      "OpenCode Console usage/cost-by-day error 500",
+    ]);
 
-    const out = await opencodeZenProvider.fetch(context());
+    const result = await opencodeZenProvider.fetch(context());
 
-    expectAttemptedWithErrorLabel(out, "OpenCode");
-    expect(out.errors[0]?.message).toBe(
-      "OpenCode Console API error 403 (/api/billing/status)",
-    );
-    expect(out.statusDetails).toContainEqual({
+    expect(result.attempted).toBe(true);
+    expect(result.entries).toEqual([balanceEntry("primary")]);
+    expect(result.errors).toEqual([
+      { label: "OpenCode", message: "OpenCode Console billing/auto-recharge error 500" },
+      { label: "OpenCode", message: "OpenCode Console usage/cost-by-day error 500" },
+    ]);
+    expect(result.statusDetails).toContainEqual({ key: "auto_reload", value: "(unknown)" });
+    expect(result.statusDetails).toContainEqual({
       key: "live_fetch_error",
-      value: "OpenCode Console API error 403 (/api/billing/status)",
+      value:
+        "OpenCode Console billing/auto-recharge error 500 | OpenCode Console usage/cost-by-day error 500",
     });
   });
 
-  it("passes a user-configured timeout and otherwise keeps the default", async () => {
-    consoleAuth("configured");
+  it("uses the plugin monthly limit when the Console credit-limit request fails", async () => {
+    configured();
+    success({ monthlyLimit: null, monthlyUsage: 575_000_000 }, [
+      "OpenCode Console billing/account error 500",
+    ]);
+
+    const result = await opencodeZenProvider.fetch(context({ opencodeMonthlyLimit: 200 }));
+
+    expect(result.entries).toEqual([
+      budgetEntry({
+        percentRemaining: 97.125,
+        limit: "200",
+        remaining: "194.25",
+        limitAuthority: "user_configured",
+      }),
+      balanceEntry("supplementary"),
+      autoReloadEntry(),
+    ]);
+    expect(result.errors).toEqual([
+      { label: "OpenCode", message: "OpenCode Console billing/account error 500" },
+    ]);
+  });
+
+  it("does not treat the last payment as a monthly limit", async () => {
+    configured();
+    success({ lastPayment: 50 });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toEqual([balanceEntry("primary"), autoReloadEntry()]);
+  });
+
+  it("uses structured balance when monthly usage is unavailable", async () => {
+    configured();
+    success({ monthlyLimit: 100, monthlyUsage: null });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toEqual([balanceEntry("primary"), autoReloadEntry()]);
+  });
+
+  it("uses structured balance for a zero page limit instead of emitting NaN", async () => {
+    configured();
+    success({ monthlyLimit: 0 });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toEqual([balanceEntry("primary"), autoReloadEntry()]);
+    expect(JSON.stringify(result)).not.toContain("NaN");
+  });
+
+  it("clamps monthly usage above the limit to zero remaining", async () => {
+    configured();
+    success({ monthlyLimit: 100, monthlyUsage: 20_000_000_000 });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries[0]).toEqual(
+      budgetEntry({ percentRemaining: 0, used: "200", remaining: "0" }),
+    );
+  });
+
+  it("passes a user-configured timeout and otherwise keeps the Console default", async () => {
+    configured();
     success();
-
     await opencodeZenProvider.fetch(
-      context({ requestTimeoutMs: 4_321, requestTimeoutMsConfigured: true }),
+      context({ requestTimeoutMs: 7_654, requestTimeoutMsConfigured: true }),
     );
+    expect(mocks.queryOpenCodeZenQuota).toHaveBeenLastCalledWith("wrk_123", "cookie-abc", {
+      requestTimeoutMs: 7_654,
+    });
 
-    expect(mocks.queryOpenCodeZenQuota).toHaveBeenCalledWith(
-      { accessToken: "console-token" },
-      { requestTimeoutMs: 4_321 },
+    configured();
+    success();
+    await opencodeZenProvider.fetch(
+      context({ requestTimeoutMs: 5_000, requestTimeoutMsConfigured: false }),
     );
+    expect(mocks.queryOpenCodeZenQuota).toHaveBeenLastCalledWith("wrk_123", "cookie-abc", {
+      requestTimeoutMs: undefined,
+    });
   });
 });

@@ -11,7 +11,6 @@ import {
   createPluginToolMockModule,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  createQwenAuthModuleMock,
   createSessionTokensModuleMock,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -96,7 +95,6 @@ const mocks = vi.hoisted(() => ({
   getRuntimePricingSnapshotPath: vi.fn(),
   setPricingSnapshotAutoRefresh: vi.fn(),
   setPricingSnapshotSelection: vi.fn(),
-  resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
   reconcileDetectedProvidersInGlobalConfig: vi.fn(),
@@ -117,10 +115,6 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks))
 
 vi.mock("../src/lib/session-tokens.js", () =>
   createSessionTokensModuleMock(mocks.fetchSessionTokensForDisplay),
-);
-
-vi.mock("../src/lib/qwen-auth.js", () =>
-  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
 );
 
 vi.mock("../src/lib/alibaba-auth.js", () =>
@@ -218,13 +212,12 @@ describe("/quota command behavior", () => {
     };
     await server.setup(ctx as never);
     expect(tool?.name).toBe("quota_status");
-    expect(await tool?.execute({ force: true }, { sessionID: "session-status" })).toEqual({
+    expect(await tool?.execute({}, { sessionID: "session-status" })).toEqual({
       content: "adapter output",
     });
     expect(output).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "quota_status",
-        arguments: '{"force":true}',
         sessionID: "session-status",
       }),
     );
@@ -775,38 +768,6 @@ describe("/quota command behavior", () => {
     expect(sessionAOutput).not.toContain("session-b-model");
     expect(sessionBOutput).toContain("session-b-model");
     expect(sessionBOutput).not.toContain("session-a-model");
-  });
-
-  it("keeps qwen local request-plan quota live across repeated /quota commands", async () => {
-    const provider = {
-      id: "qwen-code",
-      isAvailable: vi.fn().mockResolvedValue(true),
-      fetch: vi
-        .fn()
-        .mockResolvedValueOnce({
-          attempted: true,
-          entries: [{ accounting: TEST_ACCOUNTING, name: "Qwen Free", percentRemaining: 90 }],
-          errors: [],
-        })
-        .mockResolvedValueOnce({
-          attempted: true,
-          entries: [{ accounting: TEST_ACCOUNTING, name: "Qwen Free", percentRemaining: 80 }],
-          errors: [],
-        }),
-    };
-    mocks.getProviders.mockReturnValue([provider]);
-    mocks.resolveQwenLocalPlanCached.mockResolvedValue({
-      state: "qwen_free",
-      accessToken: "token",
-    });
-
-    const client = createClient({ modelID: "qwen-code/qwen3-coder-plus" });
-
-    await buildDialogOutput({ client, sessionID: "session-qwen" });
-    const latest = await buildDialogOutput({ client, sessionID: "session-qwen" });
-
-    expect(provider.fetch).toHaveBeenCalledTimes(2);
-    expect(latest).toContain("80% left");
   });
 
   it("keeps alibaba local request-plan quota live across repeated /quota commands", async () => {

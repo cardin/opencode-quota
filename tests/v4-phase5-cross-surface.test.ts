@@ -19,7 +19,6 @@ import {
   createPluginToolMockModule,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  createQwenAuthModuleMock,
   createSessionTokensModuleMock,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
@@ -42,7 +41,6 @@ const mocks = vi.hoisted(() => ({
   maybeRefreshPricingSnapshot: vi.fn(),
   setPricingSnapshotAutoRefresh: vi.fn(),
   setPricingSnapshotSelection: vi.fn(),
-  resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   resolveMiniMaxAuthCached: vi.fn(),
   getMiniMaxAuthDiagnostics: vi.fn(),
@@ -91,9 +89,6 @@ vi.mock("../src/lib/modelsdev-pricing.js", async (importOriginal) => ({
 }));
 vi.mock("../src/lib/session-tokens.js", () =>
   createSessionTokensModuleMock(mocks.fetchSessionTokensForDisplay),
-);
-vi.mock("../src/lib/qwen-auth.js", () =>
-  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
 );
 vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),

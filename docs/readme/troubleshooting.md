@@ -138,20 +138,6 @@ Run `/quota_status` and check the Cursor section.
 </details>
 
 <details>
-<summary><strong>Qwen Code</strong></summary>
-
-Run `/quota_status` and check `qwen_oauth_source`, `qwen_local_plan`, and the `qwen_code` live probe section.
-
-| Symptom              | Fix                                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Qwen not detected    | Put `opencode-qwencode-auth` before `@slkiser/opencode-quota` in `opencode.json`.                            |
-| Auth missing         | Complete the Qwen companion plugin auth flow.                                                                |
-| Counters do not move | Confirm the current model is `qwen-code/*`; Qwen quota is local request estimation for matching model usage. |
-| Usage looks stale    | Check the local state file path shown by `/quota_status`.                                                    |
-
-</details>
-
-<details>
 <summary><strong>Alibaba Coding Plan</strong></summary>
 
 Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, and `alibaba_coding_plan` live probe section.
@@ -204,20 +190,6 @@ For security, repo-local `opencode.json` / `opencode.jsonc` is ignored for provi
 </details>
 
 <details>
-<summary><strong>Google Antigravity</strong></summary>
-
-Run `/quota_status` and check the `google_antigravity` section. The toast diagnostics also show the effective `googleModels` value and `googleModels_source` (`default` or the configuration file path).
-
-| Symptom                  | Fix                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------ |
-| Companion missing        | Put `opencode-antigravity-auth` before `@slkiser/opencode-quota` in `opencode.json`. |
-| Accounts not found       | Check the selected `antigravity-accounts.json` path shown by `/quota_status`.        |
-| Refresh tokens invalid   | Re-authenticate with the companion plugin.                                           |
-| Provider returns no rows | Check `live_probe`, `live_entry_*`, and `live_error_*` in `/quota_status`.           |
-
-</details>
-
-<details>
 <summary><strong>Google AGY</strong></summary>
 
 Run `/quota_status` and check the `google_agy` section.
@@ -233,9 +205,9 @@ Run `/quota_status` and check the `google_agy` section.
 </details>
 
 <details>
-<summary><strong>Gemini CLI (deprecated)</strong></summary>
+<summary><strong>Gemini CLI</strong></summary>
 
-This section is only for repairing an existing setup. Gemini CLI quota support is deprecated in v4.1 and planned for removal in v5.0.0. Existing configuration and authentication continue to work; OpenCode Quota does not switch either one automatically. For new choices, see [Gemini CLI in the provider guide](providers.md#gemini-cli).
+Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Google ended personal accounts on 2026-06-18, so personal Google users should use [Google AGY](providers.md#google-agy-quick-setup) instead.
 
 Run `/quota_status` and check the Gemini CLI live probe rows.
 

@@ -119,7 +119,7 @@ describe("opencode sqlite adapter", () => {
           created,
           completed ?? created,
           JSON.stringify({
-            model: { id: "qwen-plus", providerID: "qwen-code" },
+            model: { id: "qwen-plus", providerID: "alibaba-coding-plan" },
             time: completed === undefined ? { created } : { created, completed },
           }),
         );

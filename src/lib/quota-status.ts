@@ -119,11 +119,6 @@ function formatSettingSources(sources: QuotaToastSettingSources | undefined): st
   return parts.length > 0 ? parts.join(" | ") : "(none)";
 }
 
-function formatGoogleModelsSource(sources: QuotaToastSettingSources | undefined): string {
-  const source = sources?.googleModels;
-  return source ? `configuration file (${sanitizeSingleLineDisplayText(source)})` : "default";
-}
-
 function getConfigPrecedenceLabel(configSource: string): string {
   switch (configSource) {
     case "files":
@@ -555,14 +550,6 @@ function supportedProviderPricingRow(params: {
     };
   }
 
-  if (id === "qwen-code") {
-    return {
-      id,
-      pricing: "no",
-      notes: "local request-count estimate (free tier, no token pricing API)",
-    };
-  }
-
   if (id === "alibaba-coding-plan") {
     return {
       id,
@@ -647,13 +634,6 @@ function supportedProviderPricingRow(params: {
       : { id, pricing: "partial", notes: "connector (pricing snapshot missing openai)" };
   }
 
-  // Connector provider; maps to models.dev provider ids depending on model.
-  if (id === "google-antigravity") {
-    return snapshotHasProvider("google") || snapshotHasProvider("anthropic")
-      ? { id, pricing: "yes", notes: "connector (priced via models.dev google/anthropic)" }
-      : { id, pricing: "partial", notes: "connector (pricing snapshot missing google/anthropic)" };
-  }
-
   if (id === "google-gemini-cli") {
     return snapshotHasProvider("google")
       ? { id, pricing: "yes", notes: "connector (priced via models.dev google)" }
@@ -705,7 +685,6 @@ export async function buildQuotaStatusReport(params: {
     quotaPluginConfigPaths: string[];
   };
   enabledProviders: string[] | "auto";
-  googleModels: readonly string[];
   anthropicBinaryPath?: string;
   cursorPlan: CursorQuotaPlan;
   cursorIncludedApiUsd?: number;
@@ -719,12 +698,6 @@ export async function buildQuotaStatusReport(params: {
   providerAvailability: ProviderAvailability[];
   providerLiveProbes?: ProviderLiveProbe[];
   quotaProviders?: readonly QuotaProviderDefinition[];
-  googleRefresh?: {
-    attempted: boolean;
-    total?: number;
-    successCount?: number;
-    failures?: Array<{ email?: string; error: string }>;
-  };
   sessionTokenError?: SessionTokenError;
   maintainerAnnouncements?: {
     config: MaintainerAnnouncementsConfig;
@@ -752,8 +725,6 @@ export async function buildQuotaStatusReport(params: {
     `- workspace_config_paths: ${joinOrNone(params.workspaceConfigPaths ?? [])}`,
     `- setting_sources: ${formatSettingSources(params.settingSources)}`,
     `- enabledProviders: ${params.enabledProviders === "auto" ? "(auto)" : params.enabledProviders.length ? params.enabledProviders.join(",") : "(none)"}`,
-    `- googleModels: ${params.googleModels.length > 0 ? params.googleModels.join(",") : "(none)"}`,
-    `- googleModels_source: ${formatGoogleModelsSource(params.settingSources)}`,
     `- onlyCurrentModel: ${params.onlyCurrentModel ? "true" : "false"}`,
     `- currentModel: ${modelDisplay}`,
   ];
@@ -844,13 +815,19 @@ export async function buildQuotaStatusReport(params: {
     key: "opencode.db",
     value: `preferred=${getCredentialDatabasePath()} present=${joinOrNone(authPresent)} candidates=${joinOrNone(authCandidates)}`,
   });
-
-  appendProviderStatusDetailRows(
-    pathsRows,
-    "qwen-code",
-    params.providerLiveProbes,
-    new Set(["qwen oauth auth configured", "qwen_oauth_source", "qwen_local_plan"]),
+  const dbCandidates = getOpenCodeDbPathCandidates();
+  const dbSelected = getOpenCodeDbPath();
+  const dbPresent: string[] = [];
+  await Promise.all(
+    dbCandidates.map(async (p) => {
+      if (await pathExists(p)) dbPresent.push(p);
+    }),
   );
+  pathsRows.push({
+    key: "opencode db",
+    value: `preferred=${dbSelected} present=${joinOrNone(dbPresent)} candidates=${joinOrNone(dbCandidates)}`,
+  });
+
   appendProviderStatusDetailRows(
     pathsRows,
     "alibaba-coding-plan",
@@ -887,12 +864,6 @@ export async function buildQuotaStatusReport(params: {
 
   appendProviderStatusDetailRows(
     cursorRows,
-    "qwen-code",
-    params.providerLiveProbes,
-    new Set(["qwen free local quota"]),
-  );
-  appendProviderStatusDetailRows(
-    cursorRows,
     "alibaba-coding-plan",
     params.providerLiveProbes,
     new Set(["alibaba coding plan local quota", "alibaba coding plan error"]),
@@ -904,17 +875,6 @@ export async function buildQuotaStatusReport(params: {
     params.providerAvailability,
   );
   sections.push(createKvSection("cursor", "cursor:", cursorRows));
-
-  const qwenCodeLiveProbeSection = createCompactLiveProbeOnlySection({
-    id: "qwen_code",
-    title: "qwen_code:",
-    providerId: "qwen-code",
-    probes: params.providerLiveProbes,
-    availability: params.providerAvailability,
-  });
-  if (qwenCodeLiveProbeSection) {
-    sections.push(qwenCodeLiveProbeSection);
-  }
 
   const alibabaCodingPlanLiveProbeSection = createCompactLiveProbeOnlySection({
     id: "alibaba_coding_plan",
@@ -990,29 +950,6 @@ export async function buildQuotaStatusReport(params: {
     );
   }
 
-  // === google antigravity + db path ===
-  const dbCandidates = getOpenCodeDbPathCandidates();
-  const dbSelected = getOpenCodeDbPath();
-  const dbPresent: string[] = [];
-  await Promise.all(
-    dbCandidates.map(async (p) => {
-      if (await pathExists(p)) dbPresent.push(p);
-    }),
-  );
-  const googleRows: ReportKvRow[] = [];
-  appendProviderStatusDetailRows(googleRows, "google-antigravity", params.providerLiveProbes);
-  googleRows.push({
-    key: "opencode db",
-    value: `preferred=${dbSelected} present=${joinOrNone(dbPresent)} candidates=${joinOrNone(dbCandidates)}`,
-  });
-  appendProviderCompactLiveProbeRows(
-    googleRows,
-    "google-antigravity",
-    params.providerLiveProbes,
-    params.providerAvailability,
-  );
-  sections.push(createKvSection("google_antigravity", "google_antigravity:", googleRows));
-
   for (const [id, providerId] of [
     ["google_gemini_cli", "google-gemini-cli"],
     ["google_agy", "google-agy"],
@@ -1025,27 +962,6 @@ export async function buildQuotaStatusReport(params: {
         probes: params.providerLiveProbes,
         availability: params.providerAvailability,
       }),
-    );
-  }
-
-  if (params.googleRefresh?.attempted) {
-    const googleRefreshRows: ReportKvRow[] = [];
-    if (
-      typeof params.googleRefresh.total === "number" &&
-      typeof params.googleRefresh.successCount === "number"
-    ) {
-      googleRefreshRows.push({
-        key: "refreshed",
-        value: `${params.googleRefresh.successCount}/${params.googleRefresh.total}`,
-      });
-    } else {
-      googleRefreshRows.push({ key: "attempted" });
-    }
-    for (const f of params.googleRefresh.failures ?? []) {
-      googleRefreshRows.push({ key: f.email ?? "Unknown", value: f.error });
-    }
-    sections.push(
-      createKvSection("google_token_refresh", "google_token_refresh:", googleRefreshRows),
     );
   }
 

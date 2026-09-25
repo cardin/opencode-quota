@@ -35,22 +35,12 @@ export const QuotaToastPlugin = Plugin.define({
         description: "Diagnostics for toast, TUI, pricing and local storage.",
         input: {
           type: "object",
-          properties: {
-            refreshGoogleTokens: { type: "boolean" },
-            skewMs: { type: "integer", minimum: 0 },
-            force: { type: "boolean" },
-          },
+          properties: {},
           additionalProperties: false,
         },
-        async execute(input, context) {
-          const options = input as {
-            refreshGoogleTokens?: boolean;
-            skewMs?: number;
-            force?: boolean;
-          };
+        async execute(_input, context) {
           const result = await buildQuotaDialogCommandOutput({
             command: "quota_status",
-            arguments: JSON.stringify(options),
             client,
             roots,
             sessionID: context.sessionID,

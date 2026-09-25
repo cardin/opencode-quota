@@ -62,13 +62,6 @@ describe("provider-metadata", () => {
         notes: "companion runtime/plugin integration plus local usage accounting",
       },
       {
-        id: "qwen-code",
-        autoSetup: "needs_quick_setup",
-        authentication: "companion_auth_oauth_token",
-        quota: "local_estimation",
-        quickSetupAnchor: "qwen-code",
-      },
-      {
         id: "alibaba-coding-plan",
         autoSetup: "yes",
         authentication: "opencode_auth_api_key",
@@ -97,15 +90,7 @@ describe("provider-metadata", () => {
         quota: "remote_api",
       },
       {
-        id: "google-antigravity",
-        autoSetup: "needs_quick_setup",
-        authentication: "companion_auth_oauth_token",
-        quota: "remote_api",
-        quickSetupAnchor: "google-antigravity",
-      },
-      {
         id: "google-gemini-cli",
-        lifecycle: "deprecated",
         recommendedReplacementId: "google-agy",
         autoSetup: "needs_quick_setup",
         authentication: "companion_auth_oauth_token",
@@ -204,7 +189,8 @@ describe("provider-metadata", () => {
         authentication: "state_only",
         quota: "remote_api",
         quickSetupAnchor: "opencode-zen",
-        notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
+        notes:
+          "Reads the OpenCode Console billing API; requires workspaceId and consoleSessionCookie",
       },
       {
         id: "ollama-cloud",
@@ -212,7 +198,8 @@ describe("provider-metadata", () => {
         authentication: "opencode_auth_api_key",
         authFallbacks: ["env_api_key", "global_opencode_config"],
         quota: "remote_api",
-        notes: "Queries the Ollama Cloud usage API; reports session and weekly usage fractions",
+        notes:
+          "Queries the Ollama Cloud usage API; reports session, weekly, or monthly usage fractions",
       },
       {
         id: "quota-providers",
@@ -277,11 +264,6 @@ describe("provider-metadata", () => {
     expect(QUOTA_PROVIDER_RUNTIME_IDS.cursor).toEqual(["cursor", "cursor-acp"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.synthetic).toEqual(["synthetic"]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS.chutes).toEqual(["chutes", "chutes-ai"]);
-    expect(QUOTA_PROVIDER_RUNTIME_IDS["google-antigravity"]).toEqual([
-      "google-antigravity",
-      "google",
-      "antigravity",
-    ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS["google-gemini-cli"]).toEqual([
       "google-gemini-cli",
       "gemini-cli",
@@ -343,11 +325,7 @@ describe("provider-metadata", () => {
     expect(getQuotaProviderRuntimeIds("kilo")).toEqual(["kilo"]);
     expect(getQuotaProviderRuntimeIds("kilo-gateway")).toEqual([]);
     expect(getQuotaProviderRuntimeIds("open-cursor")).toEqual(["cursor", "cursor-acp"]);
-    expect(getQuotaProviderRuntimeIds("google-antigravity")).toEqual([
-      "google-antigravity",
-      "google",
-      "antigravity",
-    ]);
+    expect(getQuotaProviderRuntimeIds("google-antigravity")).toEqual([]);
     expect(getQuotaProviderRuntimeIds("gemini-cli")).toEqual([
       "google-gemini-cli",
       "gemini-cli",
@@ -421,13 +399,6 @@ describe("provider-metadata", () => {
       quota: "remote_api",
       notes: "OAuth for personal flow; PAT for managed billing",
     });
-    expect(getQuotaProviderShape("qwen")).toEqual({
-      id: "qwen-code",
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "local_estimation",
-      quickSetupAnchor: "qwen-code",
-    });
     expect(getQuotaProviderShape("alibaba")).toEqual({
       id: "alibaba-coding-plan",
       autoSetup: "yes",
@@ -447,7 +418,6 @@ describe("provider-metadata", () => {
     );
     expect(getQuotaProviderShape("gemini-cli")).toEqual({
       id: "google-gemini-cli",
-      lifecycle: "deprecated",
       recommendedReplacementId: "google-agy",
       autoSetup: "needs_quick_setup",
       authentication: "companion_auth_oauth_token",
@@ -474,7 +444,8 @@ describe("provider-metadata", () => {
       authentication: "state_only",
       quota: "remote_api",
       quickSetupAnchor: "opencode-zen",
-      notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
+      notes:
+        "Reads the OpenCode Console billing API; requires workspaceId and consoleSessionCookie",
     });
     expect(getQuotaProviderShape("kilo")).toEqual({
       id: "kilo",
@@ -501,11 +472,12 @@ describe("provider-metadata", () => {
       notes: "Reads the Xiaomi MiMo dashboard with a filtered trusted cookie",
     });
     expect(getQuotaProviderShape("not-a-provider")).toBeUndefined();
+    expect(getQuotaProviderShape("qwen-code")).toBeUndefined();
+    expect(getQuotaProviderShape("google-antigravity")).toBeUndefined();
   });
 
   it("returns display labels for known providers", () => {
     expect(getQuotaProviderDisplayLabel("anthropic")).toBe("Anthropic");
-    expect(getQuotaProviderDisplayLabel("google-antigravity")).toBe("Google");
     expect(getQuotaProviderDisplayLabel("gemini-cli")).toBe("Gemini CLI");
     expect(getQuotaProviderDisplayLabel("google-agy")).toBe("Google AGY");
     expect(getQuotaProviderDisplayLabel("cursor")).toBe("Cursor");

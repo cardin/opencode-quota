@@ -204,7 +204,8 @@ export async function queryOpenCodeGoQuota(
 const OPENCODE_CONSOLE_GO_STATUS_URL = `${OPENCODE_CONSOLE_BASE_URL}/api/go/status`;
 
 function asMicroCents(value: unknown): number | null {
-  const parsed = typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
+  const parsed =
+    typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -220,8 +221,13 @@ function normalizeConsoleMeter(
   }
 
   const percent =
-    limit === 0 ? (used > 0 ? 100 : 0) : Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
-  const resetsAt = typeof meter.resetsAt === "string" && meter.resetsAt ? meter.resetsAt : fallbackResetsAtIso;
+    limit === 0
+      ? used > 0
+        ? 100
+        : 0
+      : Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
+  const resetsAt =
+    typeof meter.resetsAt === "string" && meter.resetsAt ? meter.resetsAt : fallbackResetsAtIso;
   if (!resetsAt || !Number.isFinite(Date.parse(resetsAt))) {
     return contractError(`console ${windowKey} resetsAt is missing or invalid`);
   }
@@ -312,7 +318,12 @@ export async function queryOpenCodeGoConsoleStatus(
           normalized[windowKey] = window;
         }
 
-        return { success: true, rolling: normalized.rolling, weekly: normalized.weekly, monthly: normalized.monthly };
+        return {
+          success: true,
+          rolling: normalized.rolling,
+          weekly: normalized.weekly,
+          monthly: normalized.monthly,
+        };
       },
     });
   } catch (error) {

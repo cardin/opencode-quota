@@ -56,6 +56,13 @@ After installation:
 
 The updater prints the complete preview before its own config or cache changes. `--yes` authorizes only the previewed safe config edits and manifest-verified cache cleanup; it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md) for detailed behavior and manual credential steps.
 
+**Breaking changes in 4.10.3:**
+
+- Qwen Code was removed because Qwen ended its OAuth free tier; use Alibaba Coding Plan.
+- Google Antigravity was removed because its companion plugin is archived and Google rejects it; use Google AGY.
+- Personal Google accounts can no longer use Gemini CLI because Google ended them on 2026-06-18; use Google AGY.
+- OpenCode Zen now needs the new Console cookie in `consoleSessionCookie`; `authCookie` no longer works. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
+
 ## Choose your setup
 
 <table>
@@ -143,13 +150,12 @@ Run `npx @slkiser/opencode-quota@latest --help` for command options. See [Extern
 | Cursor             | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |
 | GitHub Copilot     | Automatic                                                      | Remote API         | Budget and usage   |
 | Google AGY         | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
-| Google Antigravity | [Needs setup](docs/readme/providers.md#google-antigravity)     | Remote API         | Quota              |
 | Kilo Gateway       | Automatic                                                      | Remote API         | Quota and balance  |
 | NanoGPT            | Automatic                                                      | Remote API         | Quota and balance  |
 | Ollama Cloud       | Automatic                                                      | Remote API         | Quota and usage    |
 | OpenAI             | Automatic                                                      | Remote API         | Quota              |
 | OpenCode Go        | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen       | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenCode Zen       | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard API      | Budget and balance |
 | OpenRouter         | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok      | Automatic                                                      | Remote API         | Quota              |
@@ -164,18 +170,17 @@ Run `npx @slkiser/opencode-quota@latest --help` for command options. See [Extern
 | Anthropic (Claude)      | [Needs setup](docs/readme/providers.md#anthropic-claude)       | Local CLI/OAuth    | Quota              |
 | Chutes AI               | Automatic                                                      | Remote API         | Quota              |
 | Cursor                  | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |
-| Gemini CLI (deprecated) | [Existing setups only](docs/readme/providers.md#gemini-cli)    | Remote API         | Quota              |
+| Gemini CLI              | [Needs setup](docs/readme/providers.md#gemini-cli)             | Remote API         | Quota              |
 | GitHub Copilot          | [Needs setup](docs/readme/providers.md#github-copilot)         | Remote API         | Budget and usage   |
 | Google AGY              | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
-| Google Antigravity      | [Needs setup](docs/readme/providers.md#google-antigravity)     | Remote API         | Quota              |
 | NanoGPT                 | Automatic                                                      | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen            | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenCode Zen            | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard API      | Budget and balance |
 | OpenRouter              | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok           | Automatic                                                      | Remote API         | Quota              |
 
-Gemini CLI quota support is deprecated for new installs. Existing v4 configurations still work, with removal planned for v5.0.0. See the [provider guide](docs/readme/providers.md#gemini-cli) before choosing a replacement.
+Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Personal Google users should use Google AGY.
 
 </details>
 
@@ -192,7 +197,6 @@ Gemini CLI quota support is deprecated for new installs. Existing v4 configurati
 | Kimi Code                     | Automatic                                                                    | Remote API     | Quota              |
 | MiniMax Token Plan            | Automatic                                                                    | Remote API     | Quota              |
 | MiniMax Token Plan (CN)       | Automatic                                                                    | Remote API     | Quota              |
-| Qwen Code                     | [Needs setup](docs/readme/providers.md#qwen-code)                            | Local estimate | Quota              |
 | Xiaomi MiMo                   | [Needs setup](docs/readme/providers.md#xiaomi-mimo)                          | Dashboard API  | Quota and balance  |
 | Z.ai Coding Plan              | Automatic                                                                    | Remote API     | Quota              |
 | Zhipu Coding Plan             | Automatic                                                                    | Remote API     | Quota              |

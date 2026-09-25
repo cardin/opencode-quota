@@ -18,7 +18,6 @@ export type QuotaProviderQuotaSource =
   | "local_cli_report";
 
 export interface QuotaProviderShapeSource {
-  lifecycle?: "deprecated";
   recommendedReplacementId?: string;
   autoSetup: QuotaProviderAutoSetup;
   authentication: QuotaProviderAuthentication;
@@ -115,19 +114,6 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
-    id: "qwen-code",
-    label: "Qwen",
-    runtimeIds: ["qwen-code"],
-    synonyms: ["qwen"],
-    liveLocalUsage: true,
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "local_estimation",
-      quickSetupAnchor: "qwen-code",
-    },
-  },
-  {
     id: "alibaba-coding-plan",
     label: "Alibaba Coding Plan",
     runtimeIds: ["alibaba-coding-plan"],
@@ -177,24 +163,11 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
-    id: "google-antigravity",
-    label: "Google",
-    runtimeIds: ["google-antigravity", "google", "antigravity"],
-    synonyms: [],
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "remote_api",
-      quickSetupAnchor: "google-antigravity",
-    },
-  },
-  {
     id: "google-gemini-cli",
     label: "Gemini CLI",
     runtimeIds: ["google-gemini-cli", "gemini-cli", "gemini", "opencode-gemini-auth", "google"],
     synonyms: ["gemini-cli", "google-gemini", "opencode-gemini-auth", "gemini"],
     shape: {
-      lifecycle: "deprecated",
       recommendedReplacementId: "google-agy",
       autoSetup: "needs_quick_setup",
       authentication: "companion_auth_oauth_token",
@@ -370,7 +343,8 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       authentication: "state_only",
       quota: "remote_api",
       quickSetupAnchor: "opencode-zen",
-      notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
+      notes:
+        "Reads the OpenCode Console billing API; requires workspaceId and consoleSessionCookie",
     },
   },
   {
@@ -383,7 +357,8 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       authentication: "opencode_auth_api_key",
       authFallbacks: ["env_api_key", "global_opencode_config"],
       quota: "remote_api",
-      notes: "Queries the Ollama Cloud usage API; reports session and weekly usage fractions",
+      notes:
+        "Queries the Ollama Cloud usage API; reports session, weekly, or monthly usage fractions",
     },
   },
   {

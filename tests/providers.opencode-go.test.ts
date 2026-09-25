@@ -416,7 +416,8 @@ describe("opencode-go provider", () => {
     ]);
   });
 
-  it("falls back to legacy alias rows when no native opencode-go row exists", async () => {    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+  it("falls back to legacy alias rows when no native opencode-go row exists", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
     (readCredentialRows as any).mockResolvedValueOnce([
       {
         id: "alias-row",

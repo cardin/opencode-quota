@@ -269,6 +269,7 @@ describe("package manifest compatibility", () => {
       esbuild: true,
       lefthook: true,
       "msgpackr-extract": true,
+      protobufjs: false,
     });
   });
 
