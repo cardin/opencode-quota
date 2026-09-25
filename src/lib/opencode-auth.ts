@@ -74,23 +74,6 @@ export function formatCredentialDisplayNames(
 let authCache: AuthCacheEntry | null = null;
 
 /**
- * Get candidate legacy auth.json paths for Cursor OAuth compatibility.
- * Some OpenCode installations use Linux-style paths even on macOS, so we
- * check multiple locations.
- */
-export function getAuthPaths(): string[] {
-  // Generate legacy candidates from OpenCode runtime dir semantics (xdg-basedir)
-  // plus platform fallbacks for alternate installs.
-  const { dataDirs } = getOpencodeRuntimeDirCandidates();
-  return dataDirs.map((d) => join(d, "auth.json"));
-}
-
-/** Returns the primary legacy auth.json path used for Cursor OAuth compatibility. */
-export function getAuthPath(): string {
-  return join(getOpencodeRuntimeDirs().dataDir, "auth.json");
-}
-
-/**
  * Get candidate OpenCode credential database paths in priority order.
  *
  * `OPENCODE_DB` overrides the normal runtime data-directory candidates.

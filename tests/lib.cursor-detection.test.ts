@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockFiles, testPaths } = vi.hoisted(() => {
+const { mockFiles, mockAuth, testPaths } = vi.hoisted(() => {
   const separator = process.platform === "win32" ? "\\" : "/";
   const join = (...parts: string[]) => parts.join(separator);
   const root = join(process.cwd(), ".cursor-detection-test");
@@ -8,9 +8,10 @@ const { mockFiles, testPaths } = vi.hoisted(() => {
   const config = join(root, "config");
   return {
     mockFiles: new Map<string, string>(),
+    mockAuth: { value: null as Record<string, unknown> | null },
     testPaths: {
       home,
-      auth: join(root, "auth.json"),
+      credentialDatabase: join(root, "opencode.db"),
       cursorAuth: join(home, ".config", "cursor", "auth.json"),
       config,
       opencodeConfig: join(config, "opencode.json"),
@@ -44,7 +45,8 @@ vi.mock("os", async () => {
 });
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: () => [testPaths.auth],
+  getCredentialDatabasePaths: () => [testPaths.credentialDatabase],
+  readAuthFile: vi.fn(async () => mockAuth.value),
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
@@ -59,29 +61,54 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 describe("cursor detection", () => {
   beforeEach(() => {
     mockFiles.clear();
+    mockAuth.value = null;
     vi.resetModules();
     delete process.env.CURSOR_ACP_HOME_DIR;
   });
 
-  it("prefers Cursor OAuth auth in OpenCode auth.json", async () => {
-    mockFiles.set(
-      testPaths.auth,
-      JSON.stringify({
-        cursor: {
-          type: "oauth",
-          refresh: "refresh-token",
-        },
-      }),
-    );
+  it("prefers the Cursor OAuth credential in the OpenCode database", async () => {
+    mockFiles.set(testPaths.credentialDatabase, "");
+    mockAuth.value = {
+      cursor: {
+        type: "oauth",
+        refresh: "refresh-token",
+      },
+    };
     mockFiles.set(testPaths.cursorAuth, JSON.stringify({ accessToken: "legacy-token" }));
 
     const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
     const result = await inspectCursorAuthPresence();
 
     expect(result.state).toBe("present");
-    expect(result.selectedPath).toBe(testPaths.auth);
-    expect(result.presentPaths).toContain(testPaths.auth);
+    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
+    expect(result.presentPaths).toContain(testPaths.credentialDatabase);
     expect(result.presentPaths).toContain(testPaths.cursorAuth);
+  });
+
+  it("falls back to Cursor's own auth file when the database credential is invalid", async () => {
+    mockFiles.set(testPaths.credentialDatabase, "");
+    mockAuth.value = { cursor: { type: "oauth" } };
+    mockFiles.set(testPaths.cursorAuth, JSON.stringify({ accessToken: "legacy-token" }));
+
+    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
+    const result = await inspectCursorAuthPresence();
+
+    expect(result.state).toBe("present");
+    expect(result.selectedPath).toBe(testPaths.cursorAuth);
+  });
+
+  it("reports an invalid Cursor credential in the OpenCode database", async () => {
+    mockFiles.set(testPaths.credentialDatabase, "");
+    mockAuth.value = { cursor: { type: "oauth" } };
+
+    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
+    const result = await inspectCursorAuthPresence();
+
+    expect(result.state).toBe("invalid");
+    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
+    expect(result.error).toBe(
+      "Cursor credential in the OpenCode database is missing a valid oauth token payload",
+    );
   });
 
   it("detects the canonical Cursor companion package and provider.cursor config", async () => {

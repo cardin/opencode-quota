@@ -414,7 +414,7 @@ describe("buildQuotaExport", () => {
           { key: "api_key_configured", value: "true" },
           { key: "api_key_source", value: "env" },
           { key: "api_key_checked_paths", value: "env:OPENROUTER_API_KEY" },
-          { key: "api_key_auth_paths", value: "/tmp/auth.json" },
+          { key: "api_key_credential_database_paths", value: "/tmp/opencode.db" },
           { key: "secret_canary", value: secretCanary },
         ],
       },

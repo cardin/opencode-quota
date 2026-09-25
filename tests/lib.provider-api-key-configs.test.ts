@@ -301,7 +301,7 @@ describe("simple provider API key configs", () => {
     });
   });
 
-  it("keeps Synthetic credentials limited to env, trusted config, and auth.json", async () => {
+  it("keeps Synthetic credentials limited to env, trusted config, and opencode.db", async () => {
     const provider = providers.find((candidate) => candidate.name === "Synthetic")!;
     const module = await provider.load();
 

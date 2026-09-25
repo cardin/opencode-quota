@@ -1015,7 +1015,7 @@ describe("buildQuotaStatusReport", () => {
           api_key_configured: "true",
           api_key_source: "env",
           api_key_checked_paths: "env:OPENROUTER_API_KEY",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
         }),
       ],
     });
@@ -1024,7 +1024,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain("- api_key_configured: true");
     expect(section).toContain("- api_key_source: env");
     expect(section).toContain("- api_key_checked_paths: env:OPENROUTER_API_KEY");
-    expect(section).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(section).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(openrouterMocks.resolveOpenRouterApiKey).not.toHaveBeenCalled();
     expect(openrouterMocks.queryOpenRouterQuota).not.toHaveBeenCalled();
     expect(openrouterMocks.hasOpenRouterApiKeyConfigured).not.toHaveBeenCalled();
@@ -1037,7 +1037,7 @@ describe("buildQuotaStatusReport", () => {
           "openrouter",
           {
             api_key_configured: "true",
-            api_key_source: "auth.json",
+            api_key_source: "opencode.db",
           },
           {
             errors: [{ label: "OpenRouter", message: "HTTP 401" }],
@@ -1048,7 +1048,7 @@ describe("buildQuotaStatusReport", () => {
 
     const section = getReportSection(report, "openrouter:");
     expect(section).toContain("- api_key_configured: true");
-    expect(section).toContain("- api_key_source: auth.json");
+    expect(section).toContain("- api_key_source: opencode.db");
     expect(section).toContain("- live_probe: error");
     expect(section).toContain("- live_error_1: HTTP 401");
     expect(openrouterMocks.resolveOpenRouterApiKey).not.toHaveBeenCalled();
@@ -1075,7 +1075,7 @@ describe("buildQuotaStatusReport", () => {
             api_key_configured: "true",
             api_key_source: "env",
             api_key_checked_paths: "env:OPENROUTER_API_KEY",
-            api_key_auth_paths: "/tmp/auth.json",
+            api_key_credential_database_paths: "/tmp/opencode.db",
           },
           {
             errors: [{ label: "OpenRouter", message: "HTTP 401" }],

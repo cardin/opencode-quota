@@ -4,10 +4,10 @@ import { homedir, platform } from "os";
 import { join } from "path";
 import { CURSOR_LEGACY_PROVIDER_ID } from "./cursor-pricing.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
-import { getAuthPaths } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { getQuotaProviderRuntimeIds } from "./provider-metadata.js";
-import type { AuthData, CursorOAuthAuthData } from "./types.js";
+import type { CursorOAuthAuthData } from "./types.js";
 
 export interface CursorAuthPresence {
   state: "missing" | "present" | "invalid";
@@ -86,37 +86,28 @@ function isValidCursorOAuthEntry(value: unknown): value is CursorOAuthAuthData {
 }
 
 export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
-  const authCandidatePaths = getAuthPaths();
+  const credentialDatabasePaths = getCredentialDatabasePaths();
   const legacyCandidatePaths = getCursorAuthCandidatePaths();
-  const candidatePaths = dedupe([...authCandidatePaths, ...legacyCandidatePaths]);
+  const candidatePaths = dedupe([...credentialDatabasePaths, ...legacyCandidatePaths]);
   const presentPaths = candidatePaths.filter((path) => existsSync(path));
+  const credentialDatabasePath = credentialDatabasePaths.find((path) => existsSync(path));
   let invalidPath: string | undefined;
   let invalidError: string | undefined;
 
-  for (const path of authCandidatePaths) {
-    if (!existsSync(path)) continue;
-
-    try {
-      const raw = await readFile(path, "utf8");
-      const parsed = JSON.parse(raw) as AuthData;
-      const cursorAuth = parsed?.cursor;
-
-      if (!cursorAuth) continue;
-      if (isValidCursorOAuthEntry(cursorAuth)) {
-        return {
-          state: "present",
-          selectedPath: path,
-          presentPaths,
-          candidatePaths,
-        };
-      }
-
-      invalidPath ??= path;
-      invalidError ??= "Cursor auth entry in auth.json is missing a valid oauth token payload";
-    } catch (error) {
-      invalidPath ??= path;
-      invalidError ??= error instanceof Error ? error.message : String(error);
+  const cursorAuth = (await readAuthFile())?.cursor;
+  if (cursorAuth) {
+    if (isValidCursorOAuthEntry(cursorAuth)) {
+      return {
+        state: "present",
+        selectedPath: credentialDatabasePath,
+        presentPaths,
+        candidatePaths,
+      };
     }
+
+    invalidPath = credentialDatabasePath;
+    invalidError =
+      "Cursor credential in the OpenCode database is missing a valid oauth token payload";
   }
 
   for (const path of legacyCandidatePaths) {
