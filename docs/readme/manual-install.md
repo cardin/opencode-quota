@@ -82,7 +82,7 @@ Put these settings in `quota-toast.jsonc`.
 | Quota bar under the prompt  | `tuiPromptBar.enabled: true`             |
 | Manual slash commands only  | Disable sidebar, toast, and compact line |
 
-TUI slash commands post the report in the chat and open a dialog. Web and Desktop show none of the settings above.
+TUI slash commands open the report in a popup; set `tuiCommandDisplay: "inline"` to keep it in the chat instead. Web and Desktop show none of the settings above.
 
 See [Configuration](configuration.md) for more examples and every setting.
 

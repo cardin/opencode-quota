@@ -37,12 +37,14 @@ import {
   resolveQuotaFormatStyle,
 } from "./quota-format-style.js";
 import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
-import type { QuotaToastConfig, SessionTokenScope } from "./types.js";
+import type { QuotaToastConfig, SessionTokenScope, TuiCommandDisplay } from "./types.js";
 
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
+const TUI_COMMAND_DISPLAY_COMMENT =
+  "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.";
 
 export type InitInstallerInterface = "tui" | "web" | "both";
 export type InitInstallerScope = "project" | "global";
@@ -60,6 +62,7 @@ export interface InitInstallerSelections {
   percentDisplayMode: QuotaToastConfig["percentDisplayMode"];
   showSessionTokens: boolean;
   sessionTokenScope?: SessionTokenScope;
+  tuiCommandDisplay?: TuiCommandDisplay;
   maintainerAnnouncements?: boolean;
   configFormat?: ConfigFileFormat;
 }
@@ -663,6 +666,10 @@ async function planOpencodeEdit(params: {
     managedComments: [
       {
         path: ["plugin"],
+        text: TUI_COMMAND_DISPLAY_COMMENT,
+      },
+      {
+        path: ["plugin"],
         text: "// OpenCode Quota: loads the server plugin for slash commands and quota checks.",
       },
     ],
@@ -773,6 +780,15 @@ async function planQuotaConfigEdit(params: {
     "quotaToast.enableToast",
     edit,
   );
+  if (params.selections.tuiCommandDisplay !== undefined) {
+    setInstallerOwnedSetting(
+      quotaToast,
+      "tuiCommandDisplay",
+      params.selections.tuiCommandDisplay,
+      "quotaToast.tuiCommandDisplay",
+      edit,
+    );
+  }
   setInstallerOwnedSetting(
     quotaToast,
     "showSessionTokens",
@@ -886,6 +902,9 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
 
   if (plan.selections.interfaces !== "web") {
     lines.push(`TUI surfaces: ${getUiLabel(quotaUiIntent.choices)}`);
+    lines.push(
+      `Command display: ${plan.selections.tuiCommandDisplay === "inline" ? "Inline with messages" : "Popup dialog"}`,
+    );
   }
 
   lines.push(
@@ -1003,6 +1022,10 @@ export async function planInitInstaller(params: {
     ...requestedSelections,
     configFormat: params.selections.configFormat ?? "jsonc",
     quotaUi: quotaUiIntent.choices,
+    tuiCommandDisplay:
+      params.selections.interfaces === "web"
+        ? undefined
+        : (params.selections.tuiCommandDisplay ?? "dialog"),
     maintainerAnnouncements: params.selections.maintainerAnnouncements,
     manualProviders:
       params.selections.providerMode === "manual"
@@ -1099,6 +1122,7 @@ type ExistingInstallerAnswers = {
   percentDisplayMode?: QuotaToastConfig["percentDisplayMode"];
   showSessionTokens?: boolean;
   sessionTokenScope?: SessionTokenScope;
+  tuiCommandDisplay?: TuiCommandDisplay;
   maintainerAnnouncements?: boolean;
 };
 
@@ -1155,6 +1179,9 @@ async function readExistingInstallerAnswers(baseDir: string): Promise<ExistingIn
   }
   if (quotaToast.sessionTokenScope === "current" || quotaToast.sessionTokenScope === "tree") {
     answers.sessionTokenScope = quotaToast.sessionTokenScope;
+  }
+  if (quotaToast.tuiCommandDisplay === "inline" || quotaToast.tuiCommandDisplay === "dialog") {
+    answers.tuiCommandDisplay = quotaToast.tuiCommandDisplay;
   }
   if (
     isPlainObject(quotaToast.maintainerAnnouncements) &&
@@ -1226,6 +1253,7 @@ async function promptForSelections(
   if (prompts.isCancel(configFormat)) return null;
 
   let quotaUi: unknown = ["none"];
+  let tuiCommandDisplay: unknown;
   let maintainerAnnouncements: unknown;
   if (interfaces !== "web") {
     while (true) {
@@ -1259,6 +1287,24 @@ async function promptForSelections(
       if (!(quotaUi.includes("none") && quotaUi.length > 1)) break;
       prompts.log.error("Manual commands only cannot be combined with automatic surfaces.");
     }
+
+    tuiCommandDisplay = await prompts.select({
+      message: "Where should slash commands (e.g. /quota) appear?",
+      initialValue: existing.tuiCommandDisplay ?? "dialog",
+      options: [
+        {
+          label: "Inline with messages",
+          value: "inline",
+          hint: "persist output in the message transcript",
+        },
+        {
+          label: "Popup dialog",
+          value: "dialog",
+          hint: "show output in a temporary TUI popup",
+        },
+      ],
+    });
+    if (prompts.isCancel(tuiCommandDisplay)) return null;
   }
 
   const providerMode = await prompts.select({
@@ -1376,6 +1422,7 @@ async function promptForSelections(
     percentDisplayMode: percentDisplayMode as QuotaToastConfig["percentDisplayMode"],
     showSessionTokens: showSessionTokens === "yes",
     sessionTokenScope: sessionTokenScope as SessionTokenScope,
+    tuiCommandDisplay: interfaces === "web" ? undefined : (tuiCommandDisplay as TuiCommandDisplay),
     maintainerAnnouncements: interfaces === "web" ? undefined : maintainerAnnouncements !== false,
     configFormat: configFormat as ConfigFileFormat,
   };

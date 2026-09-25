@@ -80,6 +80,8 @@ export interface MaintainerAnnouncementsConfig {
   home: boolean;
 }
 
+export type TuiCommandDisplay = "inline" | "dialog";
+
 /** Request timeout in milliseconds */
 export const REQUEST_TIMEOUT_MS = 5000;
 
@@ -92,6 +94,12 @@ export interface QuotaToastConfig {
 
   /** Opt-in, persisted notifications when selected quota windows reset. */
   resetNotifications: QuotaResetNotificationsConfig;
+
+  /**
+   * Where TUI quota slash command reports appear: "dialog" shows only the popup,
+   * "inline" keeps the report in the chat. Web and Desktop always show it in the chat.
+   */
+  tuiCommandDisplay: TuiCommandDisplay;
 
   /**
    * Shared quota-row formatting style for popup toasts and the TUI sidebar.
@@ -222,6 +230,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     enabled: false,
     windows: ["weekly"],
   },
+  tuiCommandDisplay: "dialog",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   accountingDetail: "summary",

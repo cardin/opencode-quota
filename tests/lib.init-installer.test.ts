@@ -36,6 +36,7 @@ const DEFAULT_PROMPT_SELECT_VALUES = [
   "tui",
   "project",
   "jsonc",
+  "inline",
   "auto",
   "singleWindow",
   "remaining",
@@ -163,10 +164,11 @@ describe("init installer planning and merge behavior", () => {
       percentDisplayMode: "used",
       showSessionTokens: false,
       sessionTokenScope: "tree",
+      tuiCommandDisplay: "dialog",
     });
     expect(quotaConfig).not.toHaveProperty("tuiQuotaCommandDisplay");
     expect(readFileSync(join(projectDir, "opencode.jsonc"), "utf8")).toContain(
-      "// OpenCode Quota: loads the server plugin for slash commands and quota checks.",
+      "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.",
     );
   });
 
@@ -186,13 +188,14 @@ describe("init installer planning and merge behavior", () => {
     expect(() => JSON.parse(raw)).not.toThrow();
     expect(raw).not.toMatch(/^\s*\/\//m);
     const quotaRaw = readFileSync(join(projectDir, "opencode-quota", "quota-toast.json"), "utf8");
+    expect(JSON.parse(quotaRaw).tuiCommandDisplay).toBe("dialog");
     expect(JSON.parse(quotaRaw).sessionTokenScope).toBe("current");
     expect(plan.summaryLines).toContain("Session token scope: Current session");
     expect(quotaRaw).not.toContain("//");
   });
 
-  it("writes explanatory comments to generated JSONC configs", async () => {
-    const projectDir = join(tempDir, "comments-jsonc");
+  it("writes Inline selection and explanatory comments only to generated JSONC host configs", async () => {
+    const projectDir = join(tempDir, "inline-jsonc");
     mkdirSync(projectDir, { recursive: true });
 
     const plan = await planInitInstaller({
@@ -200,18 +203,21 @@ describe("init installer planning and merge behavior", () => {
       selections: installerSelections({
         configFormat: "jsonc",
         quotaUi: ["sidebar"],
+        tuiCommandDisplay: "inline",
       }),
     });
     await applyInitInstallerPlan(plan);
 
+    expect(plan.summaryLines).toContain("Command display: Inline with messages");
     const quotaPath = join(projectDir, "opencode-quota", "quota-toast.jsonc");
+    expect(readJson(quotaPath).tuiCommandDisplay).toBe("inline");
     expect(readFileSync(quotaPath, "utf8")).toContain(
       "// Quota presentation and reset-period choices.",
     );
 
     const hostRaw = readFileSync(join(projectDir, "opencode.jsonc"), "utf8");
     expect(hostRaw).toContain(
-      "// OpenCode Quota: loads the server plugin for slash commands and quota checks.",
+      "// OpenCode Quota: tuiCommandDisplay chooses whether native TUI command output appears in the session transcript or a local popup dialog.",
     );
     expect(() => parseJsonOrJsonc(hostRaw, true)).not.toThrow();
     expect(existsSync(join(projectDir, "tui.jsonc"))).toBe(false);
@@ -814,6 +820,25 @@ describe("init installer planning and merge behavior", () => {
     ]);
     expect(
       prompts.selectCalls.find(
+        (call) => call.message === "Where should slash commands (e.g. /quota) appear?",
+      ),
+    ).toMatchObject({
+      initialValue: "dialog",
+      options: [
+        {
+          label: "Inline with messages",
+          value: "inline",
+          hint: "persist output in the message transcript",
+        },
+        {
+          label: "Popup dialog",
+          value: "dialog",
+          hint: "show output in a temporary TUI popup",
+        },
+      ],
+    });
+    expect(
+      prompts.selectCalls.find(
         (call) => call.message === "How should pre-configured providers be selected?",
       )?.options,
     ).toEqual([
@@ -892,13 +917,24 @@ describe("init installer planning and merge behavior", () => {
         "percentDisplayMode": "remaining",
         "showSessionTokens": false,
         "sessionTokenScope": "tree",
+        "tuiCommandDisplay": "inline",
         "tuiSidebarPanel": { "enabled": true },
         "maintainerAnnouncements": { "enabled": true }
       }`,
       "utf8",
     );
     const prompts = createPromptStub({
-      selectValues: ["tui", "project", "jsonc", "manual", "allWindows", "used", "yes", "tree"],
+      selectValues: [
+        "tui",
+        "project",
+        "jsonc",
+        "dialog",
+        "manual",
+        "allWindows",
+        "used",
+        "yes",
+        "tree",
+      ],
       multiselectValues: [["toast"], ["anthropic"]],
       confirmValues: [false, false],
     });
@@ -908,6 +944,11 @@ describe("init installer planning and merge behavior", () => {
     expect(code).toBe(0);
     expect(prompts.multiselectCalls[0]).toMatchObject({ initialValues: ["sidebar"] });
     expect(prompts.multiselectCalls[1]).toMatchObject({ initialValues: ["openai"] });
+    expect(
+      prompts.selectCalls.find(
+        (call) => call.message === "Where should slash commands (e.g. /quota) appear?",
+      ),
+    ).toMatchObject({ initialValue: "inline" });
     expect(
       prompts.selectCalls.find(
         (call) => call.message === "How should pre-configured providers be selected?",
@@ -1127,6 +1168,7 @@ describe("init installer planning and merge behavior", () => {
 
     expect(plan.summaryLines).toContain("Interface: Web");
     expect(plan.summaryLines.some((line) => line.startsWith("TUI surfaces:"))).toBe(false);
+    expect(plan.summaryLines.some((line) => line.startsWith("Command display:"))).toBe(false);
     expect(plan.edits.map((edit) => edit.kind)).toEqual(["opencode", "quota"]);
 
     await applyInitInstallerPlan(plan);
@@ -1137,6 +1179,7 @@ describe("init installer planning and merge behavior", () => {
     ]);
     const quotaConfig = readJson(join(projectDir, "opencode-quota", "quota-toast.jsonc"));
     expect(quotaConfig.enableToast).toBe(false);
+    expect(quotaConfig.tuiCommandDisplay).toBeUndefined();
   });
 
   it("preserves unrelated JSONC comments and trailing commas during an in-place rerun edit", async () => {
@@ -1152,6 +1195,7 @@ describe("init installer planning and merge behavior", () => {
         "formatStyle": "singleWindow",
         "percentDisplayMode": "remaining",
         "showSessionTokens": false,
+        "tuiCommandDisplay": "inline",
         "tuiSidebarPanel": { "enabled": true },
         // keep unrelated section comment
         "unrelated": {
@@ -1169,6 +1213,7 @@ describe("init installer planning and merge behavior", () => {
         manualProviders: ["anthropic"],
         formatStyle: "allWindows",
         percentDisplayMode: "used",
+        tuiCommandDisplay: "dialog",
         maintainerAnnouncements: false,
       }),
     });

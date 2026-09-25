@@ -310,6 +310,7 @@ function configFor(formatStyle: "allWindows" | "singleWindow") {
     telemetry: {
       enabled: true,
     },
+    tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
       defaultExpanded: false,
@@ -342,6 +343,7 @@ function configForSingleProvider(providerId = "minimax-coding-plan") {
     telemetry: {
       enabled: false,
     },
+    tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
       defaultExpanded: false,

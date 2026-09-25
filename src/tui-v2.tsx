@@ -5,6 +5,7 @@ import { RGBA, type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { type JSX, useTerminalDimensions } from "@opentui/solid";
 import { createSignal, onCleanup, Show } from "solid-js";
 
+import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { formatQuotaRows } from "./lib/format.js";
@@ -77,6 +78,11 @@ type DialogTheme = {
 };
 type TuiContext = {
   location?: { directory: string };
+  client: {
+    session: {
+      inbox: { cancel: (input: { sessionID: string; inboxID: string }) => Promise<void> };
+    };
+  };
   theme: { surface: (name: "dialog") => DialogTheme };
   data: {
     on: (event: string, handler: (event: TuiEvent) => void) => () => void;
@@ -691,20 +697,36 @@ async function runQuotaCommand(
 }
 
 /**
- * Typed quota slash commands run on the server, which posts the report into the chat.
- * When a report arrives for the session on screen, open it in the dialog too.
+ * Typed quota slash commands run on the server, which posts the report into the chat as a
+ * pending inbox item. When a report arrives for the session on screen, tuiCommandDisplay
+ * decides what the TUI shows: "dialog" opens the report in the dialog and cancels the pending
+ * item, so no chat message remains; "inline" leaves the report in the chat.
+ * The TUI cannot tell which client typed the command, so in "dialog" mode it also removes a
+ * report that Web or Desktop requested for the same session while the TUI shows it.
  */
-function showPostedQuotaReport(context: TuiContext, event: TuiEvent): void {
+async function showPostedQuotaReport(context: TuiContext, event: TuiEvent): Promise<void> {
   const sessionID = getSessionID(event);
   if (!sessionID || sessionID !== getRouteSessionID(context)) return;
+  const inboxID = event.data?.inboxID;
   const item = event.data?.item as
     | { type?: string; payload?: { text?: unknown; metadata?: Record<string, unknown> } }
     | undefined;
+  if (typeof inboxID !== "string") return;
   if (item?.type !== "user" || typeof item.payload?.text !== "string") return;
   const report = readQuotaReportMetadata(item.payload.metadata);
   if (!report) return;
   const spec = QUOTA_DIALOG_COMMANDS.find((candidate) => candidate.id === report.command);
   if (!spec) return;
+  const config = await loadConfig(quotaClient(context), undefined, {
+    configRootDir: quotaRoots(context).configRoot,
+  });
+  if (config.tuiCommandDisplay !== "dialog") return;
+  // Cancelling deletes the pending item before it becomes a stored message, the same
+  // request the TUI sends when the user deletes a pending prompt.
+  void context.client.session.inbox.cancel({ sessionID, inboxID }).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[opencode-quota] failed to remove the quota report from the chat: ${message}`);
+  });
   void showQuotaOutputDialog(context, {
     title: report.title,
     message: readQuotaReport(item.payload.text),
@@ -839,9 +861,9 @@ const plugin = Plugin.define({
           const id = event.data?.id;
           if (typeof id === "string") questionToolCalls.delete(id);
         });
-        const onInboxEnqueued = api.data.on("session.inbox.enqueued", (event) =>
-          showPostedQuotaReport(api, event),
-        );
+        const onInboxEnqueued = api.data.on("session.inbox.enqueued", (event) => {
+          void showPostedQuotaReport(api, event).catch(reportFailure);
+        });
         disposeEvents = () => {
           onExecutionSucceeded();
           onCompacted();

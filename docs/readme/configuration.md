@@ -28,6 +28,8 @@ Strict `.json` files also work. Run `/quota_status` if you are unsure which file
 | Show percentages without `left` or `used`   | `percentLabelStyle: "bare"`   |
 | Use dense reset countdown units            | `resetTimeSpaced: false`        |
 | Show supplementary accounting facts        | `accountingDetail: "detailed"` |
+| Keep TUI slash results in the chat         | `tuiCommandDisplay: "inline"` |
+| Show TUI slash results only in a popup     | `tuiCommandDisplay: "dialog"` |
 | Turn the TUI sidebar on or off             | `tuiSidebarPanel.enabled`     |
 | Prefer an OpenCode Go collapsed row        | `tuiSidebarPanel.opencodeGoPreferredWindow` |
 | Turn popup quota notifications on or off   | `enableToast`                 |
@@ -55,6 +57,9 @@ The installer chooses `allWindows` by default. If the setting is absent, the bui
   // Use dense compound reset countdowns instead of the spaced default.
   "resetTimeSpaced": false,
   "accountingDetail": "summary",
+
+  // Keep TUI slash-command results in the chat instead of the default popup.
+  "tuiCommandDisplay": "inline",
 
   // Show the sidebar and prefer OpenCode Go's Five-hour row while collapsed.
   "tuiSidebarPanel": {
@@ -421,6 +426,7 @@ Existing `experimental.quotaToast` settings remain supported.
 
 | Option                                             | Default              | Meaning                                                                                                                                                                                                       |
 | -------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tuiCommandDisplay`                                | `"dialog"`           | Choose where TUI slash command reports (`/quota`, `/tokens_*`, ...) appear. `dialog` opens a scrollable popup and leaves no message in the chat; `inline` keeps the report in the chat as your message, with no popup. Web and Desktop always show the report in the chat. If a session is open in the TUI and in Web at the same time, `dialog` also removes a Web `/quota` report from the chat while the TUI shows that session. |
 | `tuiSidebarPanel.enabled`                          | `true`               | Show the Sidebar `Quota` panel when the TUI plugin is installed. Click the panel header to toggle its collapsed/expanded window layout; OpenCode remembers the last state. This is not an `accountingDetail` override. |
 | `tuiSidebarPanel.formatStyle`                      | (root `formatStyle`) | Override `formatStyle` for the Sidebar panel only. Useful when you want `allWindows` detail in the sidebar but a different style elsewhere.                                                                   |
 | `tuiSidebarPanel.opencodeGoPreferredWindow`        | unset                | Prefer `rolling` (Five-hour), `weekly`, or `monthly` for OpenCode Go only while the sidebar is collapsed. If unset or unavailable, the lowest-remaining window is used. Expanded rows still follow `opencodeGoWindows`. |

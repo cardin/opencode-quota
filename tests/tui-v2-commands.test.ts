@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,12 @@ vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
 vi.mock("@opentui/solid", () => ({
   useTerminalDimensions: () => () => ({ width: 120, height: 40 }),
 }));
+const loadConfig = vi.hoisted(() => vi.fn());
+vi.mock("../src/lib/config.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/lib/config.js")>();
+  loadConfig.mockImplementation(original.loadConfig);
+  return { ...original, loadConfig };
+});
 
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/tui-v2.tsx";
@@ -47,6 +53,7 @@ function startTui(
   const listeners = new Map<string, Listener>();
   const context = {
     location,
+    client: { session: { inbox: { cancel: vi.fn().mockResolvedValue(undefined) } } },
     theme: {
       surface: vi.fn(() => ({
         text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
@@ -169,41 +176,125 @@ describe("V2 quota TUI commands", () => {
     ]);
   });
 
-  it("opens the dialog when a quota report is posted to the session on screen", () => {
-    const { context, emit } = startTui(undefined, { type: "session", sessionID: "ses_open" });
+  describe("quota reports posted by slash commands", () => {
     const metadata = { opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1 } };
+    const report = formatQuotaReportMessage("openai 42%");
     const item = (text: string, meta?: Record<string, unknown>, type = "user") => ({
       type,
       delivery: "steer",
       payload: { text, ...(meta ? { metadata: meta } : {}) },
     });
-    const report = formatQuotaReportMessage("openai 42%");
+    let projectDir: string;
 
-    emit("session.inbox.enqueued", { sessionID: "ses_open", item: item("hello") });
-    emit("session.inbox.enqueued", {
-      sessionID: "ses_open",
-      item: item("hello", { displayText: "hello", comments: [] }),
+    beforeEach(() => {
+      projectDir = realpathSync(mkdtempSync(join(tmpdir(), "opencode-quota-tui-report-")));
+      mkdirSync(join(projectDir, "global"));
+      mkdirSync(join(projectDir, "opencode-quota"));
+      vi.stubEnv("OPENCODE_CONFIG_DIR", join(projectDir, "global"));
+      vi.stubGlobal("React", {
+        createElement: (type: unknown, props: Record<string, unknown> | null) => ({ type, props }),
+      });
+      return () => rmSync(projectDir, { recursive: true, force: true });
     });
-    emit("session.inbox.enqueued", { sessionID: "ses_open", item: item(report) });
-    emit("session.inbox.enqueued", {
-      sessionID: "ses_open",
-      item: item(report, metadata, "synthetic"),
-    });
-    emit("session.inbox.enqueued", { sessionID: "ses_other", item: item(report, metadata) });
-    expect(context.ui.dialog.show).not.toHaveBeenCalled();
 
-    vi.stubGlobal("React", {
-      createElement: (type: unknown, props: Record<string, unknown> | null) => ({ type, props }),
-    });
-    emit("session.inbox.enqueued", { sessionID: "ses_open", item: item(report, metadata) });
+    function writeCommandDisplay(value: string) {
+      writeFileSync(
+        join(projectDir, "opencode-quota", "quota-toast.json"),
+        JSON.stringify({ tuiCommandDisplay: value }),
+      );
+    }
 
-    expect(context.ui.dialog.show).toHaveBeenCalledOnce();
-    expect(context.ui.dialog.set).toHaveBeenCalledWith({ size: "xlarge" });
-    const render = context.ui.dialog.show.mock.calls[0][0] as () => {
-      props: Record<string, unknown>;
-    };
-    expect(render().props).toMatchObject({ title: "OpenCode Quota", message: "openai 42%" });
-    expect(build).not.toHaveBeenCalled();
+    /** Waits for the listener to read tuiCommandDisplay and act on it. */
+    async function settle() {
+      await loadConfig.mock.results.at(-1)?.value;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    it("ignores untagged items, other item types, and sessions not on screen", async () => {
+      const { context, emit } = startTui(
+        { directory: projectDir },
+        { type: "session", sessionID: "ses_open" },
+      );
+
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_1",
+        item: item("hello"),
+      });
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_2",
+        item: item("hello", { displayText: "hello", comments: [] }),
+      });
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_3",
+        item: item(report),
+      });
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_4",
+        item: item(report, metadata, "synthetic"),
+      });
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_other",
+        inboxID: "msg_5",
+        item: item(report, metadata),
+      });
+      await settle();
+
+      expect(loadConfig).not.toHaveBeenCalled();
+      expect(context.ui.dialog.show).not.toHaveBeenCalled();
+      expect(context.client.session.inbox.cancel).not.toHaveBeenCalled();
+    });
+
+    it("dialog mode (the default) opens the report and removes it from the chat", async () => {
+      const { context, emit } = startTui(
+        { directory: projectDir },
+        { type: "session", sessionID: "ses_open" },
+      );
+
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_report",
+        item: item(report, metadata),
+      });
+      await settle();
+
+      expect(context.client.session.inbox.cancel).toHaveBeenCalledExactlyOnceWith({
+        sessionID: "ses_open",
+        inboxID: "msg_report",
+      });
+      expect(context.ui.dialog.show).toHaveBeenCalledOnce();
+      expect(context.ui.dialog.set).toHaveBeenCalledWith({ size: "xlarge" });
+      const render = context.ui.dialog.show.mock.calls[0][0] as () => {
+        props: Record<string, unknown>;
+      };
+      expect(render().props).toMatchObject({ title: "OpenCode Quota", message: "openai 42%" });
+      expect(build).not.toHaveBeenCalled();
+    });
+
+    it("inline mode leaves the report in the chat and opens no dialog", async () => {
+      writeCommandDisplay("inline");
+      const { context, emit } = startTui(
+        { directory: projectDir },
+        { type: "session", sessionID: "ses_open" },
+      );
+
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_report",
+        item: item(report, metadata),
+      });
+      await settle();
+
+      expect(loadConfig).toHaveBeenCalledOnce();
+      await expect(loadConfig.mock.results[0].value).resolves.toMatchObject({
+        tuiCommandDisplay: "inline",
+      });
+      expect(context.ui.dialog.show).not.toHaveBeenCalled();
+      expect(context.client.session.inbox.cancel).not.toHaveBeenCalled();
+    });
   });
 
   it("reads project config from the location's Git worktree root, like the server plugin", async () => {

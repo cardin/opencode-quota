@@ -26,6 +26,7 @@ import type {
   QuotaResetWindow,
   QuotaToastConfig,
   SessionTokenScope,
+  TuiCommandDisplay,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 
@@ -40,6 +41,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enableToast",
   "resetNotifications.enabled",
   "resetNotifications.windows",
+  "tuiCommandDisplay",
   "formatStyle",
   "percentDisplayMode",
   "quotaProjection",
@@ -152,6 +154,7 @@ type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
   resetNotifications?: QuotaResetNotificationsPatch;
+  tuiCommandDisplay?: TuiCommandDisplay;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
   quotaProjection?: "runway";
@@ -243,6 +246,10 @@ function isValidPercentLabelStyle(value: unknown): value is PercentLabelStyle {
 
 function isValidAccountingDetail(value: unknown): value is QuotaToastConfig["accountingDetail"] {
   return value === "summary" || value === "detailed";
+}
+
+function isValidTuiCommandDisplay(value: unknown): value is TuiCommandDisplay {
+  return value === "inline" || value === "dialog";
 }
 
 function isValidSessionTokenScope(value: unknown): value is SessionTokenScope {
@@ -632,6 +639,14 @@ function extractValidatedQuotaToastPatch(
     if (resetNotifications) patch.resetNotifications = resetNotifications;
   }
 
+  if (hasOwnKey(quotaToastConfig, "tuiCommandDisplay")) {
+    if (isValidTuiCommandDisplay(quotaToastConfig.tuiCommandDisplay)) {
+      patch.tuiCommandDisplay = quotaToastConfig.tuiCommandDisplay;
+    } else {
+      reportIssue?.("tuiCommandDisplay", 'expected "inline" or "dialog"');
+    }
+  }
+
   const formatStyle = getConfiguredFormatStyle(quotaToastConfig as Partial<QuotaToastConfig>);
   if (formatStyle) {
     patch.formatStyle = formatStyle;
@@ -912,6 +927,11 @@ function applyValidatedQuotaToastPatch(
       config.resetNotifications.windows = [...patch.resetNotifications.windows!];
       applySettingSource(settingSources, "resetNotifications.windows", sourcePath);
     }
+  }
+
+  if (hasOwnKey(patch, "tuiCommandDisplay")) {
+    config.tuiCommandDisplay = patch.tuiCommandDisplay!;
+    applySettingSource(settingSources, "tuiCommandDisplay", sourcePath);
   }
 
   if (hasOwnKey(patch, "formatStyle")) {

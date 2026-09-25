@@ -68,6 +68,7 @@ function createConfig() {
     showSessionTokens: false,
     telemetry: { enabled: false },
     maintainerAnnouncements: { enabled: false, home: false },
+    tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
       defaultExpanded: true,

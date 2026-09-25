@@ -63,6 +63,35 @@ describe("loadConfig", () => {
     return { config, meta };
   }
 
+  it("defaults and validates native TUI command display with provenance", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.tuiCommandDisplay).toBe("dialog");
+    expect(defaults.meta.settingSources).toEqual({});
+
+    const inline = await loadSdkConfig({ tuiCommandDisplay: "inline" });
+    expect(inline.config.tuiCommandDisplay).toBe("inline");
+    expect(inline.meta.settingSources).toEqual({
+      tuiCommandDisplay: "client.config.get",
+    });
+    expect(inline.meta.configIssues).toEqual([]);
+
+    const invalid = await loadSdkConfig({ tuiCommandDisplay: "both" });
+    expect(invalid.config.tuiCommandDisplay).toBe("dialog");
+    expect(invalid.meta.settingSources).toEqual({});
+    expect(invalid.meta.configIssues).toEqual([
+      {
+        path: "client.config.get",
+        key: "tuiCommandDisplay",
+        message: 'expected "inline" or "dialog"',
+      },
+    ]);
+
+    const removedKey = await loadSdkConfig({ tuiQuotaCommandDisplay: "inline" });
+    expect(removedKey.config.tuiCommandDisplay).toBe("dialog");
+    expect(removedKey.meta.settingSources).toEqual({});
+    expect(removedKey.meta.configIssues).toEqual([]);
+  });
+
   it("loads accounting detail with provenance and diagnoses the removed Zen key without translating it", async () => {
     const defaults = await loadSdkConfig({});
     expect(defaults.config.accountingDetail).toBe("summary");
