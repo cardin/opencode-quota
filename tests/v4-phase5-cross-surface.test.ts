@@ -869,8 +869,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     v2.dispose();
   });
 
-  it("renders CN general percentage quota and excludes video on all four surfaces", async () => {
-    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+  async function setupMiniMaxChinaSurfaces() {
     mocks.loadConfig.mockImplementation(async () => currentConfig);
     mocks.resolveMiniMaxChinaAuthCached.mockResolvedValue({
       state: "configured",
@@ -894,8 +893,12 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     client.config.providers.mockResolvedValue({
       data: { providers: [{ id: "minimax-china-coding-plan" }] },
     });
+    return setupV2Surfaces(client, ["minimax-china-coding-plan"]);
+  }
 
-    const v2 = await setupV2Surfaces(client, ["minimax-china-coding-plan"]);
+  it("renders CN general percentage quota and excludes video on all four surfaces", async () => {
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    const v2 = await setupMiniMaxChinaSurfaces();
     await v2.quota.run();
     const serverOutput = v2.alert.mock.calls[0][0].message;
     expect(serverOutput).toContain("MiniMax Token Plan");
@@ -932,6 +935,60 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(compactOutput).toContain("46%");
     expect(compactOutput).not.toContain("video");
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
+
+    v2.dispose();
+  });
+
+  it("honors tuiCompactStatus.formatStyle on the V2 compact lines", async () => {
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    currentConfig.tuiCompactStatus.formatStyle = "singleWindow";
+    const v2 = await setupMiniMaxChinaSurfaces();
+
+    v2.emit("session.execution.succeeded", "minimax-china-session");
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
+    const toastOutput = getV2ToastMessage(v2.toast);
+    expect(toastOutput).toContain("33%");
+    expect(toastOutput).toContain("46%");
+
+    const sessionPromptCompact = await v2.renderSessionPrompt();
+    expect(sessionPromptCompact).toContain("33%");
+    expect(sessionPromptCompact).not.toContain("46%");
+    const homeCompact = await v2.renderHomeBottom();
+    expect(homeCompact).toContain("33%");
+    expect(homeCompact).not.toContain("46%");
+
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    currentConfig.formatStyle = "singleWindow";
+    currentConfig.tuiCompactStatus.formatStyle = "allWindows";
+    const allWindowsCompact = await v2.renderHomeBottom();
+    expect(allWindowsCompact).toContain("33%");
+    expect(allWindowsCompact).toContain("46%");
+
+    v2.dispose();
+  });
+
+  it("adds toast debug context when debug is enabled", async () => {
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    currentConfig.debug = true;
+    const v2 = await setupMiniMaxChinaSurfaces();
+
+    v2.emit("session.execution.succeeded", "minimax-china-session");
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
+    const toastOutput = getV2ToastMessage(v2.toast);
+    expect(toastOutput).toContain("33%");
+    expect(toastOutput).toMatch(
+      /\n\n\[debug\] src=\S+ providers=minimax-china-coding-plan avail=minimax-china-coding-plan:ok$/u,
+    );
+
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    currentConfig.enabledProviders = [];
+    currentConfig.debug = true;
+    v2.emit("session.execution.succeeded", "minimax-china-session");
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(2));
+    const emptyProvidersOutput = getV2ToastMessage(v2.toast, 1);
+    expect(emptyProvidersOutput).toContain("Quota Toast Debug (opencode-quota)");
+    expect(emptyProvidersOutput).toContain("trigger=idle reason=enabledProviders empty");
+    expect(emptyProvidersOutput).toContain("providers=(none)");
 
     v2.dispose();
   });

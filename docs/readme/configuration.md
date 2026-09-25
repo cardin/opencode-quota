@@ -435,7 +435,7 @@ Existing `experimental.quotaToast` settings remain supported.
 | Option                            | Default | Meaning                                                                                                                                                     |
 | --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `maintainerAnnouncements.enabled` | `true`  | Enable bundled maintainer announcements.                                                                                                                    |
-| `maintainerAnnouncements.home`    | `true`  | Show a one-time count of active notices as a toast after the first visible quota toast. Needs `enableToast`.                                                |
+| `maintainerAnnouncements.home`    | `true`  | Show the count of active notices at the bottom of Home.                                                                                                     |
 
 ### Provider-specific settings
 

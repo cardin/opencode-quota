@@ -11,16 +11,24 @@ import {
   BUNDLED_MAINTAINER_ANNOUNCEMENTS,
   formatMaintainerAnnouncementHomeCountLine,
   getMaintainerAnnouncementsSummary,
+  getMaintainerAnnouncementTargetProviderIds,
 } from "./lib/maintainer-announcements.js";
+import { getQuotaProviderShape, normalizeQuotaProviderId } from "./lib/provider-metadata.js";
 import {
   buildQuotaDialogCommandOutput,
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-commands.js";
 import { resolveQuotaFormatStyle } from "./lib/quota-format-style.js";
-import { collectQuotaRenderData } from "./lib/quota-render-data.js";
 import {
+  type CollectQuotaRenderDataResult,
+  collectConcreteEnabledProviderIds,
+  collectQuotaRenderData,
+} from "./lib/quota-render-data.js";
+import {
+  createQuotaProviderRuntimeContext,
   createQuotaRuntimeRequestContext,
+  type QuotaRuntimeContext,
   type QuotaSessionModelContext,
   resolveQuotaRuntimeContext,
 } from "./lib/quota-runtime-context.js";
@@ -31,6 +39,7 @@ import {
   resolvePromptBarLabel,
 } from "./lib/tui-prompt-bar-format.js";
 import { buildSidebarQuotaPanelLines } from "./lib/tui-sidebar-format.js";
+import type { QuotaToastConfig } from "./lib/types.js";
 
 const terminalForeground = RGBA.defaultForeground();
 
@@ -117,15 +126,7 @@ async function getQuotaMessage(
   context: TuiContext,
   sessionID: string,
   surface: "sidebar" | "idle" | "compacted" | "question",
-): Promise<
-  | {
-      message: string;
-      duration: number;
-      activeProviderCount: number;
-      announcementCount: number;
-    }
-  | undefined
-> {
+): Promise<{ message: string; duration: number; activeProviderCount: number } | undefined> {
   const runtime = await resolveQuotaRuntimeContext({
     client: quotaClient(context),
     roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
@@ -146,6 +147,26 @@ async function getQuotaMessage(
     (surface === "question" && !config.showOnQuestion)
   ) {
     return;
+  }
+
+  if (
+    surface !== "sidebar" &&
+    config.debug &&
+    config.enabledProviders !== "auto" &&
+    config.enabledProviders.length === 0
+  ) {
+    return {
+      message: sanitizeDisplayText(
+        formatQuotaToastDebugInfo({
+          trigger: surface,
+          reason: "enabledProviders empty",
+          config,
+          configMeta: runtime.configMeta,
+        }),
+      ),
+      duration: config.toastDurationMs,
+      activeProviderCount: 0,
+    };
   }
 
   const rootFormatStyle = resolveQuotaFormatStyle(config.formatStyle);
@@ -175,43 +196,119 @@ async function getQuotaMessage(
             },
           }).join("\n")
         : undefined
-      : data?.entries.length || data?.sessionTokens
-        ? formatQuotaRows({
-            version: "2.0.0",
-            layout: config.layout,
-            entries: data?.entries ?? [],
-            errors: data?.errors ?? [],
-            style: rootFormatStyle,
-            percentDisplayMode: config.percentDisplayMode,
-            resetTimeDecimals: config.resetTimeDecimals,
-            sessionTokens: data?.sessionTokens,
-          })
-        : config.showOnBothFail && data?.errors.length
-          ? data.errors.map((error) => `${error.label}: ${error.message}`).join("\n")
-          : undefined;
+      : getToastMessage({ trigger: surface, runtime, result, style: rootFormatStyle });
   return message
     ? {
         message: sanitizeDisplayText(message),
         duration: config.toastDurationMs,
         activeProviderCount: result.active.length,
-        announcementCount:
-          surface !== "sidebar" &&
-          config.maintainerAnnouncements.enabled &&
-          config.maintainerAnnouncements.home
-            ? getMaintainerAnnouncementsSummary({
-                announcements: BUNDLED_MAINTAINER_ANNOUNCEMENTS,
-                enabledProviders: result.active.map((provider) => provider.id),
-              }).activeCount
-            : 0,
       }
     : undefined;
+}
+
+function getToastMessage(params: {
+  trigger: string;
+  runtime: QuotaRuntimeContext;
+  result: CollectQuotaRenderDataResult;
+  style: ReturnType<typeof resolveQuotaFormatStyle>;
+}): string | undefined {
+  const config = params.runtime.config;
+  const { availability, active, hasExplicitProviderIssues, data } = params.result;
+  const debugInfo = (reason: string) =>
+    formatQuotaToastDebugInfo({
+      trigger: params.trigger,
+      reason,
+      config,
+      configMeta: params.runtime.configMeta,
+      currentModel: params.result.selection?.currentModel,
+      availability: availability.map((item) => ({ id: item.provider.id, ok: item.ok })),
+    });
+
+  if (data?.entries.length || data?.sessionTokens) {
+    const formatted = formatQuotaRows({
+      version: "2.0.0",
+      layout: config.layout,
+      entries: data?.entries ?? [],
+      errors: data?.errors ?? [],
+      style: params.style,
+      percentDisplayMode: config.percentDisplayMode,
+      resetTimeDecimals: config.resetTimeDecimals,
+      sessionTokens: data?.sessionTokens,
+    });
+    if (!config.debug) return formatted;
+    const debugFooter = `\n\n[debug] src=${params.runtime.configMeta.source} providers=${config.enabledProviders === "auto" ? "(auto)" : config.enabledProviders.join(",") || "(none)"} avail=${availability
+      .map((item) => `${item.provider.id}:${item.ok ? "ok" : "no"}`)
+      .join(" ")}`;
+    return formatted + debugFooter;
+  }
+
+  if (config.showOnBothFail && data?.errors.length) {
+    const errorLines = data.errors.map((error) => `${error.label}: ${error.message}`).join("\n");
+    if (!config.debug) return errorLines;
+    return `${errorLines}\n\n${debugInfo(
+      hasExplicitProviderIssues ? "providers missing/unavailable" : "all providers failed",
+    )}`;
+  }
+
+  if (!config.debug) return undefined;
+  return debugInfo(active.length === 0 ? "no enabled providers available" : "no entries");
+}
+
+function formatQuotaToastDebugInfo(params: {
+  trigger: string;
+  reason: string;
+  config: QuotaToastConfig;
+  configMeta: Pick<QuotaRuntimeContext["configMeta"], "source" | "paths">;
+  currentModel?: string;
+  availability?: Array<{ id: string; ok: boolean }>;
+}): string {
+  const availability = params.availability
+    ? params.availability.map((item) => `${item.id}=${item.ok ? "ok" : "no"}`).join(" ")
+    : "unknown";
+
+  const providers =
+    params.config.enabledProviders === "auto"
+      ? "(auto)"
+      : params.config.enabledProviders.length > 0
+        ? params.config.enabledProviders.join(",")
+        : "(none)";
+
+  const modelPart = params.currentModel ? ` model=${params.currentModel}` : "";
+  const paths = params.configMeta.paths.length > 0 ? params.configMeta.paths.join(" | ") : "(none)";
+
+  return [
+    "Quota Toast Debug (opencode-quota)",
+    `trigger=${params.trigger} reason=${params.reason}`,
+    `configSource=${params.configMeta.source} paths=${paths}`,
+    `enabled=${params.config.enabled} providers=${providers}${modelPart}`,
+    `available=${availability}`,
+  ].join("\n");
+}
+
+async function getHomeAnnouncementText(runtime: QuotaRuntimeContext): Promise<string> {
+  const announcements = BUNDLED_MAINTAINER_ANNOUNCEMENTS;
+  const targetProviderIds = new Set(getMaintainerAnnouncementTargetProviderIds({ announcements }));
+  const announcementProviders = runtime.providers.filter((provider) => {
+    const shape = getQuotaProviderShape(normalizeQuotaProviderId(provider.id));
+    return shape ? targetProviderIds.has(shape.id) : false;
+  });
+  const providerIds = await collectConcreteEnabledProviderIds({
+    providers: announcementProviders,
+    ctx: createQuotaProviderRuntimeContext(runtime),
+    enabledProviders: runtime.config.enabledProviders,
+  });
+  const summary = getMaintainerAnnouncementsSummary({
+    enabledProviders: providerIds,
+    announcements,
+  });
+  return formatMaintainerAnnouncementHomeCountLine(summary.activeCount);
 }
 
 async function getQuotaFooter(
   context: TuiContext,
   sessionID: string | undefined,
   surface: "prompt" | "home",
-): Promise<string> {
+): Promise<string[]> {
   const runtime = await resolveQuotaRuntimeContext({
     client: quotaClient(context),
     roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
@@ -220,33 +317,42 @@ async function getQuotaFooter(
     includeSessionMeta: (config) => config.onlyCurrentModel && surface === "prompt",
   });
   const config = runtime.config;
-  if (!config.enabled) return "";
+  if (!config.enabled) return [];
   if (
     surface === "prompt" &&
     !config.tuiPromptBar.enabled &&
     !(config.tuiCompactStatus.enabled && config.tuiCompactStatus.sessionPrompt)
   )
-    return "";
-  if (
+    return [];
+  const announcementEnabled =
     surface === "home" &&
-    !(config.tuiCompactStatus.enabled && config.tuiCompactStatus.homeBottom)
-  )
-    return "";
-  const { data } = await collectQuotaRenderData({
+    config.maintainerAnnouncements.enabled &&
+    config.maintainerAnnouncements.home;
+  const homeCompactEnabled = config.tuiCompactStatus.enabled && config.tuiCompactStatus.homeBottom;
+  if (surface === "home" && !announcementEnabled && !homeCompactEnabled) return [];
+  const announcement = announcementEnabled ? await getHomeAnnouncementText(runtime) : "";
+  if (surface === "home" && !homeCompactEnabled) return announcement ? [announcement] : [];
+  const rootFormatStyle = resolveQuotaFormatStyle(config.formatStyle);
+  const compactFormatStyle = config.tuiCompactStatus.formatStyle
+    ? resolveQuotaFormatStyle(config.tuiCompactStatus.formatStyle)
+    : rootFormatStyle;
+  const result = await collectQuotaRenderData({
     client: runtime.client,
     resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
     config,
     configMeta: runtime.configMeta,
     request: createQuotaRuntimeRequestContext(runtime),
     surfaceExplicitProviderIssues: true,
+    formatStyle: rootFormatStyle,
     providers: runtime.providers,
     includeAllWindowsData: true,
   });
-  if (!data) return "";
+  const data = result.data;
+  if (!data) return announcement ? [announcement] : [];
   if (surface === "prompt" && config.tuiPromptBar.enabled) {
     const entry = pickPromptBarEntry(data);
-    if (!entry) return "";
-    return sanitizeDisplayText(
+    if (!entry) return [];
+    const promptBar = sanitizeDisplayText(
       [
         resolvePromptBarLabel(entry),
         entry.percentRemaining === undefined
@@ -263,14 +369,24 @@ async function getQuotaFooter(
         .filter(Boolean)
         .join(" | "),
     );
+    return promptBar ? [promptBar] : [];
   }
-  return buildCompactQuotaStatusLine({
-    data,
-    maxWidth: config.tuiCompactStatus.maxWidth,
-    percentDisplayMode: config.percentDisplayMode,
-    accountingDetail: config.accountingDetail,
-    resetTimeSpaced: config.resetTimeSpaced,
-  });
+  const compactData =
+    compactFormatStyle === "allWindows" && result.allWindowsData
+      ? result.allWindowsData
+      : compactFormatStyle === "singleWindow" && result.singleWindowData !== undefined
+        ? result.singleWindowData
+        : data;
+  const compact = compactData
+    ? buildCompactQuotaStatusLine({
+        data: compactData,
+        maxWidth: config.tuiCompactStatus.maxWidth,
+        percentDisplayMode: config.percentDisplayMode,
+        accountingDetail: config.accountingDetail,
+        resetTimeSpaced: config.resetTimeSpaced,
+      })
+    : "";
+  return [announcement, compact].filter(Boolean);
 }
 
 function QuotaFooter(props: {
@@ -278,10 +394,10 @@ function QuotaFooter(props: {
   sessionID?: string;
   surface: "prompt" | "home";
 }): JSX.Element {
-  const [line, setLine] = createSignal("");
+  const [lines, setLines] = createSignal<string[]>([]);
   const refresh = () =>
     void getQuotaFooter(props.context, props.sessionID, props.surface)
-      .then(setLine)
+      .then(setLines)
       .catch(reportFailure);
   refresh();
   const stop = props.context.data.on("session.step.ended", (event) => {
@@ -289,8 +405,12 @@ function QuotaFooter(props: {
   });
   onCleanup(stop);
   return (
-    <Show when={line()}>
-      <text fg={terminalForeground}>{line()}</text>
+    <Show when={lines().length}>
+      <box flexDirection="column">
+        {lines().map((line) => (
+          <text fg={terminalForeground}>{line}</text>
+        ))}
+      </box>
     </Show>
   );
 }
@@ -363,8 +483,7 @@ function SidebarQuotaView(props: {
   props.setActiveSessionID(props.sessionID);
   const [open, setOpen] = createSignal(true);
   const [quota, setQuota] = createSignal<
-    | { message: string; duration: number; activeProviderCount: number; announcementCount: number }
-    | undefined
+    { message: string; duration: number; activeProviderCount: number } | undefined
   >(undefined);
   const lines = () => quota()?.message.split("\n") ?? [];
   const expandable = () => lines().length > 2;
@@ -415,7 +534,6 @@ const plugin = Plugin.define({
     const api = context as unknown as TuiContext;
     let disposeEvents: (() => void) | undefined;
     let activeSessionID: string | undefined;
-    let announcementsNotified = false;
     const questionToolCalls = new Set<string>();
     const disposeApp = api.ui.slot({
       append: "app",
@@ -435,18 +553,6 @@ const plugin = Plugin.define({
                 message: quota.message,
                 duration: quota.duration,
               });
-              if (!announcementsNotified && quota.announcementCount > 0) {
-                const message = formatMaintainerAnnouncementHomeCountLine(quota.announcementCount);
-                if (message) {
-                  api.ui.toast.show({
-                    variant: "info",
-                    title: "OpenCode Quota",
-                    message: sanitizeDisplayText(message),
-                    duration: quota.duration,
-                  });
-                  announcementsNotified = true;
-                }
-              }
             })
             .catch(reportFailure);
         };

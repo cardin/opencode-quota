@@ -19,7 +19,7 @@ const TEST_ACCOUNTING = {
   ownership: "maintained",
   authority: "provider_reported",
 } as const;
-const ANNOUNCEMENT_TOAST_MESSAGE =
+const ANNOUNCEMENT_HOME_MESSAGE =
   "Notice: Maintainer announcement available. Run /quota_announcements.";
 
 const TEST_ANNOUNCEMENT = vi.hoisted(() => ({
@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 
 const announcementMocks = vi.hoisted(() => ({
   getMaintainerAnnouncementsSummary: vi.fn(),
+  formatMaintainerAnnouncementHomeCountLine: vi.fn(),
 }));
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
@@ -59,12 +60,10 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () =>
 );
 vi.mock("../src/lib/maintainer-announcements.js", () => ({
   BUNDLED_MAINTAINER_ANNOUNCEMENTS: [TEST_ANNOUNCEMENT],
-  formatMaintainerAnnouncementHomeCountLine: (activeCount: number) => {
-    if (activeCount <= 0) return "";
-    if (activeCount === 1) return ANNOUNCEMENT_TOAST_MESSAGE;
-    return `Notice: ${activeCount} maintainer announcements available. Run /quota_announcements.`;
-  },
+  formatMaintainerAnnouncementHomeCountLine:
+    announcementMocks.formatMaintainerAnnouncementHomeCountLine,
   getMaintainerAnnouncementsSummary: announcementMocks.getMaintainerAnnouncementsSummary,
+  getMaintainerAnnouncementTargetProviderIds: () => ["copilot"],
 }));
 
 function makeAnnouncementSummary(overrides: Record<string, unknown> = {}) {
@@ -120,8 +119,13 @@ function configureQuestionQuotaToast(
 }
 
 async function startCli() {
+  vi.stubGlobal("React", {
+    createElement: (type: unknown, props: Record<string, unknown> | null) =>
+      typeof type === "function" ? type(props ?? {}) : { type, props },
+  });
   const { default: plugin } = await import("../src/tui-v2.js");
   const listeners = new Map<string, (event: { data: Record<string, unknown> }) => void>();
+  const renderers = new Map<string, () => unknown>();
   const toast = vi.fn();
   const context = {
     location: { directory: process.cwd() },
@@ -136,6 +140,7 @@ async function startCli() {
     keymap: { layer: vi.fn() },
     ui: {
       slot: vi.fn((claim: { append: string; render: () => unknown }) => {
+        renderers.set(claim.append, claim.render);
         if (claim.append === "app") claim.render();
         return vi.fn();
       }),
@@ -143,7 +148,8 @@ async function startCli() {
     },
   };
   const dispose = plugin.setup(context as never);
-  return { listeners, toast, dispose };
+  const renderHome = () => renderers.get("home.footer.status")?.();
+  return { listeners, toast, renderHome, dispose };
 }
 
 async function buildAnnouncementsDialogOutput(params: {
@@ -189,11 +195,21 @@ describe("maintainer announcement plugin integration", () => {
       },
       resetPluginState: true,
     });
-    announcementMocks.getMaintainerAnnouncementsSummary.mockReturnValue(makeAnnouncementSummary());
+    announcementMocks.getMaintainerAnnouncementsSummary
+      .mockReset()
+      .mockReturnValue(makeAnnouncementSummary());
+    announcementMocks.formatMaintainerAnnouncementHomeCountLine
+      .mockReset()
+      .mockImplementation((activeCount: number) => {
+        if (activeCount <= 0) return "";
+        if (activeCount === 1) return ANNOUNCEMENT_HOME_MESSAGE;
+        return `Notice: ${activeCount} maintainer announcements available. Run /quota_announcements.`;
+      });
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
@@ -283,62 +299,51 @@ describe("maintainer announcement plugin integration", () => {
     );
   });
 
-  it("shows one count-only announcement toast after the first visible V2 CLI quota toast", async () => {
+  it("shows the count-only announcement on Home instead of a toast", async () => {
     configureQuestionQuotaToast();
     const cli = await startCli();
-    cli.listeners.get("session.tool.input.started")?.({
-      data: { id: "call-1", name: "question", sessionID: "session-question" },
-    });
-    cli.listeners.get("session.tool.success")?.({
-      data: { id: "call-1", sessionID: "session-question" },
-    });
-    await vi.waitFor(() => expect(cli.toast).toHaveBeenCalledTimes(2));
-    expect(cli.toast.mock.calls[0]?.[0].message).toContain("Copilot");
-    expect(cli.toast.mock.calls[1]?.[0].message).toBe(ANNOUNCEMENT_TOAST_MESSAGE);
-    expect(cli.toast.mock.calls[1]?.[0].message).not.toContain(TEST_ANNOUNCEMENT.message);
-    expect(cli.toast.mock.calls[1]?.[0].message).not.toContain(TEST_ANNOUNCEMENT.id);
+    cli.renderHome();
+    await vi.waitFor(() =>
+      expect(announcementMocks.formatMaintainerAnnouncementHomeCountLine).toHaveReturnedWith(
+        ANNOUNCEMENT_HOME_MESSAGE,
+      ),
+    );
     expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
       expect.objectContaining({ enabledProviders: ["copilot"] }),
     );
-    cli.listeners.get("session.tool.input.started")?.({
-      data: { id: "call-2", name: "question", sessionID: "session-question" },
-    });
-    cli.listeners.get("session.tool.success")?.({
-      data: { id: "call-2", sessionID: "session-question" },
-    });
-    await vi.waitFor(() => expect(cli.toast).toHaveBeenCalledTimes(3));
-    expect(
-      cli.toast.mock.calls.filter(([notice]) => notice.message === ANNOUNCEMENT_TOAST_MESSAGE),
-    ).toHaveLength(1);
-    cli.dispose?.();
-  });
 
-  it("does not announce before or without a visible V2 CLI quota toast", async () => {
-    mocks.loadConfig.mockResolvedValue(
-      makeQuotaToastTestConfig({
-        enabled: true,
-        enableToast: true,
-        showOnIdle: false,
-        showOnQuestion: false,
-        maintainerAnnouncements: {
-          enabled: true,
-          home: true,
-        },
-      }),
-    );
-
-    const cli = await startCli();
-    cli.listeners.get("session.execution.succeeded")?.({ data: { sessionID: "session-idle" } });
     cli.listeners.get("session.tool.input.started")?.({
       data: { id: "call-1", name: "question", sessionID: "session-question" },
     });
-    cli.listeners.get("session.tool.failed")?.({
+    cli.listeners.get("session.tool.success")?.({
       data: { id: "call-1", sessionID: "session-question" },
     });
+    await vi.waitFor(() => expect(cli.toast).toHaveBeenCalledOnce());
     await flushMaintainerFallbackWork();
+    expect(cli.toast).toHaveBeenCalledOnce();
+    expect(cli.toast.mock.calls[0]?.[0].message).toContain("Copilot");
+    expect(cli.toast.mock.calls[0]?.[0].message).not.toContain("Notice:");
+    cli.dispose?.();
+  });
+
+  it("does not show the Home announcement when maintainerAnnouncements.home is off", async () => {
+    configureQuestionQuotaToast({
+      maintainerAnnouncements: { enabled: true, home: false },
+      tuiCompactStatus: {
+        enabled: true,
+        homeBottom: true,
+        sessionPrompt: false,
+        maxWidth: 96,
+      },
+    });
+    const [copilot] = mocks.getProviders();
+    const cli = await startCli();
+    cli.renderHome();
+    // The Home compact line fetches quota after the announcement check would have run.
+    await vi.waitFor(() => expect(copilot.fetch).toHaveBeenCalled());
 
     expect(announcementMocks.getMaintainerAnnouncementsSummary).not.toHaveBeenCalled();
-    expect(cli.toast).not.toHaveBeenCalled();
+    expect(announcementMocks.formatMaintainerAnnouncementHomeCountLine).not.toHaveBeenCalled();
     cli.dispose?.();
   });
 });
