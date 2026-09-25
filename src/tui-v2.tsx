@@ -19,12 +19,22 @@ import {
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-commands.js";
+import {
+  buildQuotaExport,
+  createExportProviderContext,
+  resolveExportPath,
+  writeQuotaExport,
+} from "./lib/quota-export.js";
 import { resolveQuotaFormatStyle } from "./lib/quota-format-style.js";
 import {
   type CollectQuotaRenderDataResult,
   collectConcreteEnabledProviderIds,
   collectQuotaRenderData,
 } from "./lib/quota-render-data.js";
+import {
+  formatQuotaResetNotification,
+  observeQuotaResetNotifications,
+} from "./lib/quota-reset-notifications.js";
 import {
   createQuotaProviderRuntimeContext,
   createQuotaRuntimeRequestContext,
@@ -126,7 +136,10 @@ async function getQuotaMessage(
   context: TuiContext,
   sessionID: string,
   surface: "sidebar" | "idle" | "compacted" | "question",
-): Promise<{ message: string; duration: number; activeProviderCount: number } | undefined> {
+): Promise<
+  | { message: string; duration: number; activeProviderCount: number; resetNotification?: string }
+  | undefined
+> {
   const runtime = await resolveQuotaRuntimeContext({
     client: quotaClient(context),
     roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
@@ -184,6 +197,23 @@ async function getQuotaMessage(
     formatStyle,
     providers: runtime.providers,
   });
+  let resetNotification: string | undefined;
+  if (
+    surface !== "sidebar" &&
+    config.resetNotifications.enabled &&
+    result.providerResults.length > 0
+  ) {
+    try {
+      const notices = await observeQuotaResetNotifications({
+        providers: result.providerResults,
+        windows: config.resetNotifications.windows,
+      });
+      resetNotification = formatQuotaResetNotification(notices) ?? undefined;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[opencode-quota] failed to observe quota reset transitions: ${reason}`);
+    }
+  }
   const data = result.data;
   const message =
     surface === "sidebar"
@@ -202,6 +232,7 @@ async function getQuotaMessage(
         message: sanitizeDisplayText(message),
         duration: config.toastDurationMs,
         activeProviderCount: result.active.length,
+        resetNotification,
       }
     : undefined;
 }
@@ -397,7 +428,15 @@ function QuotaFooter(props: {
   const [lines, setLines] = createSignal<string[]>([]);
   const refresh = () =>
     void getQuotaFooter(props.context, props.sessionID, props.surface)
-      .then(setLines)
+      .then((next) => {
+        setLines(next);
+        if (props.surface !== "home") return;
+        // Fire-and-forget: write the export file if enabled. A failed write
+        // must never affect rendering, so log a warning and continue.
+        void writeQuotaExportIfEnabled(props.context).catch((error) => {
+          console.warn(`[opencode-quota] quota export write failed: ${String(error)}`);
+        });
+      })
       .catch(reportFailure);
   refresh();
   const stop = props.context.data.on("session.step.ended", (event) => {
@@ -413,6 +452,23 @@ function QuotaFooter(props: {
       </box>
     </Show>
   );
+}
+
+/** Writes the quota export file if `config.export.enabled` is true. Errors propagate. */
+async function writeQuotaExportIfEnabled(context: TuiContext): Promise<void> {
+  const runtime = await resolveQuotaRuntimeContext({
+    client: quotaClient(context),
+    roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
+  });
+  if (!runtime.config.enabled || !runtime.config.export.enabled) return;
+
+  const exportData = await buildQuotaExport({
+    providers: runtime.providers,
+    ctx: createExportProviderContext(runtime),
+    ttlMs: runtime.config.minIntervalMs,
+    fromCache: true,
+  });
+  await writeQuotaExport(exportData, resolveExportPath(runtime.config.export.path));
 }
 
 function reportFailure(error: unknown): void {
@@ -553,6 +609,14 @@ const plugin = Plugin.define({
                 message: quota.message,
                 duration: quota.duration,
               });
+              if (quota.resetNotification) {
+                api.ui.toast.show({
+                  variant: "success",
+                  title: "Quota available",
+                  message: sanitizeDisplayText(quota.resetNotification),
+                  duration: quota.duration,
+                });
+              }
             })
             .catch(reportFailure);
         };

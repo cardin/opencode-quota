@@ -1,4 +1,5 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -70,6 +71,12 @@ const otel = vi.hoisted(() => {
     })),
   };
 });
+
+const resetNotifications = vi.hoisted(() => ({ observe: vi.fn() }));
+vi.mock("../src/lib/quota-reset-notifications.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/quota-reset-notifications.js")>()),
+  observeQuotaResetNotifications: resetNotifications.observe,
+}));
 
 vi.mock("@opentelemetry/api", () => ({
   metrics: { getMeter: otel.getMeter },
@@ -353,6 +360,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     process.env.PHASE5_OPENROUTER_KEY = PHASE5_SECRET_CANARIES.openRouterKey;
     process.env.PHASE5_FAILING_KEY = PHASE5_SECRET_CANARIES.failingKey;
 
+    resetNotifications.observe.mockReset();
+    resetNotifications.observe.mockResolvedValue([]);
     currentConfig = configFor("allWindows");
     seedDefaultPluginBootstrapMocks(mocks, {
       configOverrides: currentConfig,
@@ -989,6 +998,86 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(emptyProvidersOutput).toContain("Quota Toast Debug (opencode-quota)");
     expect(emptyProvidersOutput).toContain("trigger=idle reason=enabledProviders empty");
     expect(emptyProvidersOutput).toContain("providers=(none)");
+
+    v2.dispose();
+  });
+
+  it("shows a reset notification toast after the quota toast when a window resets", async () => {
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    currentConfig.resetNotifications = { enabled: true, windows: ["weekly"] };
+    resetNotifications.observe.mockResolvedValueOnce([
+      {
+        providerId: "minimax-china-coding-plan",
+        label: "MiniMax Token Plan (CN)",
+        window: "weekly",
+        percentRemaining: 46,
+      },
+    ]);
+    const v2 = await setupMiniMaxChinaSurfaces();
+
+    v2.emit("session.execution.succeeded", "minimax-china-session");
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(2));
+    expect(resetNotifications.observe).toHaveBeenCalledOnce();
+    const observed = resetNotifications.observe.mock.calls[0][0];
+    expect(observed.windows).toEqual(["weekly"]);
+    expect(observed.providers.map((item: { providerId: string }) => item.providerId)).toEqual([
+      "minimax-china-coding-plan",
+    ]);
+    expect(v2.toast.mock.calls[0][0]).toMatchObject({ variant: "info", title: "OpenCode Quota" });
+    expect(v2.toast.mock.calls[1][0]).toEqual({
+      variant: "success",
+      title: "Quota available",
+      message: "Weekly quota reset: MiniMax Token Plan (CN) is available again (46% remaining).",
+      duration: currentConfig.toastDurationMs,
+    });
+
+    v2.emit("session.execution.succeeded", "minimax-china-session");
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(3));
+    expect(resetNotifications.observe).toHaveBeenCalledTimes(2);
+    expect(v2.toast.mock.calls[2][0]).toMatchObject({ variant: "info" });
+
+    v2.dispose();
+  });
+
+  it("does not observe resets when reset notifications are disabled", async () => {
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    const v2 = await setupMiniMaxChinaSurfaces();
+
+    v2.emit("session.execution.succeeded", "minimax-china-session");
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
+    await v2.renderSidebar("minimax-china-session");
+    expect(resetNotifications.observe).not.toHaveBeenCalled();
+
+    v2.dispose();
+  });
+
+  it("writes the quota export file after the Home footer refreshes", async () => {
+    const exportPath = join(TEST_RUNTIME_ROOT, "export", "quota-export.json");
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    currentConfig.export = { enabled: true, path: exportPath };
+    const v2 = await setupMiniMaxChinaSurfaces();
+
+    const homeCompact = await v2.renderHomeBottom();
+    expect(homeCompact).toContain("33%");
+    const exported = await vi.waitFor(async () => JSON.parse(await readFile(exportPath, "utf8")));
+    expect(exported.version).toBe(2);
+    expect(exported.fromCache).toBe(true);
+    expect(exported.providers["minimax-china-coding-plan"]?.status).toBe("ok");
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
+
+    v2.dispose();
+  });
+
+  it("does not write the quota export file when export is disabled", async () => {
+    const exportPath = join(TEST_RUNTIME_ROOT, "export", "quota-export.json");
+    currentConfig = configForSingleProvider("minimax-china-coding-plan");
+    currentConfig.export = { enabled: false, path: exportPath };
+    const v2 = await setupMiniMaxChinaSurfaces();
+
+    await v2.renderHomeBottom();
+    await v2.renderSessionPrompt();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(readFile(exportPath, "utf8")).rejects.toThrow();
 
     v2.dispose();
   });

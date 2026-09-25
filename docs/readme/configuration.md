@@ -121,9 +121,10 @@ The state file stores pseudonymous SHA-256 identity keys plus remaining percenta
 observation, and acknowledgment timestamps. Literal account source identifiers, display labels, and
 credentials are not written to it.
 
-Reset notifications use the server popup-toast surface. They do not appear in slash-command or CLI
-output, Sidebar, Compact status, status collection, telemetry, or JSON exports, and require a host
-that supports `tui.showToast`. Supported window names are `fiveHour`, `hourly`, `daily`, `weekly`,
+Reset notifications appear as a second popup toast right after the quota toast, so they need
+`enableToast` and a toast trigger (`showOnIdle`, `showOnCompact`, or `showOnQuestion`). They do not
+appear in slash-command or CLI output, Sidebar, Compact status, status collection, telemetry, or
+JSON exports. Supported window names are `fiveHour`, `hourly`, `daily`, `weekly`,
 `monthly`, and `yearly`.
 
 ### Include subagent session tokens
@@ -469,7 +470,7 @@ Xiaomi MiMo has no `quota-toast.json` credential or endpoint setting. Use `MIMO_
 
 | Option           | Default | Meaning                                                                                                                     |
 | ---------------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `export.enabled` | `false` | Write a JSON export file after each TUI background refresh.                                                                 |
+| `export.enabled` | `false` | Write a JSON export file each time the TUI Home screen quota footer refreshes.                                              |
 | `export.path`    | `""`    | Export file path. Empty string uses the XDG default: `$XDG_CACHE_HOME/opencode/quota-export.json`. Supports `~/` expansion. |
 
 ### Telemetry settings
