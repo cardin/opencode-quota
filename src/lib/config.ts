@@ -27,7 +27,6 @@ import type {
   QuotaResetWindow,
   QuotaToastConfig,
   SessionTokenScope,
-  TuiCommandDisplay,
 } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 
@@ -42,7 +41,6 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "enableToast",
   "resetNotifications.enabled",
   "resetNotifications.windows",
-  "tuiCommandDisplay",
   "formatStyle",
   "percentDisplayMode",
   "quotaProjection",
@@ -77,7 +75,6 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "tuiCompactStatus.enabled",
   "tuiCompactStatus.homeBottom",
   "tuiCompactStatus.sessionPrompt",
-  "tuiCompactStatus.suppressWhenNativeProviderQuota",
   "tuiCompactStatus.maxWidth",
   "tuiCompactStatus.formatStyle",
   "tuiPromptBar.enabled",
@@ -156,7 +153,6 @@ type ValidatedQuotaToastPatch = {
   enabled?: boolean;
   enableToast?: boolean;
   resetNotifications?: QuotaResetNotificationsPatch;
-  tuiCommandDisplay?: TuiCommandDisplay;
   formatStyle?: QuotaToastConfig["formatStyle"];
   percentDisplayMode?: PercentDisplayMode;
   quotaProjection?: "runway";
@@ -248,10 +244,6 @@ function isValidPercentLabelStyle(value: unknown): value is PercentLabelStyle {
 
 function isValidAccountingDetail(value: unknown): value is QuotaToastConfig["accountingDetail"] {
   return value === "summary" || value === "detailed";
-}
-
-function isValidTuiCommandDisplay(value: unknown): value is TuiCommandDisplay {
-  return value === "inline" || value === "dialog";
 }
 
 function isValidSessionTokenScope(value: unknown): value is SessionTokenScope {
@@ -516,13 +508,6 @@ function extractTuiCompactStatusPatch(value: unknown): TuiCompactStatusPatch | u
     patch.sessionPrompt = value.sessionPrompt;
   }
 
-  if (
-    hasOwnKey(value, "suppressWhenNativeProviderQuota") &&
-    typeof value.suppressWhenNativeProviderQuota === "boolean"
-  ) {
-    patch.suppressWhenNativeProviderQuota = value.suppressWhenNativeProviderQuota;
-  }
-
   if (hasOwnKey(value, "maxWidth") && isPositiveNumber(value.maxWidth)) {
     patch.maxWidth = value.maxWidth;
   }
@@ -646,14 +631,6 @@ function extractValidatedQuotaToastPatch(
       reportIssue,
     );
     if (resetNotifications) patch.resetNotifications = resetNotifications;
-  }
-
-  if (hasOwnKey(quotaToastConfig, "tuiCommandDisplay")) {
-    if (isValidTuiCommandDisplay(quotaToastConfig.tuiCommandDisplay)) {
-      patch.tuiCommandDisplay = quotaToastConfig.tuiCommandDisplay;
-    } else {
-      reportIssue?.("tuiCommandDisplay", 'expected "inline" or "dialog"');
-    }
   }
 
   const formatStyle = getConfiguredFormatStyle(quotaToastConfig as Partial<QuotaToastConfig>);
@@ -938,11 +915,6 @@ function applyValidatedQuotaToastPatch(
     }
   }
 
-  if (hasOwnKey(patch, "tuiCommandDisplay")) {
-    config.tuiCommandDisplay = patch.tuiCommandDisplay!;
-    applySettingSource(settingSources, "tuiCommandDisplay", sourcePath);
-  }
-
   if (hasOwnKey(patch, "formatStyle")) {
     config.formatStyle = patch.formatStyle!;
     applySettingSource(settingSources, "formatStyle", sourcePath);
@@ -1114,16 +1086,6 @@ function applyValidatedQuotaToastPatch(
     if (hasOwnKey(patch.tuiCompactStatus, "sessionPrompt")) {
       config.tuiCompactStatus.sessionPrompt = patch.tuiCompactStatus.sessionPrompt!;
       applySettingSource(settingSources, "tuiCompactStatus.sessionPrompt", sourcePath);
-    }
-
-    if (hasOwnKey(patch.tuiCompactStatus, "suppressWhenNativeProviderQuota")) {
-      config.tuiCompactStatus.suppressWhenNativeProviderQuota =
-        patch.tuiCompactStatus.suppressWhenNativeProviderQuota!;
-      applySettingSource(
-        settingSources,
-        "tuiCompactStatus.suppressWhenNativeProviderQuota",
-        sourcePath,
-      );
     }
 
     if (hasOwnKey(patch.tuiCompactStatus, "maxWidth")) {

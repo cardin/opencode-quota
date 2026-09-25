@@ -68,7 +68,6 @@ function createConfig() {
     showSessionTokens: false,
     telemetry: { enabled: false },
     maintainerAnnouncements: { enabled: false, home: false },
-    tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
       defaultExpanded: true,
@@ -80,7 +79,6 @@ function createConfig() {
       sessionPrompt: true,
       maxWidth: 240,
       formatStyle: "allWindows",
-      suppressWhenNativeProviderQuota: false,
     },
     tuiPromptBar: { enabled: true },
   });

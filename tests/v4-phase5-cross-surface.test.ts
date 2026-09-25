@@ -261,7 +261,6 @@ function configFor(formatStyle: "allWindows" | "singleWindow") {
     telemetry: {
       enabled: true,
     },
-    tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
       defaultExpanded: false,
@@ -273,7 +272,6 @@ function configFor(formatStyle: "allWindows" | "singleWindow") {
       sessionPrompt: true,
       maxWidth: 240,
       formatStyle,
-      suppressWhenNativeProviderQuota: false,
     },
   });
 }
@@ -295,7 +293,6 @@ function configForSingleProvider(providerId = "minimax-coding-plan") {
     telemetry: {
       enabled: false,
     },
-    tuiCommandDisplay: "dialog",
     tuiSidebarPanel: {
       enabled: true,
       defaultExpanded: false,
@@ -307,7 +304,6 @@ function configForSingleProvider(providerId = "minimax-coding-plan") {
       sessionPrompt: true,
       maxWidth: 240,
       formatStyle: "allWindows",
-      suppressWhenNativeProviderQuota: false,
     },
   });
 }

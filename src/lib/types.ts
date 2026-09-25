@@ -50,7 +50,6 @@ export interface TuiCompactStatusConfig {
   enabled: boolean;
   homeBottom: boolean;
   sessionPrompt: boolean;
-  suppressWhenNativeProviderQuota: boolean;
   maxWidth: number;
   /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
   formatStyle?: QuotaFormatStyle;
@@ -81,8 +80,6 @@ export interface MaintainerAnnouncementsConfig {
   home: boolean;
 }
 
-export type TuiCommandDisplay = "inline" | "dialog";
-
 /** Request timeout in milliseconds */
 export const REQUEST_TIMEOUT_MS = 5000;
 
@@ -95,9 +92,6 @@ export interface QuotaToastConfig {
 
   /** Opt-in, persisted notifications when selected quota windows reset. */
   resetNotifications: QuotaResetNotificationsConfig;
-
-  /** Where deterministic native TUI command output appears. */
-  tuiCommandDisplay: TuiCommandDisplay;
 
   /**
    * Shared quota-row formatting style for popup toasts and the TUI sidebar.
@@ -228,7 +222,6 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     enabled: false,
     windows: ["weekly"],
   },
-  tuiCommandDisplay: "inline",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   accountingDetail: "summary",
@@ -267,7 +260,6 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     enabled: false,
     homeBottom: true,
     sessionPrompt: true,
-    suppressWhenNativeProviderQuota: true,
     maxWidth: 96,
   },
   tuiPromptBar: {
