@@ -6,6 +6,7 @@ import {
   QUOTA_TOAST_SETTING_SOURCE_KEYS,
   type QuotaToastSettingSources,
 } from "./config.js";
+import type { RuntimeContextRoots } from "./config-file-utils.js";
 import {
   sanitizeQuotaProviderResult,
   sanitizeSingleLineDisplaySnippet,
@@ -670,16 +671,7 @@ export async function buildQuotaStatusReport(params: {
   workspaceConfigPaths?: string[];
   settingSources?: QuotaToastSettingSources;
   configIssues?: LoadConfigIssue[];
-  tuiDiagnostics?: {
-    workspaceRoot: string;
-    configRoot: string;
-    configured: boolean;
-    inferredSelectedPath: string | null;
-    presentPaths: string[];
-    candidatePaths: string[];
-    quotaPluginConfigured: boolean;
-    quotaPluginConfigPaths: string[];
-  };
+  runtimeRoots?: RuntimeContextRoots;
   enabledProviders: string[] | "auto";
   anthropicBinaryPath?: string;
   cursorPlan: CursorQuotaPlan;
@@ -732,25 +724,9 @@ export async function buildQuotaStatusReport(params: {
       );
     }
   }
-  if (params.tuiDiagnostics) {
-    toastLines.push("");
-    toastLines.push("tui:");
-    toastLines.push(`- workspace_root: ${params.tuiDiagnostics.workspaceRoot}`);
-    toastLines.push(`- config_root: ${params.tuiDiagnostics.configRoot}`);
-    toastLines.push(`- config_configured: ${params.tuiDiagnostics.configured ? "true" : "false"}`);
-    toastLines.push(
-      `- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`,
-    );
-    toastLines.push(`- present_config_paths: ${joinOrNone(params.tuiDiagnostics.presentPaths)}`);
-    toastLines.push(
-      `- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`,
-    );
-    toastLines.push(
-      `- quota_plugin_configured: ${params.tuiDiagnostics.quotaPluginConfigured ? "true" : "false"}`,
-    );
-    toastLines.push(
-      `- quota_plugin_paths: ${joinOrNone(params.tuiDiagnostics.quotaPluginConfigPaths)}`,
-    );
+  if (params.runtimeRoots) {
+    toastLines.push(`- workspace_root: ${params.runtimeRoots.workspaceRoot}`);
+    toastLines.push(`- config_root: ${params.runtimeRoots.configRoot}`);
   }
   toastLines.push("- providers:");
   for (const p of params.providerAvailability) {

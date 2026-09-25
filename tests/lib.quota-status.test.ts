@@ -442,20 +442,9 @@ describe("buildQuotaStatusReport", () => {
         showOnBothFail: "/tmp/config/opencode.json (experimental.quotaToast)",
         "layout.maxWidth": "/tmp/project/opencode.jsonc (experimental.quotaToast)",
       },
-      tuiDiagnostics: {
+      runtimeRoots: {
         workspaceRoot: "/tmp/workspace",
         configRoot: "/tmp/project",
-        configured: true,
-        inferredSelectedPath: "/tmp/project/tui.jsonc",
-        presentPaths: ["/tmp/config/tui.json", "/tmp/project/tui.jsonc"],
-        candidatePaths: [
-          "/tmp/config/tui.json",
-          "/tmp/config/tui.jsonc",
-          "/tmp/project/tui.json",
-          "/tmp/project/tui.jsonc",
-        ],
-        quotaPluginConfigured: true,
-        quotaPluginConfigPaths: ["/tmp/project/tui.jsonc"],
       },
       enabledProviders: ["copilot"],
       anthropicBinaryPath: "/opt/claude/bin/claude",
@@ -501,19 +490,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain(
       "- setting_sources: enabled<=/tmp/config/opencode.json (experimental.quotaToast) | enableToast<=/tmp/config/opencode.json (experimental.quotaToast) | minIntervalMs<=/tmp/project/opencode.jsonc (experimental.quotaToast) | enabledProviders<=/tmp/project/opencode.jsonc (experimental.quotaToast) | pricingSnapshot.source<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.autoRefresh<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnIdle<=/tmp/config/opencode.json (experimental.quotaToast) | showOnQuestion<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnCompact<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnBothFail<=/tmp/config/opencode.json (experimental.quotaToast) | layout.maxWidth<=/tmp/project/opencode.jsonc (experimental.quotaToast)",
     );
-    expect(report).toContain("tui:");
+    expect(report).not.toContain("tui:");
     expect(report).toContain("- workspace_root: /tmp/workspace");
     expect(report).toContain("- config_root: /tmp/project");
-    expect(report).toContain("- config_configured: true");
-    expect(report).toContain("- inferred_selected_config_path: /tmp/project/tui.jsonc");
-    expect(report).toContain(
-      "- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc",
-    );
-    expect(report).toContain(
-      "- candidate_config_paths: /tmp/config/tui.json | /tmp/config/tui.jsonc | /tmp/project/tui.json | /tmp/project/tui.jsonc",
-    );
-    expect(report).toContain("- quota_plugin_configured: true");
-    expect(report).toContain("- quota_plugin_paths: /tmp/project/tui.jsonc");
     expect(report).toContain("- opencode.db: path=/tmp/opencode.db present=false");
     expect(report).toContain(
       "- pricing: source=test active_source=bundled generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",

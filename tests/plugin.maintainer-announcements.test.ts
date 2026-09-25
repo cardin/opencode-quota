@@ -6,7 +6,6 @@ import {
   createPluginTestClient as createClient,
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
-  createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   makeQuotaToastTestConfig,
@@ -47,10 +46,6 @@ const announcementMocks = vi.hoisted(() => ({
   getMaintainerAnnouncementsSummary: vi.fn(),
 }));
 
-const tuiDiagnosticsMocks = vi.hoisted(() => ({
-  inspectTuiConfig: vi.fn(),
-}));
-
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 vi.mock("../src/providers/registry.js", () =>
   createProvidersRegistryModuleMock(mocks.getProviders),
@@ -62,9 +57,6 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
 );
-vi.mock("../src/lib/tui-config-diagnostics.js", () => ({
-  inspectTuiConfig: tuiDiagnosticsMocks.inspectTuiConfig,
-}));
 vi.mock("../src/lib/maintainer-announcements.js", () => ({
   BUNDLED_MAINTAINER_ANNOUNCEMENTS: [TEST_ANNOUNCEMENT],
   formatMaintainerAnnouncementHomeCountLine: (activeCount: number) => {
@@ -198,9 +190,6 @@ describe("maintainer announcement plugin integration", () => {
       resetPluginState: true,
     });
     announcementMocks.getMaintainerAnnouncementsSummary.mockReturnValue(makeAnnouncementSummary());
-    tuiDiagnosticsMocks.inspectTuiConfig.mockResolvedValue(
-      createPluginTuiConfigInspection(TEST_RUNTIME_ROOT),
-    );
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 

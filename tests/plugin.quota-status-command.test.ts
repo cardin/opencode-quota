@@ -5,7 +5,6 @@ import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
   createConfigModuleMock,
-  createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createSessionTokensModuleMock,
@@ -26,7 +25,6 @@ const mocks = vi.hoisted(() => ({
   fetchSessionTokensForDisplay: vi.fn(),
   collectQuotaStatusLiveProbes: vi.fn(),
   buildQuotaStatusReport: vi.fn(),
-  inspectTuiConfig: vi.fn(),
 }));
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
@@ -55,10 +53,6 @@ vi.mock("../src/lib/quota-render-data.js", () => ({
 
 vi.mock("../src/lib/quota-status.js", () => ({
   buildQuotaStatusReport: mocks.buildQuotaStatusReport,
-}));
-
-vi.mock("../src/lib/tui-config-diagnostics.js", () => ({
-  inspectTuiConfig: mocks.inspectTuiConfig,
 }));
 
 async function buildQuotaStatusDialogOutput(params: {
@@ -106,7 +100,6 @@ describe("/quota_status command behavior", () => {
       resetModules: true,
       resetPluginState: true,
     });
-    mocks.inspectTuiConfig.mockResolvedValue(createPluginTuiConfigInspection(process.cwd()));
     mocks.collectQuotaStatusLiveProbes.mockResolvedValue([
       {
         providerId: "openai",
@@ -259,12 +252,6 @@ describe("/quota_status command behavior", () => {
     });
 
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledTimes(1);
-    expect(mocks.inspectTuiConfig).toHaveBeenCalledWith({
-      roots: {
-        workspaceRoot: process.cwd(),
-        configRoot: process.cwd(),
-      },
-    });
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({
         client,
@@ -276,6 +263,10 @@ describe("/quota_status command behavior", () => {
     );
     expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
       expect.objectContaining({
+        runtimeRoots: {
+          workspaceRoot: process.cwd(),
+          configRoot: process.cwd(),
+        },
         globalConfigPaths: [],
         workspaceConfigPaths: [],
         settingSources: {},

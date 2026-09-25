@@ -286,7 +286,7 @@ function appendQuotaPluginIfMissing(params: {
 }): void {
   const alreadyConfigured = params.container.some((entry) => {
     const spec = getPluginSpecFromEntry(entry);
-    return typeof spec === "string" && isQuotaPluginSpec(spec, "opencode");
+    return typeof spec === "string" && isQuotaPluginSpec(spec);
   });
 
   if (alreadyConfigured) {
@@ -1182,7 +1182,7 @@ async function promptForSelections(
 
   if (interfaces === "web") {
     prompts.log.info(
-      "Web slash commands appear inline. TUI-only surfaces and popup dialogs are unavailable.",
+      "Web and Desktop show no quota UI. Run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to use its quota_status tool.",
     );
   }
 
@@ -1464,7 +1464,9 @@ export async function runInitInstaller(params?: {
         `Interfaces: ${interfaceLabel}`,
         "Configured paths:",
         ...configuredPaths.map((path) => `- ${path}`),
-        "Restart OpenCode and run /quota.",
+        plan.selections.interfaces === "web"
+          ? "Run `npx @slkiser/opencode-quota show` in a terminal to check quota."
+          : "Restart OpenCode and run /quota.",
         `If OpenCode Quota helps, please consider a star: ${GITHUB_REPO_URL}`,
       ].join("\n"),
     );

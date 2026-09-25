@@ -54,6 +54,7 @@ function createPromptStub(params: {
   const selectCalls: { message: string; options: unknown[] }[] = [];
   const multiselectCalls: { message: string; required?: boolean; options: unknown[] }[] = [];
   const outroCalls: string[] = [];
+  const infoCalls: string[] = [];
   const confirmCalls: { message: string; initialValue?: boolean }[] = [];
 
   return {
@@ -75,13 +76,16 @@ function createPromptStub(params: {
     },
     isCancel: (value: unknown) => value === Symbol.for("cancel"),
     log: {
-      info: () => {},
+      info: (message: string) => {
+        infoCalls.push(message);
+      },
       success: () => {},
       error: () => {},
     },
     selectCalls,
     multiselectCalls,
     outroCalls,
+    infoCalls,
     confirmCalls,
   };
 }
@@ -1061,6 +1065,17 @@ describe("init installer planning and merge behavior", () => {
 
     const secondPlan = await planInitInstaller({ cwd: projectDir, selections });
     expect(secondPlan.edits.find((edit) => edit.kind === "opencode")?.changed).toBe(false);
+  });
+
+  it("tells Web users that Web and Desktop show no quota UI", async () => {
+    const prompts = createPromptStub({ selectValues: ["web", Symbol.for("cancel")] });
+
+    const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any });
+
+    expect(code).toBe(0);
+    expect(prompts.infoCalls).toContain(
+      "Web and Desktop show no quota UI. Run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to use its quota_status tool.",
+    );
   });
 
   it("installs Web server-only and leaves an existing tui.jsonc untouched", async () => {

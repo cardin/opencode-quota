@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { dirname, isAbsolute, join, resolve } from "path";
 
-export type ConfigFileKind = "opencode" | "tui";
+export type ConfigFileKind = "opencode";
 export type ConfigFileFormat = "json" | "jsonc";
 
 export interface EditableConfigPath {
@@ -208,7 +208,7 @@ export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
   return dedupeNonEmptyStrings(Object.keys(root.provider));
 }
 
-export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
+export function isQuotaPluginSpec(spec: string): boolean {
   const normalized = spec.replace(/\\/g, "/").toLowerCase();
 
   if (normalized.includes("@slkiser/opencode-quota")) {
@@ -219,7 +219,5 @@ export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
     return true;
   }
 
-  return kind === "tui"
-    ? normalized.includes("opencode-quota/dist/tui.js")
-    : normalized.includes("opencode-quota/dist/index.js");
+  return normalized.includes("opencode-quota/dist/index.js");
 }

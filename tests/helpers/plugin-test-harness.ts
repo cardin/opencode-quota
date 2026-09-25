@@ -67,17 +67,6 @@ interface PluginRuntimePathsMockOptions {
   includeCandidates?: boolean;
 }
 
-interface PluginTuiConfigInspectionOverrides {
-  candidatePaths?: string[];
-  configRoot?: string;
-  configured?: boolean;
-  inferredSelectedPath?: string | null;
-  presentPaths?: string[];
-  quotaPluginConfigPaths?: string[];
-  quotaPluginConfigured?: boolean;
-  workspaceRoot?: string;
-}
-
 export function createConfigModuleMock(loadConfig: MockFunction) {
   return {
     loadConfig,
@@ -153,22 +142,6 @@ export function createPluginRuntimePathsMockModule(
     ...(options.includeCandidates
       ? { getOpencodeRuntimeDirCandidates: () => ({ ...candidates }) }
       : {}),
-  };
-}
-
-export function createPluginTuiConfigInspection(
-  root: string,
-  overrides: PluginTuiConfigInspectionOverrides = {},
-) {
-  return {
-    workspaceRoot: overrides.workspaceRoot ?? root,
-    configRoot: overrides.configRoot ?? root,
-    configured: overrides.configured ?? false,
-    inferredSelectedPath: overrides.inferredSelectedPath ?? null,
-    presentPaths: overrides.presentPaths ?? [],
-    candidatePaths: overrides.candidatePaths ?? [],
-    quotaPluginConfigured: overrides.quotaPluginConfigured ?? false,
-    quotaPluginConfigPaths: overrides.quotaPluginConfigPaths ?? [],
   };
 }
 

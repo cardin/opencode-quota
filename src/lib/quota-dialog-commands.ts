@@ -48,7 +48,6 @@ import {
 } from "./quota-stats.js";
 import { formatQuotaStatsReport } from "./quota-stats-format.js";
 import { buildQuotaStatusReport, type SessionTokenError } from "./quota-status.js";
-import { inspectTuiConfig } from "./tui-config-diagnostics.js";
 import type { PricingSnapshotSource } from "./types.js";
 import { getPackageVersion } from "./version.js";
 
@@ -555,7 +554,6 @@ export async function buildStatusReportData(params: {
     }
   }
 
-  const tuiDiagnostics = await inspectTuiConfig({ roots: params.runtime.roots });
   const announcementProviderIds = availability
     .filter((item) => item.enabled && item.available)
     .map((item) => item.id);
@@ -564,7 +562,7 @@ export async function buildStatusReportData(params: {
   });
 
   const output = await buildQuotaStatusReport({
-    tuiDiagnostics,
+    runtimeRoots: params.runtime.roots,
     configSource: params.runtime.configMeta.source,
     configPaths: params.runtime.configMeta.paths,
     globalConfigPaths: params.runtime.configMeta.globalConfigPaths,
