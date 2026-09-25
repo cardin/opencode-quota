@@ -75,7 +75,7 @@ The file is normally written here:
 
 If you set `XDG_CACHE_HOME`, the file is written to `$XDG_CACHE_HOME/opencode/quota-export.json` instead.
 
-The TUI rewrites the file each time the Home screen quota footer refreshes: when Home opens and after each model step while it is open. A write error is logged, but it does not break the TUI.
+The TUI refreshes the file about once a minute while the Home screen is open. A write error is logged, but it does not break the TUI.
 
 ### tmux example
 

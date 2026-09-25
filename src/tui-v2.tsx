@@ -52,6 +52,7 @@ import { buildSidebarQuotaPanelLines } from "./lib/tui-sidebar-format.js";
 import type { QuotaToastConfig } from "./lib/types.js";
 
 const terminalForeground = RGBA.defaultForeground();
+const REFRESH_INTERVAL_MS = 60_000;
 
 type TuiEvent = { data?: Record<string, unknown> };
 type Toast = {
@@ -439,10 +440,14 @@ function QuotaFooter(props: {
       })
       .catch(reportFailure);
   refresh();
+  const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
   const stop = props.context.data.on("session.step.ended", (event) => {
     if (props.surface === "home" || getSessionID(event) === props.sessionID) refresh();
   });
-  onCleanup(stop);
+  onCleanup(() => {
+    clearInterval(interval);
+    stop();
+  });
   return (
     <Show when={lines().length}>
       <box flexDirection="column">
@@ -549,10 +554,14 @@ function SidebarQuotaView(props: {
       .catch(reportFailure);
   };
   refresh();
+  const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
   const unsubscribe = props.context.data.on("session.step.ended", (event) => {
     if (getSessionID(event) === props.sessionID) refresh();
   });
-  onCleanup(unsubscribe);
+  onCleanup(() => {
+    clearInterval(interval);
+    unsubscribe();
+  });
 
   return (
     <box flexDirection="column">
