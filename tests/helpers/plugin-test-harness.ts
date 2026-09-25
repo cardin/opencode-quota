@@ -261,7 +261,7 @@ export function seedDefaultPluginBootstrapMocks(
   vi.clearAllMocks();
 
   if (options.resetModules || options.resetPluginState) {
-    // Fresh module instances clear singleton state such as src/lib/cache.ts.
+    // Fresh module instances clear module-level singleton state.
     vi.resetModules();
   }
 

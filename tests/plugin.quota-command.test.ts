@@ -97,8 +97,6 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
   reconcileDetectedProvidersInGlobalConfig: vi.fn(),
-  observeQuotaResetNotifications: vi.fn(),
-  formatQuotaResetNotification: vi.fn(),
   disposeQuotaTelemetryOwner: vi.fn(),
 }));
 
@@ -124,11 +122,6 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () =>
 
 vi.mock("../src/lib/opencode-config-providers.js", () => ({
   reconcileDetectedProvidersInGlobalConfig: mocks.reconcileDetectedProvidersInGlobalConfig,
-}));
-
-vi.mock("../src/lib/quota-reset-notifications.js", () => ({
-  observeQuotaResetNotifications: mocks.observeQuotaResetNotifications,
-  formatQuotaResetNotification: mocks.formatQuotaResetNotification,
 }));
 
 vi.mock("../src/lib/quota-telemetry.js", async (importOriginal) => ({
@@ -158,8 +151,6 @@ describe("/quota command behavior", () => {
       addedProviderIds: [],
       changed: false,
     });
-    mocks.observeQuotaResetNotifications.mockResolvedValue([]);
-    mocks.formatQuotaResetNotification.mockReturnValue(null);
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
     const { __resetQuotaStateForTests } = await import("../src/lib/quota-state.js");
     __resetQuotaStateForTests();

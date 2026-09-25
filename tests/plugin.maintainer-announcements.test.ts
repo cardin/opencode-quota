@@ -51,11 +51,6 @@ const tuiDiagnosticsMocks = vi.hoisted(() => ({
   inspectTuiConfig: vi.fn(),
 }));
 
-const resetMocks = vi.hoisted(() => ({
-  observeQuotaResetNotifications: vi.fn(),
-  formatQuotaResetNotification: vi.fn(),
-}));
-
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 vi.mock("../src/providers/registry.js", () =>
   createProvidersRegistryModuleMock(mocks.getProviders),
@@ -78,10 +73,6 @@ vi.mock("../src/lib/maintainer-announcements.js", () => ({
     return `Notice: ${activeCount} maintainer announcements available. Run /quota_announcements.`;
   },
   getMaintainerAnnouncementsSummary: announcementMocks.getMaintainerAnnouncementsSummary,
-}));
-vi.mock("../src/lib/quota-reset-notifications.js", () => ({
-  observeQuotaResetNotifications: resetMocks.observeQuotaResetNotifications,
-  formatQuotaResetNotification: resetMocks.formatQuotaResetNotification,
 }));
 
 function makeAnnouncementSummary(overrides: Record<string, unknown> = {}) {
@@ -210,8 +201,6 @@ describe("maintainer announcement plugin integration", () => {
     tuiDiagnosticsMocks.inspectTuiConfig.mockResolvedValue(
       createPluginTuiConfigInspection(TEST_RUNTIME_ROOT),
     );
-    resetMocks.observeQuotaResetNotifications.mockResolvedValue([]);
-    resetMocks.formatQuotaResetNotification.mockReturnValue(null);
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
