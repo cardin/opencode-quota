@@ -42,10 +42,12 @@ type Toast = {
   duration?: number;
 };
 type TuiContext = {
-  client: unknown;
   location?: { directory: string };
   data: {
     on: (event: string, handler: (event: TuiEvent) => void) => () => void;
+    session: {
+      get: (sessionID: string) => { model?: { id: string; providerID: string } } | undefined;
+    };
     location?: {
       default: () => { directory: string };
       provider: { list: (location: { directory: string }) => Array<{ id: string }> | undefined };
@@ -60,8 +62,8 @@ type TuiContext = {
           title: string;
           group: string;
           palette: true;
-          slash: { name: string };
-          run: (input?: unknown) => Promise<void>;
+          slash: { name: string; arguments?: true };
+          run: (input?: string) => Promise<void>;
         }>;
       },
     ) => void;
@@ -104,15 +106,10 @@ function quotaClient(context: TuiContext) {
 }
 
 async function getSessionModelMeta(
-  client: unknown,
+  context: TuiContext,
   sessionID: string,
 ): Promise<QuotaSessionModelContext> {
-  const session = (
-    client as { session?: { get?: (input: { sessionID: string }) => Promise<{ data?: unknown }> } }
-  ).session;
-  const response = await session?.get?.({ sessionID });
-  const model = (response?.data as { model?: { id?: string; providerID?: string } } | undefined)
-    ?.model;
+  const model = context.data.session.get(sessionID)?.model;
   return model ? { modelID: model.id, providerID: model.providerID } : {};
 }
 
@@ -133,7 +130,7 @@ async function getQuotaMessage(
     client: quotaClient(context),
     roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
     sessionID,
-    resolveSessionMeta: (id) => getSessionModelMeta(context.client, id),
+    resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     includeSessionMeta: (config) => config.onlyCurrentModel,
   });
   const config = runtime.config;
@@ -219,7 +216,7 @@ async function getQuotaFooter(
     client: quotaClient(context),
     roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
     sessionID,
-    resolveSessionMeta: (id) => getSessionModelMeta(context.client, id),
+    resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     includeSessionMeta: (config) => config.onlyCurrentModel && surface === "prompt",
   });
   const config = runtime.config;
@@ -303,24 +300,14 @@ function reportFailure(error: unknown): void {
   console.warn(`[opencode-quota] failed to load quota: ${message}`);
 }
 
-function getCommandArguments(input: unknown): string | undefined {
-  if (!input || typeof input !== "object") return undefined;
-  const record = input as Record<string, unknown>;
-  for (const key of ["arguments", "args", "query"] as const) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return undefined;
-}
-
 async function runQuotaCommand(
   context: TuiContext,
   command: QuotaDialogCommandId,
   sessionID: string | undefined,
-  input?: unknown,
+  input?: string,
 ): Promise<void> {
   const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === command)!;
-  let argumentsText = getCommandArguments(input);
+  let argumentsText = input?.trim() || undefined;
   if (spec.acceptsArguments && argumentsText === undefined) {
     const value = await context.ui.dialog.prompt({
       title: spec.title,
@@ -337,7 +324,7 @@ async function runQuotaCommand(
       client: quotaClient(context),
       roots: { fallbackDirectory: context.location?.directory ?? process.cwd() },
       sessionID,
-      resolveSessionMeta: (id) => getSessionModelMeta(context.client, id),
+      resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     });
     if (result.state === "noop") return;
     const alert = context.ui.dialog.alert({ title: result.title, message: result.output });
@@ -360,8 +347,10 @@ function registerQuotaCommands(context: TuiContext, getSessionID: () => string |
       title: spec.title,
       group: "OpenCode Quota",
       palette: true,
-      slash: { name: spec.slashName },
-      run: (input?: unknown) => runQuotaCommand(context, spec.id, getSessionID(), input),
+      slash: spec.acceptsArguments
+        ? { name: spec.slashName, arguments: true as const }
+        : { name: spec.slashName },
+      run: (input?: string) => runQuotaCommand(context, spec.id, getSessionID(), input),
     })),
   }));
 }

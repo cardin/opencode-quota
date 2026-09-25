@@ -132,9 +132,9 @@ async function startCli() {
   const listeners = new Map<string, (event: { data: Record<string, unknown> }) => void>();
   const toast = vi.fn();
   const context = {
-    client: { session: { get: vi.fn().mockResolvedValue({ data: {} }) } },
     location: { directory: process.cwd() },
     data: {
+      session: { get: vi.fn(() => undefined) },
       on: vi.fn((name: string, listener: (event: { data: Record<string, unknown> }) => void) => {
         listeners.set(name, listener);
         return () => listeners.delete(name);

@@ -12,7 +12,7 @@ vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
 function startTui() {
   const commands = new Map<
     string,
-    { run: (input?: unknown) => Promise<void>; slash: { name: string } }
+    { run: (input?: string) => Promise<void>; slash: { name: string } }
   >();
   const listeners = new Map<string, (event: { data?: Record<string, unknown> }) => void>();
   const alert = vi.fn().mockResolvedValue(undefined);
@@ -21,8 +21,8 @@ function startTui() {
   const slots = new Map<string, { render: (props?: { sessionID: string }) => unknown }>();
   const context = {
     location: { directory: process.cwd() },
-    client: { session: { get: vi.fn() } },
     data: {
+      session: { get: vi.fn() },
       on: vi.fn((name: string, callback: (event: { data?: Record<string, unknown> }) => void) => {
         listeners.set(name, callback);
         return () => listeners.delete(name);
@@ -34,7 +34,7 @@ function startTui() {
           build: () => {
             commands: Array<{
               id: string;
-              run: (input?: unknown) => Promise<void>;
+              run: (input?: string) => Promise<void>;
               slash: { name: string };
             }>;
           },
@@ -91,13 +91,13 @@ describe("V2 CLI command boundary", () => {
       }),
     );
     expect(tui.alert).toHaveBeenCalledWith({ title: "Quota", message: "Quota ready" });
-    expect(tui.context.client.session.get).not.toHaveBeenCalled();
+    expect(tui.context.data.session.get).not.toHaveBeenCalled();
     tui.dispose?.();
   });
 
   it("passes explicit /tokens_between arguments to the deterministic output builder", async () => {
     const tui = startTui();
-    await tui.commands.get("quota.tokens_between")?.run({ arguments: "not-a-date-range" });
+    await tui.commands.get("quota.tokens_between")?.run("not-a-date-range");
     expect(mocks.build).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "tokens_between",
