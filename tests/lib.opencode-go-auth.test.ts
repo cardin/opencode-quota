@@ -132,7 +132,7 @@ describe("OpenCode Go auth resolution", () => {
     }
   });
 
-  it("accepts the opencode-go opencode.db key written by `opencode auth login -p opencode-go`", () => {
+  it("accepts the opencode-go opencode.db key written by `opencode auth login opencode-go`", () => {
     expect(resolveOpenCodeGoAuth({ "opencode-go": { type: "api", key: "cli-key" } })).toEqual({
       state: "configured",
       apiKey: "cli-key",

@@ -413,7 +413,7 @@ If that response includes Anthropic's model-scoped Fable weekly window, OpenCode
 Use companion plugin [`@playwo/opencode-cursor-oauth`](https://github.com/PoolPirate/opencode-cursor#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate once:
 
 ```bash
-opencode auth login --provider cursor
+opencode auth login cursor
 ```
 
 Cursor estimates the current local billing cycle from OpenCode history. With complete model coverage and a positive configured/preset allowance, it shows an **API budget** percentage with used, limit, and remaining USD facts. If any Cursor model is unknown, it shows only **Known API spend** plus a partial-data issue; it never presents that partial spend as total account spend or a percentage. Without an allowance it shows **API spend**. **Auto+Composer spend** is supplementary and appears in detailed output when space allows.
@@ -448,7 +448,7 @@ Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://github.com/a
 Google AGY reports the companion's grouped weekly and five-hour quota windows for each account.
 
 ```bash
-opencode auth login --provider google-agy
+opencode auth login google-agy
 ```
 
 If you use manual provider selection, include `google-agy` in `enabledProviders`.
@@ -482,7 +482,7 @@ Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organizati
 Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
 
 ```bash
-opencode auth login --provider google
+opencode auth login google
 ```
 
 If you use manual provider selection, include `google-gemini-cli` in `enabledProviders`.

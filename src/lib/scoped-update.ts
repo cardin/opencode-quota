@@ -422,7 +422,7 @@ function formatSafeAction(action: ScopedUpdateSafeAction): string {
 }
 
 const OBSOLETE_GO_GUIDANCE =
-  "OpenCode Go no longer uses this workspace/cookie source, and it cannot be converted into the official API key. Configure OPENCODE_API_KEY, trusted global provider.opencode-go.options.apiKey, fallback provider.opencode.options.apiKey, or run opencode auth login -p opencode-go. This updater will not read, copy, or delete credentials; remove the old variable/file manually after the supported key works.";
+  "OpenCode Go no longer uses this workspace/cookie source, and it cannot be converted into the official API key. Configure OPENCODE_API_KEY, trusted global provider.opencode-go.options.apiKey, fallback provider.opencode.options.apiKey, or run opencode auth login opencode-go. This updater will not read, copy, or delete credentials; remove the old variable/file manually after the supported key works.";
 
 function formatManualFinding(finding: ScopedUpdateManualFinding): string {
   switch (finding.kind) {

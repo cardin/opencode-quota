@@ -59,7 +59,7 @@ describe("Gemini CLI organization-only documentation", () => {
     );
     expect(providerSection).toContain("[Google AGY](#google-agy-quick-setup)");
     expect(providerSection).toContain("opencode-gemini-auth");
-    expect(providerSection).toContain("opencode auth login --provider google");
+    expect(providerSection).toContain("opencode auth login google");
     expect(providerSection).toContain("include `google-gemini-cli` in `enabledProviders`");
 
     expect(migration).toContain(ORG_ONLY);
@@ -83,7 +83,7 @@ describe("Gemini CLI organization-only documentation", () => {
     expect(troubleshootingSection).toContain(ORG_ONLY);
     expect(troubleshootingSection).toContain("opencode-gemini-auth");
     expect(troubleshootingSection).toContain("Include `google-gemini-cli` in `enabledProviders`");
-    expect(troubleshootingSection).toContain("opencode auth login --provider google");
+    expect(troubleshootingSection).toContain("opencode auth login google");
     for (const projectIdSource of [
       "provider.google.options.projectId",
       "OPENCODE_GEMINI_PROJECT_ID",

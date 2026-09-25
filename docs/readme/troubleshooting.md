@@ -131,7 +131,7 @@ Run `/quota_status` and check the Cursor section.
 | Symptom                                   | Fix                                                                                                     |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Cursor not detected                       | Put `@playwo/opencode-cursor-oauth` before `@slkiser/opencode-quota` in `opencode.json`.                |
-| Cursor auth missing                       | Run `opencode auth login --provider cursor`.                                                            |
+| Cursor auth missing                       | Run `opencode auth login cursor`.                                                                       |
 | Quota appears but no remaining percentage | Set `cursorPlan` or `cursorIncludedApiUsd` in `opencode-quota/quota-toast.json`.                        |
 | Billing cycle looks wrong                 | Set `cursorBillingCycleStartDay` in `opencode-quota/quota-toast.json` to your local billing anchor day. |
 | Unknown Cursor pricing                    | Run `/pricing_refresh`; if still unknown, check `/quota_status` for unknown model ids.                  |
@@ -200,7 +200,7 @@ Run `/quota_status` and check the `google_agy` section.
 | ----------------------------------- | --------------------------------------------------------------------------------------------- |
 | Companion missing                   | Put `@anthonyhaussman/opencode-agy-auth` before `@slkiser/opencode-quota` in `opencode.json`. |
 | Provider not enabled in manual mode | Include `google-agy` in `enabledProviders` in `opencode-quota/quota-toast.json`.              |
-| Auth missing                        | Run `opencode auth login --provider google-agy`.                                              |
+| Auth missing                        | Run `opencode auth login google-agy`.                                                         |
 | Project missing                     | Set `OPENCODE_AGY_PROJECT_ID` or `provider.google-agy.options.projectId`.                     |
 | Provider returns no rows            | Check `live_probe`, `live_entry_*`, and `live_error_*` in `/quota_status`.                    |
 
@@ -217,7 +217,7 @@ Run `/quota_status` and check the Gemini CLI live probe rows.
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Companion missing                   | Put `opencode-gemini-auth` before `@slkiser/opencode-quota` in `opencode.json`.                                              |
 | Provider not enabled in manual mode | Include `google-gemini-cli` in `enabledProviders` in `opencode-quota/quota-toast.json`.                                      |
-| Auth missing                        | Run `opencode auth login --provider google`.                                                                                 |
+| Auth missing                        | Run `opencode auth login google`.                                                                                            |
 | Project missing                     | Set `provider.google.options.projectId`, `OPENCODE_GEMINI_PROJECT_ID`, `GOOGLE_CLOUD_PROJECT`, or `GOOGLE_CLOUD_PROJECT_ID`. |
 
 </details>

@@ -7,7 +7,7 @@ import { getCredentialDatabasePaths, readAuthFileCached } from "./opencode-auth.
 
 export const DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS = 5_000;
 // `opencode-go` is the provider id the OpenCode CLI writes via
-// `opencode auth login -p opencode-go` (shown as "OpenCode Go api" in `opencode auth list`).
+// `opencode auth login opencode-go` (shown as "OpenCode Go api" in `opencode auth list`).
 // `opencode` stays as a fallback alias for existing manual setups.
 const OPENCODE_GO_AUTH_KEYS = ["opencode-go", "opencode"] as const;
 const OPENCODE_GO_PROVIDER_KEYS = ["opencode-go", "opencode"] as const;
