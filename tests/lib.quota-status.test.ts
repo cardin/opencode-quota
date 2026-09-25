@@ -56,7 +56,6 @@ vi.mock("fs/promises", () => ({
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getCredentialDatabasePath: () => "/tmp/opencode.db",
   getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
   readAuthFileCached: vi.fn(async () => ({})),
 }));
@@ -137,9 +136,11 @@ vi.mock("../src/lib/version.js", () => ({
   getPackageVersion: vi.fn(async () => "1.2.3"),
 }));
 
-vi.mock("../src/lib/opencode-storage.js", () => ({
+vi.mock("../src/lib/opencode-db-path.js", () => ({
   getOpenCodeDbPath: () => "/tmp/opencode.db",
-  getOpenCodeDbPathCandidates: () => ["/tmp/opencode.db"],
+}));
+
+vi.mock("../src/lib/opencode-storage.js", () => ({
   getOpenCodeDbStats: vi.fn(async () => ({
     sessionCount: 0,
     messageCount: 0,
@@ -513,9 +514,7 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain("- quota_plugin_configured: true");
     expect(report).toContain("- quota_plugin_paths: /tmp/project/tui.jsonc");
-    expect(report).toContain(
-      "- opencode.db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db",
-    );
+    expect(report).toContain("- opencode.db: path=/tmp/opencode.db present=false");
     expect(report).toContain(
       "- pricing: source=test active_source=bundled generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",
     );
@@ -1503,8 +1502,7 @@ describe("buildQuotaStatusReport", () => {
 
       paths:
       - opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state
-      - opencode.db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db
-      - opencode db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db
+      - opencode.db: path=/tmp/opencode.db present=false
       - alibaba auth configured: false
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
@@ -1534,7 +1532,8 @@ describe("buildQuotaStatusReport", () => {
       - billing_cycle_start_day: (calendar month)
 
       minimax:
-      "
+
+      minimax_china:"
     `);
 
     const titles = report

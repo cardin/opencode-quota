@@ -12,9 +12,9 @@ import {
   listProvidersForModelId,
   lookupCost,
 } from "./modelsdev-pricing.js";
+import { getOpenCodeDbPath } from "./opencode-db-path.js";
 import type { OpenCodeMessage } from "./opencode-storage.js";
 import {
-  getOpenCodeDbPath,
   iterAssistantMessages,
   iterAssistantMessagesForSession,
   iterAssistantMessagesForSessions,

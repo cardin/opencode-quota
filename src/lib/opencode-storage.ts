@@ -1,9 +1,7 @@
 import { existsSync } from "fs";
-import { join } from "path";
 
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpenCodeDbPath } from "./opencode-db-path.js";
 import { openOpenCodeSqliteReadOnly } from "./opencode-sqlite.js";
-import { pickFirstExistingPath } from "./path-pick.js";
 
 /**
  * Error thrown when a session is not found.
@@ -67,24 +65,6 @@ export type OpenCodeDbStats = {
   messageCount: number;
   assistantMessageCount: number;
 };
-
-export function getOpenCodeDataDirCandidates(): string[] {
-  // OpenCode stores data under `${Global.Path.data}` which is `join(xdgData, "opencode")`.
-  // We return candidate opencode data dirs in priority order.
-  return getOpencodeRuntimeDirCandidates().dataDirs;
-}
-
-export function getOpenCodeDataDir(): string {
-  return pickFirstExistingPath(getOpenCodeDataDirCandidates());
-}
-
-export function getOpenCodeDbPathCandidates(): string[] {
-  return getOpenCodeDataDirCandidates().map((d) => join(d, "opencode.db"));
-}
-
-export function getOpenCodeDbPath(): string {
-  return pickFirstExistingPath(getOpenCodeDbPathCandidates());
-}
 
 type ProjectedMessageRow = {
   id: string;
@@ -167,8 +147,7 @@ function openDbOrNull(): {
   open: () => ReturnType<typeof openOpenCodeSqliteReadOnly>;
 } | null {
   const dbPath = getOpenCodeDbPath();
-  if (!dbPath) return null;
-  if (!existsSync(dbPath)) return null;
+  if (dbPath === ":memory:" || !existsSync(dbPath)) return null;
   return {
     dbPath,
     open: () => openOpenCodeSqliteReadOnly(dbPath),

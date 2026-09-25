@@ -6,10 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { openOpenCodeSqliteReadOnly } from "../src/lib/opencode-sqlite.js";
 
-const runtimePaths = vi.hoisted(() => ({ dataDirs: [] as string[] }));
+const runtimePaths = vi.hoisted(() => ({ dataDir: "" }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({ dataDirs: runtimePaths.dataDirs }),
+  getOpencodeRuntimeDirs: () => ({ dataDir: runtimePaths.dataDir }),
 }));
 
 describe("opencode sqlite adapter", () => {
@@ -61,7 +61,7 @@ describe("opencode sqlite adapter", () => {
     const cutoff = Date.parse("2026-07-16T00:00:00.000Z");
 
     try {
-      runtimePaths.dataDirs = [dir];
+      runtimePaths.dataDir = dir;
       const writer = new DatabaseSync(dbPath);
       writer.exec(`
         CREATE TABLE "session_v2" (
@@ -123,7 +123,7 @@ describe("opencode sqlite adapter", () => {
       ]);
       expect(messages.every((message) => typeof message.time?.completed === "number")).toBe(true);
     } finally {
-      runtimePaths.dataDirs = [];
+      runtimePaths.dataDir = "";
       await rm(dir, { recursive: true, force: true });
     }
   });

@@ -30,13 +30,9 @@ import {
   readPricingRefreshState,
   hasProvider as snapshotHasProvider,
 } from "./modelsdev-pricing.js";
-import { getCredentialDatabasePath, getCredentialDatabasePaths } from "./opencode-auth.js";
+import { getOpenCodeDbPath } from "./opencode-db-path.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
-import {
-  getOpenCodeDbPath,
-  getOpenCodeDbPathCandidates,
-  getOpenCodeDbStats,
-} from "./opencode-storage.js";
+import { getOpenCodeDbStats } from "./opencode-storage.js";
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import { isMaintainedQuotaProviderTuning } from "./quota-providers.js";
@@ -799,33 +795,10 @@ export async function buildQuotaStatusReport(params: {
     key: "opencode_dirs",
     value: `data=${runtime.dataDir} config=${runtime.configDir} cache=${runtime.cacheDir} state=${runtime.stateDir}`,
   });
-  const authCandidates = getCredentialDatabasePaths();
-  const authPresent: string[] = [];
-  await Promise.all(
-    authCandidates.map(async (p) => {
-      try {
-        await stat(p);
-        authPresent.push(p);
-      } catch {
-        // ignore missing/unreadable
-      }
-    }),
-  );
+  const dbPath = getOpenCodeDbPath();
   pathsRows.push({
     key: "opencode.db",
-    value: `preferred=${getCredentialDatabasePath()} present=${joinOrNone(authPresent)} candidates=${joinOrNone(authCandidates)}`,
-  });
-  const dbCandidates = getOpenCodeDbPathCandidates();
-  const dbSelected = getOpenCodeDbPath();
-  const dbPresent: string[] = [];
-  await Promise.all(
-    dbCandidates.map(async (p) => {
-      if (await pathExists(p)) dbPresent.push(p);
-    }),
-  );
-  pathsRows.push({
-    key: "opencode db",
-    value: `preferred=${dbSelected} present=${joinOrNone(dbPresent)} candidates=${joinOrNone(dbCandidates)}`,
+    value: `path=${dbPath} present=${(await pathExists(dbPath)) ? "true" : "false"}`,
   });
 
   appendProviderStatusDetailRows(

@@ -16,17 +16,8 @@ vi.mock("fs", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: ["/tmp/opencode"],
-    configDirs: ["/tmp/opencode"],
-    cacheDirs: ["/tmp/opencode"],
-    stateDirs: ["/tmp/opencode"],
-  }),
-}));
-
-vi.mock("../src/lib/path-pick.js", () => ({
-  pickFirstExistingPath: vi.fn(() => "/tmp/opencode.db"),
+vi.mock("../src/lib/opencode-db-path.js", () => ({
+  getOpenCodeDbPath: () => "/tmp/opencode.db",
 }));
 
 vi.mock("../src/lib/opencode-sqlite.js", () => ({

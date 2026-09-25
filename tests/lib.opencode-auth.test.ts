@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearReadAuthFileCacheForTests,
   formatCredentialDisplayNames,
-  getCredentialDatabasePath,
   getCredentialDatabasePaths,
   readAuthFile,
   readCredentialRows,
@@ -120,8 +119,7 @@ describe("OpenCode auth reader", () => {
     const { dataDir } = await createCredentialDatabase();
     vi.stubEnv("XDG_DATA_HOME", join(dataDir, ".."));
 
-    expect(getCredentialDatabasePaths()).toContain(join(dataDir, "opencode.db"));
-    expect(getCredentialDatabasePath()).toBe(join(dataDir, "opencode.db"));
+    expect(getCredentialDatabasePaths()).toEqual([join(dataDir, "opencode.db")]);
 
     vi.stubEnv("OPENCODE_DB", "custom.db");
     expect(getCredentialDatabasePaths()).toEqual([join(dataDir, "custom.db")]);

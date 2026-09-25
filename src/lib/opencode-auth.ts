@@ -6,12 +6,8 @@
  */
 
 import { existsSync } from "fs";
-import { isAbsolute, join, resolve } from "path";
 
-import {
-  getOpencodeRuntimeDirCandidates,
-  getOpencodeRuntimeDirs,
-} from "./opencode-runtime-paths.js";
+import { getOpenCodeDbPath } from "./opencode-db-path.js";
 import { openOpenCodeSqliteReadOnly, type SqliteConn } from "./opencode-sqlite.js";
 
 import type { AuthData } from "./types.js";
@@ -63,22 +59,12 @@ export function formatCredentialDisplayNames(
 let authCache: AuthCacheEntry | null = null;
 
 /**
- * Get candidate OpenCode credential database paths in priority order.
- *
- * `OPENCODE_DB` overrides the normal runtime data-directory candidates.
+ * OpenCode credential database paths: the one resolved database, or none when
+ * `OPENCODE_DB` is `:memory:`.
  */
 export function getCredentialDatabasePaths(): string[] {
-  const { dataDirs } = getOpencodeRuntimeDirCandidates();
-  return getCredentialDatabasePathsForDataDirs(dataDirs);
-}
-
-/** Returns OpenCode's primary credential database path for display/logging. */
-export function getCredentialDatabasePath(): string {
-  const paths = getCredentialDatabasePaths();
-  if (paths[0]) return paths[0];
-  return process.env.OPENCODE_DB?.trim() === ":memory:"
-    ? ":memory:"
-    : join(getOpencodeRuntimeDirs().dataDir, "opencode.db");
+  const path = getOpenCodeDbPath();
+  return path === ":memory:" ? [] : [path];
 }
 
 export async function readAuthFile(): Promise<AuthData | null> {
@@ -91,7 +77,8 @@ export async function readAuthFile(): Promise<AuthData | null> {
 }
 
 export async function readCredentialRows(): Promise<CredentialRow[]> {
-  return readCredentialRowsFromDatabases(getCredentialDatabasePaths());
+  const [path] = getCredentialDatabasePaths();
+  return path ? readCredentialDatabase(path) : [];
 }
 
 function canonicalCredentialValueKey(value: unknown): string {
@@ -134,28 +121,6 @@ export function selectConnectionCredentialRows(
     selected.push(row);
   }
   return selected;
-}
-
-async function readCredentialRowsFromDatabases(paths: string[]): Promise<CredentialRow[]> {
-  for (const path of paths) {
-    const rows = await readCredentialDatabase(path);
-    if (rows.length > 0) return rows;
-  }
-
-  return [];
-}
-
-function getCredentialDatabasePathsForDataDirs(dataDirs: string[]): string[] {
-  const override = process.env.OPENCODE_DB?.trim();
-  if (override) {
-    if (override === ":memory:") return [];
-    return [
-      isAbsolute(override)
-        ? override
-        : resolve(dataDirs[0] ?? getOpencodeRuntimeDirs().dataDir, override),
-    ];
-  }
-  return dataDirs.map((dataDir) => join(dataDir, "opencode.db"));
 }
 
 async function readCredentialDatabase(path: string): Promise<CredentialRow[]> {

@@ -9,8 +9,9 @@ export interface OpencodeRuntimeDirs {
   stateDir: string;
 }
 
+// No data-dir candidates: OpenCode 2 has exactly one data dir (`dataDir`), and
+// its database path comes from `getOpenCodeDbPath()`.
 export interface OpencodeRuntimeDirCandidates {
-  dataDirs: string[];
   configDirs: string[];
   cacheDirs: string[];
   stateDirs: string[];
@@ -75,7 +76,6 @@ export function getOpencodeRuntimeDirCandidates(params?: {
   const windowsRoamingFallback = join(home, "AppData", "Roaming");
   const windowsLocalFallback = join(home, "AppData", "Local");
 
-  const dataDirs: string[] = [primary.dataDir];
   const configDirs: string[] = [primary.configDir];
   const cacheDirs: string[] = [primary.cacheDir];
   const stateDirs: string[] = [primary.stateDir];
@@ -87,10 +87,7 @@ export function getOpencodeRuntimeDirCandidates(params?: {
     const appDataBase = winAppData || windowsRoamingFallback;
     const localAppDataBase = winLocalAppData || windowsLocalFallback;
 
-    // Data and config: include both roaming and local as alternates.
-    dataDirs.push(join(appDataBase, "opencode"));
-    dataDirs.push(join(localAppDataBase, "opencode"));
-
+    // Config: include both roaming and local as alternates.
     configDirs.push(join(appDataBase, "opencode"));
     configDirs.push(join(localAppDataBase, "opencode"));
 
@@ -99,26 +96,22 @@ export function getOpencodeRuntimeDirCandidates(params?: {
     stateDirs.push(join(localAppDataBase, "opencode"));
   } else if (platform === "darwin") {
     // Preserve compatibility with legacy Linux-style installs on macOS.
-    dataDirs.push(join(home, ".local", "share", "opencode"));
     configDirs.push(join(home, ".config", "opencode"));
     cacheDirs.push(join(home, ".cache", "opencode"));
     stateDirs.push(join(home, ".local", "state", "opencode"));
 
     // macOS canonical dirs (OpenCode xdg-basedir should already map here,
     // but keep explicit candidates to aid diagnostics and migrations).
-    dataDirs.push(join(home, "Library", "Application Support", "opencode"));
     configDirs.push(join(home, "Library", "Application Support", "opencode"));
     cacheDirs.push(join(home, "Library", "Caches", "opencode"));
   } else {
     // Linux / other: add common legacy fallbacks.
-    dataDirs.push(join(home, ".local", "share", "opencode"));
     configDirs.push(join(home, ".config", "opencode"));
     cacheDirs.push(join(home, ".cache", "opencode"));
     stateDirs.push(join(home, ".local", "state", "opencode"));
   }
 
   return {
-    dataDirs: dedupe(dataDirs),
     configDirs: dedupe(configDirs),
     cacheDirs: dedupe(cacheDirs),
     stateDirs: dedupe(stateDirs),
