@@ -14,7 +14,7 @@ OpenCode Quota normally keeps its settings in one separate file:
 
 Strict `.json` files also work. Run `/quota_status` if you are unsure which file is active.
 
-`opencode.jsonc` loads the main plugin. `tui.jsonc` loads TUI features. Put the settings below in `quota-toast.jsonc`, not `tui.jsonc`.
+`opencode.jsonc` loads the plugin for both the server and the TUI. Put the settings below in `quota-toast.jsonc`.
 
 ## Common changes
 
@@ -28,8 +28,6 @@ Strict `.json` files also work. Run `/quota_status` if you are unsure which file
 | Show percentages without `left` or `used`   | `percentLabelStyle: "bare"`   |
 | Use dense reset countdown units            | `resetTimeSpaced: false`        |
 | Show supplementary accounting facts        | `accountingDetail: "detailed"` |
-| Show slash results with messages           | `tuiCommandDisplay: "inline"` |
-| Show slash results in a TUI popup          | `tuiCommandDisplay: "dialog"` |
 | Turn the TUI sidebar on or off             | `tuiSidebarPanel.enabled`     |
 | Prefer an OpenCode Go collapsed row        | `tuiSidebarPanel.opencodeGoPreferredWindow` |
 | Turn popup quota notifications on or off   | `enableToast`                 |
@@ -57,9 +55,6 @@ The installer chooses `allWindows` by default. If the setting is absent, the bui
   // Use dense compound reset countdowns instead of the spaced default.
   "resetTimeSpaced": false,
   "accountingDetail": "summary",
-
-  // Keep TUI slash-command results with normal messages.
-  "tuiCommandDisplay": "inline",
 
   // Show the sidebar and prefer OpenCode Go's Five-hour row while collapsed.
   "tuiSidebarPanel": {
@@ -89,7 +84,7 @@ This setting is independent of `formatStyle`, which selects quota windows, and `
 
 ### Estimate when fixed quota runs out
 
-`quotaProjection: "runway"` is optional and off by default. It adds a **Runs out** estimate to eligible percentage rows on shared Web/Desktop and TUI `/quota`, terminal `show`, popup toasts, the expanded Sidebar, Compact status, and the prompt bar.
+`quotaProjection: "runway"` is optional and off by default. It adds a **Runs out** estimate to eligible percentage rows on TUI `/quota`, terminal `show`, popup toasts, the expanded Sidebar, Compact status, and the prompt bar.
 
 ```jsonc
 {
@@ -142,7 +137,7 @@ Session totals use only the current session by default. To include the current s
 }
 ```
 
-This scope applies to the embedded session-token output in `/quota` on Web and TUI, popup toasts, the TUI sidebar, and the compact line below the message input. It does not change `/tokens_session` or `/tokens_session_all`; those commands keep their explicit current-session and session-tree meanings.
+This scope applies to the embedded session-token output in TUI `/quota`, popup toasts, the TUI sidebar, and the compact line below the message input. It does not change `/tokens_session` or `/tokens_session_all`; those commands keep their explicit current-session and session-tree meanings.
 
 ## Custom providers
 
@@ -303,7 +298,7 @@ Leave it unset to use the default exact-to-minute display.
 <details>
 <summary><strong>Choose reset spacing and shorten percent labels</strong></summary>
 
-Exact compound countdowns use spaces by default. Set `resetTimeSpaced` to `false` when a dense layout is more important. For example, `2d 5h 14m` becomes `2d5h14m`, and `3h 45m` becomes `3h45m`. Minute-only values such as `14m`, expired values shown as `reset`, and partial-minute rounding stay unchanged. This setting applies to `/quota` in Web, Desktop, and the TUI, popup toasts, terminal `show`, the expanded and collapsed Sidebar, Compact status, and the prompt bar.
+Exact compound countdowns use spaces by default. Set `resetTimeSpaced` to `false` when a dense layout is more important. For example, `2d 5h 14m` becomes `2d5h14m`, and `3h 45m` becomes `3h45m`. Minute-only values such as `14m`, expired values shown as `reset`, and partial-minute rounding stay unchanged. This setting applies to TUI `/quota`, popup toasts, terminal `show`, the expanded and collapsed Sidebar, Compact status, and the prompt bar.
 
 `resetTimeDecimals` keeps its existing largest-unit decimal format and takes precedence over spacing on the displays where decimal countdowns apply.
 
@@ -377,7 +372,7 @@ Use this only if another tool needs `experimental.quotaToast` mirrored into `ope
 
 Most settings go in the same `opencode-quota/quota-toast.jsonc` or `.json` sidecar described above. The guided editor maintains `quotaProviders` in that authoritative sidecar when one exists; otherwise it uses the global OpenCode `experimental.quotaToast` section; do not duplicate it in a second file.
 
-Existing `experimental.quotaToast` settings remain supported. Quota settings do not live in `tui.json`.
+Existing `experimental.quotaToast` settings remain supported.
 
 <details>
 <summary><strong>All settings</strong></summary>
@@ -386,7 +381,7 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 
 | Option                        | Default        | Meaning                                                                                                                                                                                                                                                                                                             |
 | ----------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`                     | `true`         | Master switch for quota collection and handled slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` are handled as no-ops.                                                                                                                                                  |
+| `enabled`                     | `true`         | Master switch for quota collection and slash commands. When `false`, `/quota`, `/quota_status`, `/pricing_refresh`, and `/tokens_*` do nothing.                                                                                                                                                                    |
 | `resetNotifications.enabled`  | `false`        | Emit a one-shot success toast when an observed configured quota window resets. Requires popup toasts to be enabled and adds no provider requests.                                                                                                                                                                   |
 | `resetNotifications.windows`  | `["weekly"]`   | Window classes eligible for reset notifications: `fiveHour`, `hourly`, `daily`, `weekly`, `monthly`, or `yearly`.                                                                                                                                                                                                   |
 | `enabledProviders`            | `"auto"`       | Auto-detect providers, or set an explicit provider list. Use the aggregate ID `quota-providers` for configured definitions.                                                                                                                                                                                         |
@@ -410,10 +405,10 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 
 | Option            | Default | Meaning                                                                                                                                                     |
 | ----------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enableToast`     | `true`  | Show TUI popup toasts. OpenCode 1.17.20 Web does not surface these events. Disabling this does not disable terminal checks, other UI surfaces, or `/quota`. |
+| `enableToast`     | `true`  | Show TUI popup toasts. Toasts appear only in the TUI, not in Web or Desktop. Disabling this does not disable terminal checks, other UI surfaces, or `/quota`. |
 | `toastDurationMs` | `9000`  | Toast duration in milliseconds.                                                                                                                             |
-| `showOnIdle`      | `true`  | Show a toast on the idle trigger.                                                                                                                           |
-| `showOnQuestion`  | `true`  | Show a toast after a question/assistant response.                                                                                                           |
+| `showOnIdle`      | `true`  | Show a toast once after each finished reply.                                                                                                                |
+| `showOnQuestion`  | `true`  | Show a toast after the assistant's `question` tool finishes.                                                                                                |
 | `showOnCompact`   | `true`  | Show a toast after session compaction.                                                                                                                      |
 | `showOnBothFail`  | `true`  | Show a fallback toast when providers attempted quota reads and all failed.                                                                                  |
 | `layout.maxWidth` | `50`    | Toast formatting width target.                                                                                                                              |
@@ -425,14 +420,12 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 
 | Option                                             | Default              | Meaning                                                                                                                                                                                                       |
 | -------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tuiCommandDisplay`                                | `"inline"`           | Choose where deterministic native TUI command output appears. `inline` adds an ignored/no-reply plain-text message to the active transcript and uses a dialog on Home; `dialog` always opens the local popup. |
 | `tuiSidebarPanel.enabled`                          | `true`               | Show the Sidebar `Quota` panel when the TUI plugin is installed. Click the panel header to toggle its collapsed/expanded window layout; OpenCode remembers the last state. This is not an `accountingDetail` override. |
 | `tuiSidebarPanel.formatStyle`                      | (root `formatStyle`) | Override `formatStyle` for the Sidebar panel only. Useful when you want `allWindows` detail in the sidebar but a different style elsewhere.                                                                   |
 | `tuiSidebarPanel.opencodeGoPreferredWindow`        | unset                | Prefer `rolling` (Five-hour), `weekly`, or `monthly` for OpenCode Go only while the sidebar is collapsed. If unset or unavailable, the lowest-remaining window is used. Expanded rows still follow `opencodeGoWindows`. |
 | `tuiCompactStatus.enabled`                         | `false`              | Opt in to Compact status line UI surfaces.                                                                                                                                                                    |
 | `tuiCompactStatus.homeBottom`                      | `true`               | Show the Compact status line at the home bottom location.                                                                                                                                                     |
-| `tuiCompactStatus.sessionPrompt`                   | `true`               | Show the Compact status line by wrapping the TUI session prompt. Disable this if you only want the home-bottom line.                                                                                          |
-| `tuiCompactStatus.suppressWhenNativeProviderQuota` | `true`               | Hide the Compact status line when OpenCode exposes native provider-quota support.                                                                                                                             |
+| `tuiCompactStatus.sessionPrompt`                   | `true`               | Show the Compact status line below the TUI session prompt. Disable this if you only want the home-bottom line.                                                                                                |
 | `tuiCompactStatus.maxWidth`                        | `96`                 | Maximum Compact status line text width.                                                                                                                                                                       |
 | `tuiCompactStatus.formatStyle`                     | (root `formatStyle`) | Override `formatStyle` for the Compact status line only. Useful when you want `singleWindow` on the compact line while the sidebar shows `allWindows`.                                                        |
 | `tuiPromptBar.enabled`                             | `false`              | Show one opt-in primary quota/accounting result below the TUI prompt and replace the Compact line there. Percentage rows use a provider plus window label such as `OpenAI 5h`. The fill is a fixed 12-cell bar with no width setting; long labels truncate with an ellipsis instead of dropping the provider name. Rich results use the first projected primary row; legacy-only results keep the existing 5h percentage preference. Basis and supplementary rows are omitted. |
@@ -442,7 +435,7 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | Option                            | Default | Meaning                                                                                                                                                     |
 | --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `maintainerAnnouncements.enabled` | `true`  | Enable bundled maintainer announcements.                                                                                                                    |
-| `maintainerAnnouncements.home`    | `true`  | Show the count-only notice on TUI home when the quota TUI plugin is configured, or as a one-shot toast fallback after a visible quota toast when it is not. |
+| `maintainerAnnouncements.home`    | `true`  | Show a one-time count of active notices as a toast after the first visible quota toast. Needs `enableToast`.                                                |
 
 ### Provider-specific settings
 
@@ -454,6 +447,13 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `cursorPlan`                 | `"none"`                           | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`.                               |
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor monthly included API budget in USD.                                                  |
 | `cursorBillingCycleStartDay` | unset                              | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |
+
+Kimi has no `quota-toast.json` credential setting. Each regional plan resolves its own key:
+
+- **Kimi Code (Global):** `KIMI_GLOBAL_API_KEY` → trusted user/global `provider.kimi-code-plan-global.options.apiKey` → strict `kimi-code-plan-global` API-key entry in OpenCode `opencode.db`.
+- **Kimi Code (CN):** `KIMI_CN_API_KEY` → `KIMI_API_KEY` → `KIMI_CODE_API_KEY` → trusted user/global config under `kimi-code-plan-cn`, `kimi-for-coding`, `kimi-code`, or `kimi` → strict API-key entry in `opencode.db` under those same ids.
+
+Project-local `opencode.json` and `opencode.jsonc` are never read for these secrets. Global credentials are sent only to `api.kimi.ai`; CN and legacy credentials are sent only to `api.kimi.com`. A failed request is not retried against the other host.
 
 Kilo Gateway has no `quota-toast.json` credential setting. Use `KILO_API_KEY`, trusted user/global `provider.kilo.options.apiKey`, or a strict `kilo` API-key entry in OpenCode `opencode.db`; project-local OpenCode config is not read for this secret. See [Kilo Gateway setup](providers.md#kilo-gateway).
 

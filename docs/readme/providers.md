@@ -12,7 +12,7 @@
 
 ## Pre-configured providers
 
-Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
+Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`, read from OpenCode 2's `opencode.db`. If you have several logins for one provider, each one gets its own rows and `*` marks the active one. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
 
 ### American providers
 
@@ -71,6 +71,7 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Alibaba Personal Token Plan   | [Needs setup](#alibaba-personal-token-plan)                         | Official CLI   | Quota              |
 | DeepSeek                      | Automatic                                                           | Remote API     | Balance and status |
 | Kimi Code                     | Automatic                                                           | Remote API     | Quota              |
+| Kimi Code (CN)                | Automatic                                                           | Remote API     | Quota              |
 | MiniMax Token Plan            | Automatic                                                           | Remote API     | Quota              |
 | MiniMax Token Plan (CN)       | Automatic                                                           | Remote API     | Quota              |
 | Xiaomi MiMo                   | [Needs setup](#xiaomi-mimo)                                         | Dashboard API  | Quota and balance  |
@@ -85,6 +86,7 @@ Business placement describes vendor plan availability. Except for configured Cop
 | Provider                 | Auth/setup | Data from  | Reports |
 | ------------------------ | ---------- | ---------- | ------- |
 | Kimi Code                | Automatic  | Remote API | Quota   |
+| Kimi Code (CN)           | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan       | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
 | Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
@@ -92,6 +94,8 @@ Business placement describes vendor plan availability. Except for configured Cop
 These vendors offer team or business plans, but the current integrations report only the configured member API key rather than organization-wide usage.
 
 </details>
+
+Kimi plans are region-bound: **Kimi Code** uses `api.kimi.ai`, while **Kimi Code (CN)** uses `api.kimi.com`. A key is sent only to its selected regional host. Legacy provider ids `kimi-for-coding`, `kimi-code`, and `kimi` belong to the CN plan.
 
 The friendly `Quota` label covers quota and rate-limit windows; JSON distinguishes them.
 
@@ -596,12 +600,12 @@ Project-local `opencode.json` and `opencode.jsonc` files are not read for this s
 
 ### OpenCode Go
 
-OpenCode Go reads subscription quota from the official `https://opencode.ai/zen/go/v1/usage` API. OpenCode Quota automatically resolves the API key in this order:
+If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. If the Console reports no Go subscription, no Go rows appear. OpenCode Quota automatically resolves the API key in this order:
 
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
 3. Trusted user/global fallback: `provider.opencode.options.apiKey`
-4. A strict `opencode-go` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login -p opencode-go`.
+4. A strict `opencode-go` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login opencode-go`.
 5. A strict legacy `opencode` API-key entry in `opencode.db` as the final fallback.
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. Use `opencodeGoWindows` to choose which validated API results appear across surfaces and in the expanded sidebar: **Five-hour**, **Weekly**, and/or **Monthly**. To keep those rows expanded but prefer one while the sidebar is collapsed, set `tuiSidebarPanel.opencodeGoPreferredWindow` to `rolling`, `weekly`, or `monthly`; an unset or unavailable preference keeps the lowest-remaining selection. These settings do not change authentication or the API request.

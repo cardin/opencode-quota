@@ -48,9 +48,6 @@ describe("Gemini CLI organization-only documentation", () => {
   });
 
   it("states organization-only support and points personal users to Google AGY", () => {
-    expect(readme).toContain(
-      "- Personal Google accounts can no longer use Gemini CLI because Google ended them on 2026-06-18; use Google AGY.",
-    );
     expect(readme).toContain(`Gemini CLI works only with ${ORG_ONLY}.`);
 
     const providerSection = section(providers, '<a id="gemini-cli"></a>', '<a id="deepseek"></a>');

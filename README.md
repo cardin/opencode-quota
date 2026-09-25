@@ -26,14 +26,14 @@ npx @slkiser/opencode-quota init
 ```
 
 > [!IMPORTANT]
-> Node.js `>= 22` is required.
+> Requires OpenCode `2.0.16` or newer. Node.js `>= 22.13` is required for `npx @slkiser/opencode-quota ...`.
 
 Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
 
 After installation:
 
 1. Restart OpenCode.
-2. Run a slash command in OpenCode, or use `opencode-quota show` from your terminal.
+2. Run `/quota` in the OpenCode TUI, or `opencode-quota show` in a terminal.
 3. If you enabled the sidebar, open the session sidebar and look for `Quota`.
 4. If you enabled the compact status line, look at the bottom of Home or below the message input.
 
@@ -56,12 +56,13 @@ After installation:
 
 The updater prints the complete preview before its own config or cache changes. `--yes` authorizes only the previewed safe config edits and manifest-verified cache cleanup; it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md) for detailed behavior and manual credential steps.
 
-**Breaking changes in 4.10.3:**
+**Breaking changes in 5.0.0:**
 
-- Qwen Code was removed because Qwen ended its OAuth free tier; use Alibaba Coding Plan.
-- Google Antigravity was removed because its companion plugin is archived and Google rejects it; use Google AGY.
-- Personal Google accounts can no longer use Gemini CLI because Google ended them on 2026-06-18; use Google AGY.
-- OpenCode Zen now needs the new Console cookie in `consoleSessionCookie`; `authCookie` no longer works. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
+- OpenCode 1 is no longer supported. Stay on `4.10.3` if you still use OpenCode 1, or follow [Moving to OpenCode 2](docs/readme/updating.md#moving-to-opencode-2).
+- Logins are read only from OpenCode 2's database (`opencode.db`), never from `auth.json`. OpenCode 2 copies your old logins once, the first time it starts. If a provider is missing, log in again in OpenCode 2.
+- Web and Desktop show no quota slash commands, toasts, or panels, because OpenCode 2 gives plugins no Web UI hooks. Run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to run `quota_status`, a diagnostics tool it can call.
+- One `"plugin"` entry in `opencode.json` now loads both the server and the TUI; no `tui.json` entry is needed. TUI slash commands open a dialog.
+- `tuiCommandDisplay` and `tuiCompactStatus.suppressWhenNativeProviderQuota` were removed. Old keys are ignored.
 
 ## Choose your setup
 
@@ -94,7 +95,8 @@ The updater prints the complete preview before its own config or cache changes. 
 
 More ways to use it:
 
-- Check quota anywhere: use `opencode-quota show` in a terminal or the same slash commands in the TUI, Web, and Desktop.
+- Check quota outside the TUI: run `npx @slkiser/opencode-quota show` in a terminal. Web and Desktop have no quota UI; there the assistant can call the `quota_status` diagnostics tool.
+- See every OpenCode login: each connection for a provider gets its own rows, and `*` marks the active one.
 - Automate quota checks with JSON output for scripts, status bars, and CI. Optional OpenTelemetry metrics support monitoring tools.
 - Customize the display with [`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings), OpenCode Go's preferred collapsed-sidebar window, spaced reset countdowns by default with a `resetTimeSpaced: false` dense opt-out, decimal reset precision, bare percent labels, and [`accountingDetail`](docs/readme/configuration.md#show-accounting-detail).
 - Optionally estimate **Runs out ≈ 1h 50m** for supported fixed windows with [`quotaProjection: "runway"`](docs/readme/configuration.md#estimate-when-fixed-quota-runs-out). It is off by default and leaves JSON output unchanged.
@@ -106,6 +108,8 @@ See [Configuration](docs/readme/configuration.md) for UI options and [Manual ins
 ## Commands
 
 ### Core slash commands
+
+These run in the OpenCode TUI and show results in a dialog. Type arguments after the command, such as `/tokens_between 2026-09-01 2026-09-25`, or leave them out and a prompt asks for them.
 
 | Command                                 | Use when                                                        |
 | --------------------------------------- | --------------------------------------------------------------- |
@@ -195,6 +199,7 @@ Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organizati
 | Alibaba Personal Token Plan   | [Needs setup](docs/readme/providers.md#alibaba-personal-token-plan)          | Official CLI   | Quota              |
 | DeepSeek                      | Automatic                                                                    | Remote API     | Balance and status |
 | Kimi Code                     | Automatic                                                                    | Remote API     | Quota              |
+| Kimi Code (CN)                | Automatic                                                                    | Remote API     | Quota              |
 | MiniMax Token Plan            | Automatic                                                                    | Remote API     | Quota              |
 | MiniMax Token Plan (CN)       | Automatic                                                                    | Remote API     | Quota              |
 | Xiaomi MiMo                   | [Needs setup](docs/readme/providers.md#xiaomi-mimo)                          | Dashboard API  | Quota and balance  |
@@ -209,6 +214,7 @@ Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organizati
 | Provider                 | Auth/setup | Data from  | Reports |
 | ------------------------ | ---------- | ---------- | ------- |
 | Kimi Code                | Automatic  | Remote API | Quota   |
+| Kimi Code (CN)           | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan       | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
 | Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
@@ -231,8 +237,8 @@ The guided setup previews the change before saving. See the [custom-provider gui
 
 If quota or token data looks wrong:
 
-1. Run `/quota_status` in OpenCode, or `opencode-quota status` from a terminal for the same diagnostics. Use `opencode-quota show` for a quick quota glance.
-2. Confirm the expected provider appears in the detected provider list.
+1. Run `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal for the same diagnostics. Use `opencode-quota show` for a quick quota glance.
+2. Confirm the expected provider appears in the detected provider list. If it is missing, log in to it again in OpenCode 2.
 3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
 5. Check [Troubleshooting](docs/readme/troubleshooting.md) for common symptoms and provider-specific fixes.

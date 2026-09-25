@@ -157,7 +157,7 @@ describe("package manifest compatibility", () => {
     expect(pkg.devDependencies?.["@opencode/plugin"]).toBe("2.0.15");
     expect(pkg.dependencies?.["@opentui/core"]).toBe("^0.5.10");
     expect(pkg.dependencies?.["@opentui/solid"]).toBe("^0.5.10");
-    expect(readme).toContain("Node.js `>= 22` is required.");
+    expect(readme).toContain("Node.js `>= 22.13` is required");
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
   });

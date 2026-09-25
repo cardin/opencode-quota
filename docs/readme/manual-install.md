@@ -18,9 +18,9 @@ Use this guide only if you want to edit OpenCode files yourself.
 
 Use `.jsonc` files if you want comments. Use `.json` files if another tool requires strict JSON.
 
-## 1. Add the main plugin
+## 1. Add the plugin
 
-Add OpenCode Quota to `opencode.jsonc` or `opencode.json`. This is required for both TUI and Web:
+Add OpenCode Quota to `opencode.jsonc` or `opencode.json`. This one entry loads both the server plugin and the TUI; no `tui.json` entry is needed:
 
 ```jsonc
 {
@@ -31,22 +31,7 @@ Add OpenCode Quota to `opencode.jsonc` or `opencode.json`. This is required for 
 
 Keep any existing plugins and settings.
 
-## 2. Add the TUI plugin
-
-Skip this step if you use Web only.
-
-Add OpenCode Quota to `tui.jsonc` or `tui.json`. This enables TUI slash commands, the sidebar, toasts, and the compact line:
-
-```jsonc
-{
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["@slkiser/opencode-quota"],
-}
-```
-
-Keep any existing TUI plugins and settings.
-
-## 3. Add quota settings
+## 2. Add quota settings
 
 Create `opencode-quota/quota-toast.jsonc` beside the OpenCode config for your chosen scope:
 
@@ -54,9 +39,6 @@ Create `opencode-quota/quota-toast.jsonc` beside the OpenCode config for your ch
 {
   // Find providers from OpenCode configuration and authentication.
   "enabledProviders": "auto",
-
-  // Show slash-command results with normal TUI messages.
-  "tuiCommandDisplay": "inline",
 
   // Show the detailed Quota panel in the TUI sidebar.
   "tuiSidebarPanel": {
@@ -69,7 +51,7 @@ Create `opencode-quota/quota-toast.jsonc` beside the OpenCode config for your ch
     "enabled": false,
   },
 
-  // Show bundled maintainer notices on TUI Home.
+  // Show a one-time count of bundled maintainer notices after the first quota toast.
   "maintainerAnnouncements": {
     "enabled": true,
     "home": true,
@@ -79,7 +61,7 @@ Create `opencode-quota/quota-toast.jsonc` beside the OpenCode config for your ch
 
 Use `quota-toast.json` instead if you need strict JSON. Remove the comments and trailing commas.
 
-Restart OpenCode, then run:
+Restart OpenCode, then run in the TUI:
 
 ```text
 /quota
@@ -90,7 +72,7 @@ Restart OpenCode, then run:
 
 ## Change what appears in the TUI
 
-Put these settings in `quota-toast.jsonc`, not `tui.jsonc`.
+Put these settings in `quota-toast.jsonc`.
 
 | You want                    | Setting                                  |
 | --------------------------- | ---------------------------------------- |
@@ -98,11 +80,9 @@ Put these settings in `quota-toast.jsonc`, not `tui.jsonc`.
 | Popup quota notifications   | `enableToast: true`                      |
 | Compact quota line          | `tuiCompactStatus.enabled: true`         |
 | Quota bar under the prompt  | `tuiPromptBar.enabled: true`             |
-| Slash results with messages | `tuiCommandDisplay: "inline"`            |
-| Slash results in a popup    | `tuiCommandDisplay: "dialog"`            |
 | Manual slash commands only  | Disable sidebar, toast, and compact line |
 
-Web slash commands always appear with messages. TUI popup dialogs and automatic TUI displays are not available in Web.
+TUI slash commands always open a dialog. Web and Desktop show none of these; run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to run its `quota_status` tool.
 
 See [Configuration](configuration.md) for more examples and every setting.
 

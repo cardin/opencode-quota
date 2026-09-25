@@ -2,31 +2,32 @@
 
 # Troubleshooting
 
-Start with `/quota_status` in OpenCode, or `opencode-quota status` from a terminal. Both show which config, providers, authentication, and local files OpenCode Quota found.
+Start with `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal. Both show which config, providers, authentication, and local files OpenCode Quota found.
 
 ## First checks
 
-1. Run `/quota_status` in OpenCode, or `opencode-quota status` from a terminal.
+1. Run `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal.
 2. Find the provider or feature that is failing.
 3. Follow the matching fix below.
 4. Restart OpenCode after changing config or authentication.
 
-If every provider is missing, confirm OpenCode Quota is listed in `opencode.jsonc` or `.json`. For TUI commands and displays, also confirm it is listed in `tui.jsonc` or `.json`.
+If every provider is missing, confirm OpenCode Quota is listed in `opencode.jsonc` or `.json`. That one entry also loads the TUI; no `tui.json` entry is needed.
+
+OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.json`. OpenCode 2 copies `auth.json` once, the first time it starts. If a provider is missing, log in to it again in OpenCode 2. `/quota_status` shows the `opencode.db` path in use; `OPENCODE_DB` and `XDG_DATA_HOME` change it.
 
 ## Common problems
 
 | Problem                                                 | Try this                                                                                                                                          |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Slash commands are missing                              | Check the plugin entries above, then restart OpenCode.                                                                                            |
-| TUI command results appear in the wrong place           | Use `tuiCommandDisplay: "inline"` for normal messages or `"dialog"` for a popup. Home always uses a popup because there is no session transcript. |
+| Slash commands are missing                              | They exist only in the TUI. Check the plugin entry above, then restart OpenCode.                                                                  |
 | `/quota` shows no providers                             | Run `/quota_status` or `opencode-quota status`, then check provider detection and authentication.                                                 |
-| Sidebar is missing                                      | Confirm the TUI plugin is installed and `tuiSidebarPanel.enabled` is `true`.                                                                      |
-| Compact line is missing                                 | Confirm the TUI plugin is installed and `tuiCompactStatus.enabled` is `true`. If needed, check `suppressWhenNativeProviderQuota`.                 |
+| Sidebar is missing                                      | Confirm the plugin is installed and `tuiSidebarPanel.enabled` is `true`.                                                                          |
+| Compact line is missing                                 | Confirm the plugin is installed and `tuiCompactStatus.enabled` is `true`.                                                                         |
 | Compact line appears on Home only                       | Set `tuiCompactStatus.sessionPrompt` to `true`.                                                                                                   |
-| TUI toast is missing                                    | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`. Toasts are not available in Web.                                        |
+| TUI toast is missing                                    | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`. Toasts appear only in the TUI.                                          |
 | Token reports are empty                                 | Start OpenCode once, then use a model so `opencode.db` contains usage.                                                                            |
 | Pricing looks old                                       | Run `/pricing_refresh`.                                                                                                                           |
-| Web shows `Failed to send command` after correct output | The command already worked. Do not retry. This is a known OpenCode 1.18.2 notification problem; no model was called.                              |
+| Web or Desktop shows no quota                           | Expected: OpenCode 2 gives plugins no Web UI. Run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to run `quota_status`.   |
 
 ## Update safely
 
@@ -51,7 +52,7 @@ The updater preserves unrelated settings, comments, and plugins where targeted e
 
 | Update result | What to do |
 | --- | --- |
-| Obsolete OpenCode Go source | Configure `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, or `opencode auth login -p opencode-go`. Verify it, then manually remove the reported old variable/file. Workspace/cookie material cannot become an API key. |
+| Obsolete OpenCode Go source | Configure `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, or `opencode auth login opencode-go`. Verify it, then manually remove the reported old variable/file. Workspace/cookie material cannot become an API key. |
 | Ambiguous OpenCode Zen environment names | Decide whether the names belong to Zen or OpenCode's workspace feature. If they are Zen credentials, create and protect the supported global `opencode-quota/opencode.json` manually. Never paste the values into output or reports. |
 | Unsupported display migration | Fix the reported invalid, duplicate, or ambiguous config manually. Use root `accountingDetail: "summary"` or `"detailed"`; do not share the rejected value. |
 | Update race or partial-write failure | No package cache was deleted. Read the error's exact changed-path list, inspect those files, fix the cause, and rerun `update --dry-run` for a fresh plan. Do not restore over concurrent edits blindly. |
@@ -174,7 +175,8 @@ These providers use trusted env vars, trusted user/global OpenCode config, or na
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | MiniMax Token Plan       | Use `MINIMAX_CODING_PLAN_API_KEY` or `MINIMAX_API_KEY` for the international endpoint. Runtime/config ids like `minimax` and `minimax-coding-plan` use this provider. Repo-local provider secrets are ignored.                        |
 | MiniMax Token Plan (CN)  | Use `MINIMAX_CHINA_CODING_PLAN_API_KEY` or trusted user/global OpenCode config under `minimax-china-coding-plan`, `minimax-cn-coding-plan`, `minimax-cn`, or `minimax-china`. Runtime id `minimax-cn-coding-plan` uses this provider. |
-| Kimi Code                | Use `KIMI_API_KEY` or `KIMI_CODE_API_KEY`; repo-local provider secrets are ignored.                                                                                                                                                   |
+| Kimi Code                | Check `kimi:`. Use `KIMI_GLOBAL_API_KEY`, trusted global `provider.kimi-code-plan-global.options.apiKey`, or strict `kimi-code-plan-global` auth. Requests go only to `api.kimi.ai`; repo-local secrets are ignored.                     |
+| Kimi Code (CN)           | Check `kimi_cn:`. Use `KIMI_CN_API_KEY`, then `KIMI_API_KEY` or `KIMI_CODE_API_KEY`, or trusted CN/legacy config/auth ids. Requests go only to `api.kimi.com`; repo-local secrets are ignored.                                          |
 | Chutes AI                | Use `CHUTES_API_KEY`, trusted user/global config, or OpenCode auth.                                                                                                                                                                   |
 | Synthetic                | Use `SYNTHETIC_API_KEY`, trusted user/global config, or OpenCode auth.                                                                                                                                                                |
 | Z.ai Coding Plan         | Use `ZAI_API_KEY` or `ZAI_CODING_PLAN_API_KEY`; malformed fallback auth is surfaced as an auth error.                                                                                                                                 |
@@ -240,7 +242,7 @@ Run `/quota_status` and check the `xiaomi` section. Diagnostics show state, sour
 <details>
 <summary><strong>OpenCode Go</strong></summary>
 
-Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*` diagnostics, the selected display windows, normalized API usage, and `live_fetch_error` without exposing the API key.
+Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*` diagnostics, the selected display windows, normalized API usage, and `live_fetch_error` without exposing the API key. When you are signed in to the OpenCode Console, `go_source` shows whether the Console (`console`) or the API key (`legacy_key`) answered, and `console_error` shows why the Console failed. `opencode_go_state: not_subscribed` means the Console reports no Go subscription.
 
 | Symptom                             | Fix                                                                                                                                                                                                                  |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -257,7 +259,7 @@ Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*
 <details>
 <summary><strong>Token reports</strong></summary>
 
-Run `/quota_status` and check pricing snapshot health plus OpenCode database paths.
+Run `/quota_status` and check pricing snapshot health plus the `opencode.db` path.
 
 | Symptom                                | Fix                                                                                                           |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |

@@ -38,6 +38,16 @@ The updater builds one plan, prints it in full, and then either stops or applies
    opencode-quota status
    ```
 
+## Moving to OpenCode 2
+
+`5.0.0` runs only on OpenCode `2.0.16` or newer.
+
+1. Install OpenCode 2 ([OpenCode docs](https://opencode.ai/docs/)) and start it once. On first start it copies your old `auth.json` logins into its database, `opencode.db`. It does this only once.
+2. Run the update steps above.
+3. Run `/quota_status` in the OpenCode TUI. If a provider you use is missing, log in to it again in OpenCode 2 (`/connect`, or `opencode auth login <provider>`). OpenCode Quota never reads `auth.json`.
+
+The `opencode.json` plugin entry loads both the server and the TUI; no `tui.json` entry is needed. Web and Desktop have no quota slash commands, toasts, or panels on OpenCode 2. Use `npx @slkiser/opencode-quota show` in a terminal instead.
+
 ## Read the preview
 
 The preview can contain three sections:
@@ -72,7 +82,7 @@ Unsupported or invalid display values, invalid replacement values, duplicate key
 
 ## What stays manual
 
-Credential findings are report-only. The audit detects known obsolete sources by variable-name or file-path presence without retrieving environment values or opening credential files. It never prints, copies, or deletes secret values, and it does not edit environment declarations, shell startup files, `auth.json`, supported credential files, or legacy credential files.
+Credential findings are report-only. The audit detects known obsolete sources by variable-name or file-path presence without retrieving environment values or opening credential files. It never prints, copies, or deletes secret values, and it does not edit environment declarations, shell startup files, OpenCode's `opencode.db`, supported credential files, or legacy credential files.
 
 ### OpenCode Go findings
 
@@ -81,13 +91,13 @@ OpenCode Go now uses an official API key. Configure one supported source in this
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
 3. Trusted user/global fallback: `provider.opencode.options.apiKey`
-4. A strict `opencode-go` API-key entry in OpenCode `auth.json`
-5. A strict legacy `opencode` API-key entry in `auth.json` as the final fallback
+4. A strict `opencode-go` API-key entry in OpenCode `opencode.db`
+5. A strict legacy `opencode` API-key entry in `opencode.db` as the final fallback
 
-You can create the canonical `auth.json` entry with:
+You can create the canonical `opencode.db` entry with:
 
 ```bash
-opencode auth login -p opencode-go
+opencode auth login opencode-go
 ```
 
 Verify the supported key with `/quota_status` or terminal `opencode-quota status`. Only after it works, manually remove obsolete declarations for `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`, plus any obsolete global `opencode-quota/opencode-go.json` file.
