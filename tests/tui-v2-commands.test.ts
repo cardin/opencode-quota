@@ -18,7 +18,10 @@ type RegisteredCommand = {
   run: (input?: string) => Promise<void>;
 };
 
-function startTui(location?: { directory: string }) {
+function startTui(
+  location?: { directory: string },
+  route: { type: "home" } | { type: "session"; sessionID: string } = { type: "home" },
+) {
   let layer: { commands: RegisteredCommand[] } | undefined;
   const context = {
     location,
@@ -43,6 +46,7 @@ function startTui(location?: { directory: string }) {
         return vi.fn();
       }),
       toast: { show: vi.fn() },
+      router: { current: vi.fn(() => route) },
       dialog: {
         alert: vi.fn().mockResolvedValue(undefined),
         prompt: vi.fn().mockResolvedValue(undefined),
@@ -169,6 +173,15 @@ describe("V2 quota TUI commands", () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it("runs commands for the session on screen, and without a session elsewhere", async () => {
+    await startTui(undefined, { type: "session", sessionID: "ses_open" })
+      .command("tokens_session")
+      .run();
+    await startTui(undefined, { type: "home" }).command("tokens_session").run();
+
+    expect(build.mock.calls.map(([params]) => params.sessionID)).toEqual(["ses_open", undefined]);
   });
 
   it("reads the session model from the OpenCode 2 session store", async () => {

@@ -13,7 +13,7 @@ Start with `/quota_status` in the OpenCode TUI, or `opencode-quota status` from 
 
 If every provider is missing, confirm OpenCode Quota is listed in `opencode.jsonc` or `.json`. That one entry also loads the TUI; no `tui.json` entry is needed.
 
-OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.json`. OpenCode 2 copies `auth.json` once, the first time it starts. If a provider is missing, log in to it again in OpenCode 2. `/quota_status` shows the `opencode.db` path in use; `OPENCODE_DB` and `XDG_DATA_HOME` change it.
+OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.json`. OpenCode 2 copies `auth.json` once, the first time it starts. If a provider is missing, log in to it again in OpenCode 2. `/quota_status` shows the `opencode.db` path in use; `OPENCODE_DB` and `XDG_DATA_HOME` change it. Custom or source builds of OpenCode may use `opencode-<channel>.db` instead; set `OPENCODE_DB` to that file's path.
 
 ## Common problems
 

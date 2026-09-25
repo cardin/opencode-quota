@@ -48,6 +48,10 @@ function setupFooterSlots(
         handlers.set(event, handler);
         return vi.fn();
       }),
+      session: {
+        get: (sessionID: string) =>
+          sessionID === "ses_child" ? { parentID: "ses_parent" } : { id: sessionID },
+      },
     },
     keymap: { layer: vi.fn() },
     ui: {
@@ -142,7 +146,7 @@ describe("V2 footer refresh timer", () => {
 
   it("refreshes the prompt footer every minute without writing the export", async () => {
     const renderers = setupFooterSlots();
-    const dispose = mountSlot(renderers.get("prompt.footer"));
+    const dispose = mountSlot(renderers.get("prompt.footer"), { sessionID: "ses_1" });
     await flushPromises();
     expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
 
@@ -155,6 +159,60 @@ describe("V2 footer refresh timer", () => {
     await flushPromises();
     expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
     expect(writeQuotaExport).not.toHaveBeenCalled();
+  });
+
+  it("loads the prompt footer for the session its composer passes in", async () => {
+    const handlers = new Map<string, (event: unknown) => void>();
+    const renderers = setupFooterSlots(handlers);
+    const dispose = mountSlot(renderers.get("prompt.footer"), { sessionID: "ses_2" });
+    await flushPromises();
+    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1);
+    expect(resolveQuotaRuntimeContext.mock.calls[0][0].sessionID).toBe("ses_2");
+
+    handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
+    await flushPromises();
+    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1);
+
+    handlers.get("session.step.ended")?.({ data: { sessionID: "ses_2" } });
+    await flushPromises();
+    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(2);
+    expect(resolveQuotaRuntimeContext.mock.calls[1][0].sessionID).toBe("ses_2");
+    dispose();
+  });
+
+  it("renders nothing under the Home prompt, which has no session", async () => {
+    const renderers = setupFooterSlots();
+    const dispose = mountSlot(renderers.get("prompt.footer"), {
+      sessionID: undefined,
+      mode: "normal",
+      showDetails: true,
+    });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS);
+    await flushPromises();
+
+    expect(resolveQuotaRuntimeContext).not.toHaveBeenCalled();
+    expect(collectQuotaRenderData).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("skips idle, compaction, and question toasts for subagent sessions, as in v4", async () => {
+    const handlers = new Map<string, (event: unknown) => void>();
+    const renderers = setupFooterSlots(handlers);
+    mountSlot(renderers.get("app"));
+    handlers.get("session.execution.succeeded")?.({ data: { sessionID: "ses_child" } });
+    handlers.get("session.compaction.ended")?.({ data: { sessionID: "ses_child" } });
+    handlers.get("session.tool.input.started")?.({
+      data: { sessionID: "ses_child", id: "call_1", name: "question" },
+    });
+    handlers.get("session.tool.success")?.({ data: { sessionID: "ses_child", id: "call_1" } });
+    await flushPromises();
+    expect(resolveQuotaRuntimeContext).not.toHaveBeenCalled();
+
+    handlers.get("session.execution.succeeded")?.({ data: { sessionID: "ses_parent" } });
+    await flushPromises();
+    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1);
+    expect(resolveQuotaRuntimeContext.mock.calls[0][0].sessionID).toBe("ses_parent");
   });
 
   it("loads Home for every enabled provider without a session, even with onlyCurrentModel", async () => {

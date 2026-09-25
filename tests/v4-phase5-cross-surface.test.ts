@@ -179,6 +179,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const toast = vi.fn();
   const slots: string[] = [];
   const renderers = new Map<string, (props?: { sessionID: string }) => unknown>();
+  let route: { type: "home" } | { type: "session"; sessionID: string } = { type: "home" };
   vi.stubGlobal("React", {
     createElement: (type: unknown, props: Record<string, unknown> | null) =>
       typeof type === "function" ? type(props ?? {}) : { type, props },
@@ -194,6 +195,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
         events.set(event, callbacks);
         return () => callbacks.delete(callback);
       },
+      session: { get: () => ({}) },
       location: {
         default: () => ({ directory: process.cwd() }),
         provider: { list: () => providerIds.map((id) => ({ id })) },
@@ -212,6 +214,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
         return () => {};
       },
       toast: { show: toast },
+      router: { current: () => route },
       dialog: { alert, prompt: vi.fn(), set: vi.fn() },
     },
   } as never);
@@ -237,7 +240,11 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     quota: quota!,
     renderSidebar: (sessionID: string) =>
       renderSurface("sidebar.content", renderedSurfaces.sidebar, { sessionID }),
-    renderSessionPrompt: () => renderSurface("prompt.footer", renderedSurfaces.compact),
+    renderSessionPrompt: (sessionID: string) =>
+      renderSurface("prompt.footer", renderedSurfaces.compact, { sessionID }),
+    openSession: (sessionID: string) => {
+      route = { type: "session", sessionID };
+    },
     renderHomeBottom: () => renderSurface("home.footer.status", renderedSurfaces.compact),
     dispose: dispose as () => void,
   };
@@ -496,6 +503,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const v2 = await setupV2Surfaces(client, PHASE5_RUNTIME_PROVIDER_IDS);
     v2.emit("session.execution.succeeded", "phase5-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(1));
+    v2.openSession("phase5-session");
     await v2.quota.run();
     expect(v2.alert).toHaveBeenCalledOnce();
     expect(client.session.prompt).not.toHaveBeenCalled();
@@ -615,7 +623,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     assertFixtureContent(allWindowsSidebar);
     assertTreeSessionTokenTotals(allWindowsSidebar);
     expect(allWindowsSidebar).toContain("tree-model");
-    const sessionPromptCompact = await v2.renderSessionPrompt();
+    const sessionPromptCompact = await v2.renderSessionPrompt("phase5-session");
     expect(sessionPromptCompact).toContain("64%");
     expect(sessionPromptCompact).toContain("$12.34");
     expect(sessionPromptCompact).toContain("80%");
@@ -813,7 +821,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(sidebarOutput).toContain("Remaining: -5 requests");
     expect(sidebarOutput).toContain("Remaining: -20 requests");
 
-    const compactOutput = await v2.renderSessionPrompt();
+    const compactOutput = await v2.renderSessionPrompt("minimax-session");
     expect(compactOutput.match(/0%/gu)).toHaveLength(2);
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
 
@@ -871,7 +879,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(sidebarOutput).toContain("Fable");
     expect(sidebarOutput).toContain("98%");
 
-    const compactOutput = await v2.renderSessionPrompt();
+    const compactOutput = await v2.renderSessionPrompt("anthropic-fable-session");
     expect(compactOutput).toContain("Fable");
     expect(compactOutput).toContain("98%");
 
@@ -939,7 +947,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(sidebarOutput).toContain("46%");
     expect(sidebarOutput).not.toContain("video");
 
-    const compactOutput = await v2.renderSessionPrompt();
+    const compactOutput = await v2.renderSessionPrompt("minimax-china-session");
     expect(compactOutput).toContain("33%");
     expect(compactOutput).toContain("46%");
     expect(compactOutput).not.toContain("video");
@@ -959,7 +967,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(toastOutput).toContain("33%");
     expect(toastOutput).toContain("46%");
 
-    const sessionPromptCompact = await v2.renderSessionPrompt();
+    const sessionPromptCompact = await v2.renderSessionPrompt("minimax-china-session");
     expect(sessionPromptCompact).toContain("33%");
     expect(sessionPromptCompact).not.toContain("46%");
     const homeCompact = await v2.renderHomeBottom();
@@ -1075,7 +1083,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const v2 = await setupMiniMaxChinaSurfaces();
 
     await v2.renderHomeBottom();
-    await v2.renderSessionPrompt();
+    await v2.renderSessionPrompt("minimax-china-session");
     await new Promise((resolve) => setTimeout(resolve, 50));
     await expect(readFile(exportPath, "utf8")).rejects.toThrow();
 

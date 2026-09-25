@@ -53,6 +53,7 @@ function startTui() {
         },
       ),
       toast: { show: toast },
+      router: { current: () => ({ type: "home" }) },
       dialog: { alert, prompt, set: vi.fn() },
     },
   };

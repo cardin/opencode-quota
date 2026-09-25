@@ -6,6 +6,7 @@ import type { QuotaProvider, QuotaProviderContext, QuotaProviderResult } from ".
 import {
   DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
   hasOpenAIOAuthCached,
+  OPENAI_AUTH_SOURCE_KEYS,
   queryOpenAIQuota,
   resolveOpenAIOAuth,
 } from "../lib/openai.js";
@@ -44,12 +45,8 @@ export const openaiProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    // Console OAuth credentials under the `opencode` integration authorize
-    // Console APIs, not OpenAI; skip them silently.
-    const rows = (await readCredentialRows()).filter(
-      (row) =>
-        ["openai", "codex", "chatgpt", "opencode"].includes(row.integrationId) &&
-        !(row.integrationId === "opencode" && row.value.type === "oauth"),
+    const rows = (await readCredentialRows()).filter((row) =>
+      (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId),
     );
     const credentials = rows.flatMap((row) => {
       const auth = resolveOpenAIOAuth({ [row.integrationId]: row.value } as AuthData);

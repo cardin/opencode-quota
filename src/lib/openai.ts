@@ -179,7 +179,9 @@ function derivePlanLabel(planType: string | undefined): string {
 
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
-export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt", "opencode"] as const;
+// Not `opencode`: in OpenCode 2 its OAuth entry is the Console login, which
+// authorizes Console APIs, not OpenAI.
+export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt"] as const;
 
 export type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
@@ -222,18 +224,6 @@ function getOpenAIOAuthEntry(
     const entry = auth?.[sourceKey];
     if (!entry || entry.type !== "oauth") {
       continue;
-    }
-
-    // OpenCode 2 console credentials live under the `opencode` integration as
-    // OAuth entries; they authorize Console APIs, not OpenAI.
-    if (sourceKey === "opencode") {
-      const consoleEntry = entry as OpenAIOAuthData & {
-        methodID?: unknown;
-        metadata?: { orgID?: unknown } | null;
-      };
-      if (consoleEntry.methodID === "server" || consoleEntry.metadata?.orgID != null) {
-        continue;
-      }
     }
 
     const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";

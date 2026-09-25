@@ -184,38 +184,24 @@ describe("openai auth resolution", () => {
     expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(80);
   });
 
-  it("reads auth from opencode when higher-priority keys are unusable", async () => {
+  it("never treats the OpenCode Console login under opencode as an OpenAI login", async () => {
+    // OpenCode 2 imports a legacy console login as `methodID: "device"`, often without an orgID.
     mocks.readAuthFileCached.mockResolvedValueOnce({
       codex: { type: "oauth", access: "   " },
       openai: { type: "api", access: "ignored" },
       chatgpt: { type: "oauth", access: "   " },
-      opencode: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
-    });
+      opencode: {
+        type: "oauth",
+        methodID: "device",
+        access: "console-token",
+        expires: Date.now() + 60_000,
+      },
+    } as any);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              plan_type: "free",
-              rate_limit: {
-                limit_reached: false,
-                primary_window: {
-                  used_percent: 50,
-                  limit_window_seconds: 18_000,
-                  reset_after_seconds: 3600,
-                },
-                secondary_window: null,
-              },
-            }),
-            { status: 200 },
-          ),
-      ) as any,
-    );
-
-    const out = await queryOpenAIQuota();
-    expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(50);
+    await expect(queryOpenAIQuota()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses cached auth reads for hasOpenAIOAuthCached", async () => {

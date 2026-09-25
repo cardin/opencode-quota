@@ -67,7 +67,9 @@ type TuiContext = {
   data: {
     on: (event: string, handler: (event: TuiEvent) => void) => () => void;
     session: {
-      get: (sessionID: string) => { model?: { id: string; providerID: string } } | undefined;
+      get: (
+        sessionID: string,
+      ) => { parentID?: string; model?: { id: string; providerID: string } } | undefined;
     };
     location?: {
       default: () => { directory: string };
@@ -94,8 +96,12 @@ type TuiContext = {
       claim:
         | { append: "app"; render: () => null }
         | { append: "sidebar.content"; render: (props: { sessionID: string }) => JSX.Element }
-        | { append: "prompt.footer" | "home.footer.status"; render: () => JSX.Element },
+        | { append: "prompt.footer"; render: (props: { sessionID?: string }) => JSX.Element }
+        | { append: "home.footer.status"; render: () => JSX.Element },
     ) => () => void;
+    router: {
+      current: () => { type: "home" } | { type: "session"; sessionID: string } | { type: "plugin" };
+    };
     toast: { show: (toast: Toast) => void };
     dialog: {
       alert: (params: { title: string; message: string }) => Promise<unknown>;
@@ -347,6 +353,9 @@ async function getQuotaFooter(
   sessionID: string | undefined,
   surface: "prompt" | "home",
 ): Promise<string[]> {
+  // OpenCode 2 also mounts the prompt footer under the Home prompt, without a
+  // session. As in v4, the prompt line belongs to session prompts only.
+  if (surface === "prompt" && !sessionID) return [];
   const resolvedRuntime = await resolveQuotaRuntimeContext({
     client: quotaClient(context),
     roots: quotaRoots(context),
@@ -583,7 +592,12 @@ async function runQuotaCommand(
   }
 }
 
-function registerQuotaCommands(context: TuiContext, getSessionID: () => string | undefined): void {
+function getRouteSessionID(context: TuiContext): string | undefined {
+  const route = context.ui.router.current();
+  return route.type === "session" ? route.sessionID : undefined;
+}
+
+function registerQuotaCommands(context: TuiContext): void {
   context.keymap.layer(() => ({
     mode: "global",
     commands: QUOTA_DIALOG_COMMANDS.map((spec) => ({
@@ -594,17 +608,12 @@ function registerQuotaCommands(context: TuiContext, getSessionID: () => string |
       slash: spec.acceptsArguments
         ? { name: spec.slashName, arguments: true as const }
         : { name: spec.slashName },
-      run: (input?: string) => runQuotaCommand(context, spec.id, getSessionID(), input),
+      run: (input?: string) => runQuotaCommand(context, spec.id, getRouteSessionID(context), input),
     })),
   }));
 }
 
-function SidebarQuotaView(props: {
-  context: TuiContext;
-  sessionID: string;
-  setActiveSessionID: (sessionID: string) => void;
-}): JSX.Element {
-  props.setActiveSessionID(props.sessionID);
+function SidebarQuotaView(props: { context: TuiContext; sessionID: string }): JSX.Element {
   const [open, setOpen] = createSignal(true);
   const [quota, setQuota] = createSignal<
     { message: string; duration: number; activeProviderCount: number } | undefined
@@ -661,17 +670,17 @@ const plugin = Plugin.define({
   setup(context) {
     const api = context as unknown as TuiContext;
     let disposeEvents: (() => void) | undefined;
-    let activeSessionID: string | undefined;
     const questionToolCalls = new Set<string>();
     const disposeApp = api.ui.slot({
       append: "app",
       render: () => {
         if (disposeEvents) return null;
-        registerQuotaCommands(api, () => activeSessionID);
+        registerQuotaCommands(api);
         const trigger = (event: TuiEvent, reason: "idle" | "compacted" | "question") => {
           const sessionID = getSessionID(event);
           if (!sessionID) return;
-          activeSessionID = sessionID;
+          // As in v4, subagent (child) sessions never show quota toasts.
+          if (api.data.session.get(sessionID)?.parentID) return;
           void getQuotaMessage(api, sessionID, reason)
             .then((quota) => {
               if (!quota) return;
@@ -725,19 +734,11 @@ const plugin = Plugin.define({
     });
     const disposeSidebar = api.ui.slot({
       append: "sidebar.content",
-      render: (props) => (
-        <SidebarQuotaView
-          context={api}
-          sessionID={props.sessionID}
-          setActiveSessionID={(sessionID) => {
-            activeSessionID = sessionID;
-          }}
-        />
-      ),
+      render: (props) => <SidebarQuotaView context={api} sessionID={props.sessionID} />,
     });
     const disposePrompt = api.ui.slot({
       append: "prompt.footer",
-      render: () => <QuotaFooter context={api} sessionID={activeSessionID} surface="prompt" />,
+      render: (props) => <QuotaFooter context={api} sessionID={props.sessionID} surface="prompt" />,
     });
     const disposeHome = api.ui.slot({
       append: "home.footer.status",

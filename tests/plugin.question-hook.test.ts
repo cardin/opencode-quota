@@ -43,7 +43,8 @@ describe("V2 CLI question-tool accounting boundary", () => {
     handlers.get("session.tool.input.started")?.({ data: { name: "question", id: "call-1" } });
     handlers.get("session.tool.success")?.({ data: { sessionID: "session-1", id: "call-1" } });
     await vi.waitFor(() => expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1));
-    expect(session.get).not.toHaveBeenCalled();
+    // Only the subagent check reads the session; no model lookup follows.
+    expect(session.get).toHaveBeenCalledExactlyOnceWith("session-1");
     expect(toast).not.toHaveBeenCalled();
   });
 
