@@ -60,7 +60,7 @@ function setupFooterSlots(
         return vi.fn();
       }),
       toast: { show: vi.fn() },
-      dialog: { alert: vi.fn(), prompt: vi.fn(), set: vi.fn() },
+      dialog: { show: vi.fn(), clear: vi.fn(), prompt: vi.fn(), set: vi.fn() },
     },
   } as any);
   return renderers;

@@ -72,6 +72,10 @@ const otel = vi.hoisted(() => {
   };
 });
 
+vi.mock("@opentui/solid", () => ({
+  useTerminalDimensions: () => () => ({ width: 120, height: 40 }),
+}));
+
 const resetNotifications = vi.hoisted(() => ({ observe: vi.fn() }));
 vi.mock("../src/lib/quota-reset-notifications.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/quota-reset-notifications.js")>()),
@@ -175,19 +179,47 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     for (const callback of events.get(event) ?? []) callback({ data: { sessionID } });
   };
   let commands: Array<{ slash: { name: string }; run: (input?: unknown) => Promise<void> }> = [];
-  const alert = vi.fn(async (_input: { title: string; message: string }) => {});
+  // Records the title and scrollbox text of each quota output dialog the TUI shows.
+  const dialog = vi.fn((_input: { title: string; message: string }) => {});
+  type Node = { type: string; props: Record<string, any> };
+  const find = (node: unknown, type: string): Node | undefined => {
+    if (Array.isArray(node)) return node.map((child) => find(child, type)).find(Boolean);
+    if (!node || typeof node !== "object") return undefined;
+    return (node as Node).type === type
+      ? (node as Node)
+      : find((node as Node).props?.children, type);
+  };
+  const show = (render: () => unknown, onClose?: () => void) => {
+    const tree = render();
+    const title = find(tree, "text")?.props.children;
+    const message = find(find(tree, "scrollbox"), "text")?.props.children;
+    dialog({ title, message });
+    onClose?.();
+  };
   const toast = vi.fn();
   const slots: string[] = [];
   const renderers = new Map<string, (props?: { sessionID: string }) => unknown>();
   let route: { type: "home" } | { type: "session"; sessionID: string } = { type: "home" };
   vi.stubGlobal("React", {
-    createElement: (type: unknown, props: Record<string, unknown> | null) =>
-      typeof type === "function" ? type(props ?? {}) : { type, props },
+    createElement: (
+      type: unknown,
+      props: Record<string, unknown> | null,
+      ...children: unknown[]
+    ) => {
+      const all = { ...props, children: children.length > 1 ? children : children[0] };
+      return typeof type === "function" ? type(all) : { type, props: all };
+    },
   });
   const { default: tuiPlugin } = await import("../src/tui-v2.js");
   const dispose = tuiPlugin.setup({
     client,
     location: { directory: process.cwd() },
+    theme: {
+      surface: () => ({
+        text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
+        background: { action: { primary: { focused: "action-bg" } } },
+      }),
+    },
     data: {
       on: (event: string, callback: (event: { data: { sessionID: string } }) => void) => {
         const callbacks = events.get(event) ?? new Set();
@@ -202,8 +234,9 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       },
     },
     keymap: {
-      layer: (build: () => { commands: typeof commands }) => {
-        commands = build().commands;
+      layer: (build: () => { mode: string; commands: typeof commands }) => {
+        const layer = build();
+        if (layer.mode === "global") commands = layer.commands;
       },
     },
     ui: {
@@ -215,7 +248,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       },
       toast: { show: toast },
       router: { current: () => route },
-      dialog: { alert, prompt: vi.fn(), set: vi.fn() },
+      dialog: { show, clear: vi.fn(), prompt: vi.fn(), set: vi.fn() },
     },
   } as never);
   expect(slots).toEqual(["app", "sidebar.content", "prompt.footer", "home.footer.status"]);
@@ -234,7 +267,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   };
   return {
     tool: tool!,
-    alert,
+    dialog,
     toast,
     emit,
     quota: quota!,
@@ -505,9 +538,9 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(1));
     v2.openSession("phase5-session");
     await v2.quota.run();
-    expect(v2.alert).toHaveBeenCalledOnce();
+    expect(v2.dialog).toHaveBeenCalledOnce();
     expect(client.session.prompt).not.toHaveBeenCalled();
-    const serverOutput = v2.alert.mock.calls[0][0].message;
+    const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toMatch(/^Quota \(\/quota\)/);
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);
@@ -764,7 +797,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
 
     const v2 = await setupV2Surfaces(client, ["minimax-coding-plan"]);
     await v2.quota.run();
-    const serverOutput = v2.alert.mock.calls[0][0].message;
+    const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("5h quota");
     expect(serverOutput).toContain("Weekly quota");
@@ -864,7 +897,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
 
     const v2 = await setupV2Surfaces(client, ["anthropic"]);
     await v2.quota.run();
-    const serverOutput = v2.alert.mock.calls[0][0].message;
+    const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toContain("Claude");
     expect(serverOutput).toContain("Fable");
     expect(serverOutput).toContain("98% left");
@@ -917,7 +950,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     currentConfig = configForSingleProvider("minimax-china-coding-plan");
     const v2 = await setupMiniMaxChinaSurfaces();
     await v2.quota.run();
-    const serverOutput = v2.alert.mock.calls[0][0].message;
+    const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("(CN)");
     expect(serverOutput).toContain("5h quota");

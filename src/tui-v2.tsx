@@ -1,8 +1,8 @@
 /** @jsxImportSource @opentui/solid */
 
 import { Plugin } from "@opencode/plugin/tui";
-import { RGBA } from "@opentui/core";
-import type { JSX } from "@opentui/solid";
+import { RGBA, type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
+import { type JSX, useTerminalDimensions } from "@opentui/solid";
 import { createSignal, onCleanup, Show } from "solid-js";
 
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
@@ -62,8 +62,22 @@ type Toast = {
   message: string;
   duration?: number;
 };
+type KeymapCommand = {
+  id?: string;
+  title: string;
+  group: string;
+  bind?: string;
+  palette?: true;
+  slash?: { name: string; arguments?: true };
+  run: (input?: string) => void | Promise<void>;
+};
+type DialogTheme = {
+  text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA } } };
+  background: { action: { primary: { focused: RGBA } } };
+};
 type TuiContext = {
   location?: { directory: string };
+  theme: { surface: (name: "dialog") => DialogTheme };
   data: {
     on: (event: string, handler: (event: TuiEvent) => void) => () => void;
     session: {
@@ -77,19 +91,7 @@ type TuiContext = {
     };
   };
   keymap: {
-    layer: (
-      build: () => {
-        mode: "global";
-        commands: Array<{
-          id: string;
-          title: string;
-          group: string;
-          palette: true;
-          slash: { name: string; arguments?: true };
-          run: (input?: string) => Promise<void>;
-        }>;
-      },
-    ) => void;
+    layer: (build: () => { mode: "global" | "modal"; commands: KeymapCommand[] }) => void;
   };
   ui: {
     slot: (
@@ -104,7 +106,8 @@ type TuiContext = {
     };
     toast: { show: (toast: Toast) => void };
     dialog: {
-      alert: (params: { title: string; message: string }) => Promise<unknown>;
+      show: (render: () => JSX.Element, onClose?: () => void) => void;
+      clear: () => void;
       prompt: (params: { title: string; placeholder?: string }) => Promise<string | undefined>;
       set: (params: { size: "medium" | "large" | "xlarge" }) => void;
     };
@@ -551,6 +554,87 @@ function reportFailure(error: unknown): void {
   console.warn(`[opencode-quota] failed to load quota: ${message}`);
 }
 
+/**
+ * Shows command output like OpenCode's alert dialog, but inside a scrollbox so long
+ * reports (/quota_status, /tokens_*) stay reachable. The mouse wheel scrolls the box;
+ * arrows, PageUp/PageDown, and Home/End scroll it from the keyboard. Esc is handled by
+ * the host dialog; Enter and the ok/esc labels close it.
+ */
+function QuotaOutputDialog(props: {
+  context: TuiContext;
+  title: string;
+  message: string;
+}): JSX.Element {
+  const theme = () => props.context.theme.surface("dialog");
+  const dimensions = useTerminalDimensions();
+  // The host dialog starts a quarter of the way down the terminal. The remaining
+  // 8 rows cover the title, ok button, paddings, gaps, and one spare row.
+  const maxHeight = () => Math.max(1, Math.floor(dimensions().height * 0.75) - 8);
+  let scroll: ScrollBoxRenderable | undefined;
+  const close = () => props.context.ui.dialog.clear();
+
+  props.context.keymap.layer(() => ({
+    mode: "modal",
+    commands: [
+      { bind: "return", title: "Close", group: "Dialog", run: close },
+      { bind: "up", title: "Scroll up", group: "Dialog", run: () => scroll?.scrollBy(-1) },
+      { bind: "down", title: "Scroll down", group: "Dialog", run: () => scroll?.scrollBy(1) },
+      {
+        bind: "pageup",
+        title: "Scroll up one page",
+        group: "Dialog",
+        run: () => scroll?.scrollBy(-maxHeight()),
+      },
+      {
+        bind: "pagedown",
+        title: "Scroll down one page",
+        group: "Dialog",
+        run: () => scroll?.scrollBy(maxHeight()),
+      },
+      { bind: "home", title: "Scroll to top", group: "Dialog", run: () => scroll?.scrollTo(0) },
+      {
+        bind: "end",
+        title: "Scroll to bottom",
+        group: "Dialog",
+        run: () => scroll?.scrollTo(scroll.scrollHeight),
+      },
+    ],
+  }));
+
+  return (
+    <box paddingLeft={2} paddingRight={2} gap={1}>
+      <box flexDirection="row" justifyContent="space-between">
+        <text attributes={TextAttributes.BOLD} fg={theme().text.base}>
+          {props.title}
+        </text>
+        <text fg={theme().text.muted} onMouseUp={close}>
+          esc
+        </text>
+      </box>
+      <box paddingBottom={1}>
+        <scrollbox
+          ref={(element: ScrollBoxRenderable) => {
+            scroll = element;
+          }}
+          maxHeight={maxHeight()}
+        >
+          <text fg={theme().text.muted}>{props.message}</text>
+        </scrollbox>
+      </box>
+      <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
+        <box
+          paddingLeft={3}
+          paddingRight={3}
+          backgroundColor={theme().background.action.primary.focused}
+          onMouseUp={close}
+        >
+          <text fg={theme().text.action.primary.focused}>ok</text>
+        </box>
+      </box>
+    </box>
+  );
+}
+
 async function runQuotaCommand(
   context: TuiContext,
   command: QuotaDialogCommandId,
@@ -580,9 +664,13 @@ async function runQuotaCommand(
       resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     });
     if (result.state === "noop") return;
-    const alert = context.ui.dialog.alert({ title: result.title, message: result.output });
-    context.ui.dialog.set({ size: result.dialogSize });
-    await alert;
+    await new Promise<void>((resolve) => {
+      context.ui.dialog.show(
+        () => <QuotaOutputDialog context={context} title={result.title} message={result.output} />,
+        resolve,
+      );
+      context.ui.dialog.set({ size: result.dialogSize });
+    });
   } catch (error) {
     context.ui.toast.show({
       variant: "error",

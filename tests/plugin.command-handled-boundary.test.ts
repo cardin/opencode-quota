@@ -16,7 +16,8 @@ function startTui() {
     { run: (input?: string) => Promise<void>; slash: { name: string } }
   >();
   const listeners = new Map<string, (event: { data?: Record<string, unknown> }) => void>();
-  const alert = vi.fn().mockResolvedValue(undefined);
+  const show = vi.fn((_render: () => unknown, onClose?: () => void) => onClose?.());
+  const set = vi.fn();
   const prompt = vi.fn().mockResolvedValue(undefined);
   const toast = vi.fn();
   const slots = new Map<string, { render: (props?: { sessionID: string }) => unknown }>();
@@ -54,11 +55,11 @@ function startTui() {
       ),
       toast: { show: toast },
       router: { current: () => ({ type: "home" }) },
-      dialog: { alert, prompt, set: vi.fn() },
+      dialog: { show, clear: vi.fn(), prompt, set },
     },
   };
   const dispose = tuiPlugin.setup(context as never);
-  return { commands, listeners, alert, prompt, toast, slots, context, dispose };
+  return { commands, listeners, show, set, prompt, toast, slots, context, dispose };
 }
 
 describe("V2 CLI command boundary", () => {
@@ -92,7 +93,8 @@ describe("V2 CLI command boundary", () => {
         roots: resolveOpenCodeLocationRoots(process.cwd()),
       }),
     );
-    expect(tui.alert).toHaveBeenCalledWith({ title: "Quota", message: "Quota ready" });
+    expect(tui.show).toHaveBeenCalledOnce();
+    expect(tui.set).toHaveBeenCalledWith({ size: "large" });
     expect(tui.context.data.session.get).not.toHaveBeenCalled();
     tui.dispose?.();
   });
@@ -124,7 +126,7 @@ describe("V2 CLI command boundary", () => {
     mocks.build.mockResolvedValue({ state: "noop", command: "quota", reason: "disabled" });
     const tui = startTui();
     await tui.commands.get("quota.quota")?.run();
-    expect(tui.alert).not.toHaveBeenCalled();
+    expect(tui.show).not.toHaveBeenCalled();
     expect(tui.toast).not.toHaveBeenCalled();
     tui.dispose?.();
   });
@@ -139,7 +141,7 @@ describe("V2 CLI command boundary", () => {
         message: "quota unavailable",
       }),
     );
-    expect(tui.alert).not.toHaveBeenCalled();
+    expect(tui.show).not.toHaveBeenCalled();
     tui.dispose?.();
   });
 
