@@ -450,7 +450,9 @@ const plugin = Plugin.define({
             })
             .catch(reportFailure);
         };
-        const onStepEnded = api.data.on("session.step.ended", (event) => trigger(event, "idle"));
+        const onExecutionSucceeded = api.data.on("session.execution.succeeded", (event) =>
+          trigger(event, "idle"),
+        );
         const onCompacted = api.data.on("session.compaction.ended", (event) =>
           trigger(event, "compacted"),
         );
@@ -469,7 +471,7 @@ const plugin = Plugin.define({
           if (typeof id === "string") questionToolCalls.delete(id);
         });
         disposeEvents = () => {
-          onStepEnded();
+          onExecutionSucceeded();
           onCompacted();
           onQuestionStarted();
           onQuestionSucceeded();

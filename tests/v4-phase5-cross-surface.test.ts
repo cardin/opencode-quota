@@ -163,7 +163,10 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   } as never);
   expect(tool?.name).toBe("quota_status");
 
-  const events = new Map<string, (event: { data: { sessionID: string } }) => void>();
+  const events = new Map<string, Set<(event: { data: { sessionID: string } }) => void>>();
+  const emit = (event: string, sessionID: string) => {
+    for (const callback of events.get(event) ?? []) callback({ data: { sessionID } });
+  };
   let commands: Array<{ slash: { name: string }; run: (input?: unknown) => Promise<void> }> = [];
   const alert = vi.fn(async (_input: { title: string; message: string }) => {});
   const toast = vi.fn();
@@ -179,8 +182,10 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     location: { directory: process.cwd() },
     data: {
       on: (event: string, callback: (event: { data: { sessionID: string } }) => void) => {
-        events.set(event, callback);
-        return () => events.delete(event);
+        const callbacks = events.get(event) ?? new Set();
+        callbacks.add(callback);
+        events.set(event, callbacks);
+        return () => callbacks.delete(callback);
       },
       location: {
         default: () => ({ directory: process.cwd() }),
@@ -221,7 +226,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     tool: tool!,
     alert,
     toast,
-    events,
+    emit,
     quota: quota!,
     renderSidebar: (sessionID: string) =>
       renderSurface("sidebar.content", renderedSurfaces.sidebar, { sessionID }),
@@ -484,7 +489,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
   it("proves V2 CLI command and toast, server diagnostic tool, TUI placement, export, and redaction", async () => {
     const client = createClient();
     const v2 = await setupV2Surfaces(client, PHASE5_RUNTIME_PROVIDER_IDS);
-    v2.events.get("session.step.ended")?.({ data: { sessionID: "phase5-session" } });
+    v2.emit("session.execution.succeeded", "phase5-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(1));
     await v2.quota.run();
     expect(v2.alert).toHaveBeenCalledOnce();
@@ -509,7 +514,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(toastOutput).toContain("tree-model");
 
     const callsAfterFirstToast = vi.mocked(globalThis.fetch).mock.calls.length;
-    v2.events.get("session.step.ended")?.({ data: { sessionID: "phase5-session" } });
+    v2.emit("session.execution.succeeded", "phase5-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(2));
     // The failed accounting source is retried on the next V2 CLI event.
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(callsAfterFirstToast + 1);
@@ -618,6 +623,16 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(homeCompact).toBe(sessionPromptCompact.replace(/ \| tok [^|]+(?= \|)/u, ""));
     expect(homeCompact).not.toContain("tok ");
     assertPhase5CanariesRedacted(homeCompact);
+
+    // Each model step refreshes the footers; only the finished turn shows the idle toast.
+    const toastsBeforeSteps = v2.toast.mock.calls.length;
+    renderedSurfaces.compact.length = 0;
+    v2.emit("session.step.ended", "phase5-session");
+    v2.emit("session.step.ended", "phase5-session");
+    await vi.waitFor(() => expect(renderedSurfaces.compact.length).toBeGreaterThanOrEqual(2));
+    expect(v2.toast).toHaveBeenCalledTimes(toastsBeforeSteps);
+    v2.emit("session.execution.succeeded", "phase5-session");
+    await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(toastsBeforeSteps + 1));
 
     currentConfig = configFor("singleWindow");
     const singleWindowSidebar = await v2.renderSidebar("phase5-session");
@@ -775,7 +790,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       ),
     ).toEqual([-5, -10]);
 
-    v2.events.get("session.step.ended")?.({ data: { sessionID: "minimax-session" } });
+    v2.emit("session.execution.succeeded", "minimax-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
     const toastOutput = getV2ToastMessage(v2.toast);
     expect(toastOutput).toContain("MiniMax Token Plan");
@@ -841,7 +856,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(serverOutput).toContain("Fable");
     expect(serverOutput).toContain("98% left");
 
-    v2.events.get("session.step.ended")?.({ data: { sessionID: "anthropic-fable-session" } });
+    v2.emit("session.execution.succeeded", "anthropic-fable-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
     const toastOutput = getV2ToastMessage(v2.toast);
     expect(toastOutput).toContain("Fable");
@@ -896,7 +911,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(serverOutput).not.toContain("video");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
 
-    v2.events.get("session.step.ended")?.({ data: { sessionID: "minimax-china-session" } });
+    v2.emit("session.execution.succeeded", "minimax-china-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
     const toastOutput = getV2ToastMessage(v2.toast);
     expect(toastOutput).toContain("MiniMax Token Plan");

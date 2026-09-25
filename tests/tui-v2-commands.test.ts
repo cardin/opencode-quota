@@ -91,7 +91,7 @@ describe("V2 quota TUI commands", () => {
       expect.objectContaining({ append: "home.footer.status" }),
     );
     expect(context.data.on.mock.calls.map(([event]) => event)).toEqual([
-      "session.step.ended",
+      "session.execution.succeeded",
       "session.compaction.ended",
       "session.tool.input.started",
       "session.tool.success",

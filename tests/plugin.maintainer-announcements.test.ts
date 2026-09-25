@@ -339,7 +339,7 @@ describe("maintainer announcement plugin integration", () => {
     );
 
     const cli = await startCli();
-    cli.listeners.get("session.step.ended")?.({ data: { sessionID: "session-idle" } });
+    cli.listeners.get("session.execution.succeeded")?.({ data: { sessionID: "session-idle" } });
     cli.listeners.get("session.tool.input.started")?.({
       data: { id: "call-1", name: "question", sessionID: "session-question" },
     });
