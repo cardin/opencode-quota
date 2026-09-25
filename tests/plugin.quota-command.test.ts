@@ -8,7 +8,6 @@ import {
   createPluginTestClient as createClient,
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
-  createPluginToolMockModule,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createSessionTokensModuleMock,
@@ -102,8 +101,6 @@ const mocks = vi.hoisted(() => ({
   formatQuotaResetNotification: vi.fn(),
   disposeQuotaTelemetryOwner: vi.fn(),
 }));
-
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 

@@ -16,7 +16,6 @@ import {
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
   createPluginTestClient,
-  createPluginToolMockModule,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createSessionTokensModuleMock,
@@ -72,7 +71,6 @@ const otel = vi.hoisted(() => {
   };
 });
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 vi.mock("@opentelemetry/api", () => ({
   metrics: { getMeter: otel.getMeter },
 }));
@@ -111,6 +109,34 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
 );
 
+const renderedSurfaces = vi.hoisted(() => ({ sidebar: [] as string[], compact: [] as string[] }));
+vi.mock("../src/lib/tui-sidebar-format.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/tui-sidebar-format.js")>();
+  return {
+    ...actual,
+    buildSidebarQuotaPanelLines: (
+      params: Parameters<typeof actual.buildSidebarQuotaPanelLines>[0],
+    ) => {
+      const lines = actual.buildSidebarQuotaPanelLines(params);
+      renderedSurfaces.sidebar.push(lines.join("\n"));
+      return lines;
+    },
+  };
+});
+vi.mock("../src/lib/tui-compact-format.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/tui-compact-format.js")>();
+  return {
+    ...actual,
+    buildCompactQuotaStatusLine: (
+      params: Parameters<typeof actual.buildCompactQuotaStatusLine>[0],
+    ) => {
+      const line = actual.buildCompactQuotaStatusLine(params);
+      renderedSurfaces.compact.push(line);
+      return line;
+    },
+  };
+});
+
 type RegisteredTool = {
   name: string;
   execute(input: object, context: { sessionID: string }): Promise<{ content: string }>;
@@ -142,6 +168,11 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const alert = vi.fn(async (_input: { title: string; message: string }) => {});
   const toast = vi.fn();
   const slots: string[] = [];
+  const renderers = new Map<string, (props?: { sessionID: string }) => unknown>();
+  vi.stubGlobal("React", {
+    createElement: (type: unknown, props: Record<string, unknown> | null) =>
+      typeof type === "function" ? type(props ?? {}) : { type, props },
+  });
   const { default: tuiPlugin } = await import("../src/tui-v2.js");
   const dispose = tuiPlugin.setup({
     client,
@@ -162,8 +193,9 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       },
     },
     ui: {
-      slot: (claim: { append: string; render: () => unknown }) => {
+      slot: (claim: { append: string; render: (props?: { sessionID: string }) => unknown }) => {
         slots.push(claim.append);
+        renderers.set(claim.append, claim.render);
         if (claim.append === "app") claim.render();
         return () => {};
       },
@@ -175,12 +207,26 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const quota = commands.find((command) => command.slash.name === "quota");
   expect(quota).toBeDefined();
   expect(commands.some((command) => command.slash.name === "quota_status")).toBe(true);
+  const renderSurface = async (
+    append: "sidebar.content" | "prompt.footer" | "home.footer.status",
+    output: string[],
+    props?: { sessionID: string },
+  ): Promise<string> => {
+    output.length = 0;
+    renderers.get(append)?.(props);
+    await vi.waitFor(() => expect(output).toHaveLength(1));
+    return output[0];
+  };
   return {
     tool: tool!,
     alert,
     toast,
     events,
     quota: quota!,
+    renderSidebar: (sessionID: string) =>
+      renderSurface("sidebar.content", renderedSurfaces.sidebar, { sessionID }),
+    renderSessionPrompt: () => renderSurface("prompt.footer", renderedSurfaces.compact),
+    renderHomeBottom: () => renderSurface("home.footer.status", renderedSurfaces.compact),
     dispose: dispose as () => void,
   };
 }
@@ -555,47 +601,11 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       expectedConsumed.set(key, Math.max(expectedConsumed.get(key) ?? 0, consumed));
     }
 
-    const tuiApi = {
-      state: {
-        provider: PHASE5_RUNTIME_PROVIDER_IDS.map((id) => ({ id })),
-        path: { worktree: process.cwd(), directory: process.cwd() },
-        session: { messages: () => [] },
-      },
-      client,
-    } as never;
-
-    const { loadTuiHomeBottomStatus, loadTuiSessionQuotaSurfaces, resolveTuiSurfaceRegistration } =
-      await import("../src/lib/tui-runtime.js");
-
-    const registration = await resolveTuiSurfaceRegistration(tuiApi);
-    expect(registration).toEqual(
-      expect.objectContaining({
-        sidebar: { enabled: true },
-        compact: expect.objectContaining({
-          enabled: true,
-          homeBottom: true,
-          sessionPrompt: true,
-          suppressedByNativeProviderQuota: false,
-        }),
-        homeBottom: true,
-      }),
-    );
-
-    const allWindows = await loadTuiSessionQuotaSurfaces({
-      api: tuiApi,
-      sessionID: "phase5-session",
-    });
-    expect(allWindows.sidebar.status).toBe("ready");
-    expect(allWindows.compact.status).toBe("ready");
-    const allWindowsSidebar = [
-      ...allWindows.sidebar.lines,
-      ...(allWindows.sidebar.linesExpanded ?? []),
-    ].join("\n");
+    const allWindowsSidebar = await v2.renderSidebar("phase5-session");
     assertFixtureContent(allWindowsSidebar);
     assertTreeSessionTokenTotals(allWindowsSidebar);
     expect(allWindowsSidebar).toContain("tree-model");
-    const sessionPromptCompact =
-      allWindows.compact.status === "ready" ? allWindows.compact.text : "";
+    const sessionPromptCompact = await v2.renderSessionPrompt();
     expect(sessionPromptCompact).toContain("64%");
     expect(sessionPromptCompact).toContain("$12.34");
     expect(sessionPromptCompact).toContain("80%");
@@ -604,21 +614,13 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     assertTreeSessionTokenTotals(sessionPromptCompact);
     assertPhase5CanariesRedacted(sessionPromptCompact);
 
-    const homeBottom = await loadTuiHomeBottomStatus({ api: tuiApi });
-    expect(homeBottom.status).toBe("ready");
-    const homeCompact = homeBottom.compact.status === "ready" ? homeBottom.compact.text : "";
+    const homeCompact = await v2.renderHomeBottom();
     expect(homeCompact).toBe(sessionPromptCompact.replace(/ \| tok [^|]+(?= \|)/u, ""));
     expect(homeCompact).not.toContain("tok ");
     assertPhase5CanariesRedacted(homeCompact);
 
     currentConfig = configFor("singleWindow");
-    const singleWindow = await loadTuiSessionQuotaSurfaces({
-      api: tuiApi,
-      sessionID: "phase5-session",
-    });
-    expect(singleWindow.sidebar.status).toBe("ready");
-    expect(singleWindow.compact.status).toBe("ready");
-    const singleWindowSidebar = singleWindow.sidebar.lines.join("\n");
+    const singleWindowSidebar = await v2.renderSidebar("phase5-session");
     expect(singleWindowSidebar).toContain("64%");
     expect(singleWindowSidebar).toContain("80%");
     expect(singleWindowSidebar).toContain("HTTP 503");
@@ -635,9 +637,10 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const allOutput = JSON.stringify({
       serverOutput,
       toastOutput,
-      allWindows,
-      homeBottom,
-      singleWindow,
+      allWindowsSidebar,
+      sessionPromptCompact,
+      homeCompact,
+      singleWindowSidebar,
     });
     assertPhase5CanariesRedacted(allOutput);
     for (const source of PHASE5_QUOTA_PROVIDERS) {
@@ -782,25 +785,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(toastOutput).toContain("Remaining: -5 requests");
     expect(toastOutput).toContain("Remaining: -20 requests");
 
-    const tuiApi = {
-      state: {
-        provider: [{ id: "minimax-coding-plan" }],
-        path: { worktree: process.cwd(), directory: process.cwd() },
-        session: { messages: () => [] },
-      },
-      client,
-    } as never;
-    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
-    const surfaces = await loadTuiSessionQuotaSurfaces({
-      api: tuiApi,
-      sessionID: "minimax-session",
-    });
-
-    expect(surfaces.sidebar.status).toBe("ready");
-    const sidebarOutput = [
-      ...surfaces.sidebar.lines,
-      ...(surfaces.sidebar.linesExpanded ?? []),
-    ].join("\n");
+    const sidebarOutput = await v2.renderSidebar("minimax-session");
     expect(sidebarOutput).toContain("MiniMax Token Plan");
     expect(sidebarOutput).toContain("5h");
     expect(sidebarOutput).toContain("Weekly");
@@ -808,8 +793,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(sidebarOutput).toContain("Remaining: -5 requests");
     expect(sidebarOutput).toContain("Remaining: -20 requests");
 
-    expect(surfaces.compact.status).toBe("ready");
-    const compactOutput = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
+    const compactOutput = await v2.renderSessionPrompt();
     expect(compactOutput.match(/0%/gu)).toHaveLength(2);
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
 
@@ -863,30 +847,11 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(toastOutput).toContain("Fable");
     expect(toastOutput).toContain("98%");
 
-    const tuiApi = {
-      state: {
-        provider: [{ id: "anthropic" }],
-        path: { worktree: process.cwd(), directory: process.cwd() },
-        session: { messages: () => [] },
-      },
-      client,
-    } as never;
-    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
-    const surfaces = await loadTuiSessionQuotaSurfaces({
-      api: tuiApi,
-      sessionID: "anthropic-fable-session",
-    });
-
-    expect(surfaces.sidebar.status).toBe("ready");
-    const sidebarOutput = [
-      ...surfaces.sidebar.lines,
-      ...(surfaces.sidebar.linesExpanded ?? []),
-    ].join("\n");
+    const sidebarOutput = await v2.renderSidebar("anthropic-fable-session");
     expect(sidebarOutput).toContain("Fable");
     expect(sidebarOutput).toContain("98%");
 
-    expect(surfaces.compact.status).toBe("ready");
-    const compactOutput = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
+    const compactOutput = await v2.renderSessionPrompt();
     expect(compactOutput).toContain("Fable");
     expect(compactOutput).toContain("98%");
 
@@ -942,25 +907,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(toastOutput).toContain("46%");
     expect(toastOutput).not.toContain("video");
 
-    const tuiApi = {
-      state: {
-        provider: [{ id: "minimax-china-coding-plan" }],
-        path: { worktree: process.cwd(), directory: process.cwd() },
-        session: { messages: () => [] },
-      },
-      client,
-    } as never;
-    const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
-    const surfaces = await loadTuiSessionQuotaSurfaces({
-      api: tuiApi,
-      sessionID: "minimax-china-session",
-    });
-
-    expect(surfaces.sidebar.status).toBe("ready");
-    const sidebarOutput = [
-      ...surfaces.sidebar.lines,
-      ...(surfaces.sidebar.linesExpanded ?? []),
-    ].join("\n");
+    const sidebarOutput = await v2.renderSidebar("minimax-china-session");
     expect(sidebarOutput).toContain("MiniMax Token Plan");
     expect(sidebarOutput).toContain("(CN)");
     expect(sidebarOutput).toContain("5h");
@@ -969,8 +916,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(sidebarOutput).toContain("46%");
     expect(sidebarOutput).not.toContain("video");
 
-    expect(surfaces.compact.status).toBe("ready");
-    const compactOutput = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
+    const compactOutput = await v2.renderSessionPrompt();
     expect(compactOutput).toContain("33%");
     expect(compactOutput).toContain("46%");
     expect(compactOutput).not.toContain("video");

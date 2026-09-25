@@ -220,6 +220,6 @@ export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
   }
 
   return kind === "tui"
-    ? normalized.includes("opencode-quota/dist/tui.tsx")
+    ? normalized.includes("opencode-quota/dist/tui.js")
     : normalized.includes("opencode-quota/dist/index.js");
 }

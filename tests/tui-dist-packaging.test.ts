@@ -43,7 +43,7 @@ describe("tui dist packaging", () => {
     expect(typeof local.default.setup).toBe("function");
   });
 
-  it("ships the precompiled TUI entry and removes stale jsx artifacts", async () => {
+  it("ships the precompiled TUI entry without jsx artifacts", async () => {
     const distTui = new URL("../dist/tui.js", import.meta.url);
     const distJsx = new URL("../dist/tui.jsx", import.meta.url);
     const distJsxMap = new URL("../dist/tui.jsx.map", import.meta.url);

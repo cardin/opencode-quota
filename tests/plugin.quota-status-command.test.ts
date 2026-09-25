@@ -5,7 +5,6 @@ import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
   createConfigModuleMock,
-  createPluginToolMockModule,
   createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
@@ -29,8 +28,6 @@ const mocks = vi.hoisted(() => ({
   buildQuotaStatusReport: vi.fn(),
   inspectTuiConfig: vi.fn(),
 }));
-
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 

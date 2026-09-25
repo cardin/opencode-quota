@@ -6,7 +6,6 @@ import {
   createPluginTestClient as createClient,
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
-  createPluginToolMockModule,
   createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
@@ -57,7 +56,6 @@ const resetMocks = vi.hoisted(() => ({
   formatQuotaResetNotification: vi.fn(),
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 vi.mock("../src/providers/registry.js", () =>
   createProvidersRegistryModuleMock(mocks.getProviders),

@@ -285,7 +285,7 @@ describe("init installer planning and merge behavior", () => {
     writeFileSync(
       join(projectDir, "tui.json"),
       JSON.stringify({
-        plugin: ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx"],
+        plugin: ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.js"],
         tui: {
           plugin: [["some-other-plugin", { debug: true }]],
         },
@@ -369,7 +369,7 @@ describe("init installer planning and merge behavior", () => {
     writeFileSync(
       join(projectDir, "opencode.json"),
       JSON.stringify({
-        plugin: ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx"],
+        plugin: ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.js"],
       }),
       "utf8",
     );
@@ -383,7 +383,7 @@ describe("init installer planning and merge behavior", () => {
 
     const opencode = readJson(join(projectDir, "opencode.jsonc"));
     expect(opencode.plugin).toEqual([
-      "file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx",
+      "file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.js",
       "@slkiser/opencode-quota@latest",
     ]);
   });

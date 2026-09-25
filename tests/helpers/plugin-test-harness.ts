@@ -78,25 +78,6 @@ interface PluginTuiConfigInspectionOverrides {
   workspaceRoot?: string;
 }
 
-function createSchemaChain() {
-  const chain: any = {};
-  chain.optional = () => chain;
-  chain.describe = () => chain;
-  chain.int = () => chain;
-  chain.min = () => chain;
-  return chain;
-}
-
-export function createPluginToolMockModule() {
-  const toolFn = ((definition: unknown) => definition) as any;
-  toolFn.schema = {
-    boolean: () => createSchemaChain(),
-    number: () => createSchemaChain(),
-  };
-
-  return { tool: toolFn };
-}
-
 export function createConfigModuleMock(loadConfig: MockFunction) {
   return {
     loadConfig,

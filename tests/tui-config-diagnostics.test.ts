@@ -77,12 +77,12 @@ describe("inspectTuiConfig", () => {
     expect(diagnostics.quotaPluginConfigPaths).toEqual([join(projectDir, "tui.jsonc")]);
   });
 
-  it("supports local file plugin specs that point at dist/tui.tsx", async () => {
+  it("supports local file plugin specs that point at dist/tui.js", async () => {
     writeFileSync(
       join(projectDir, "tui.json"),
       JSON.stringify({
         plugin: [
-          ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.tsx", { debug: true }],
+          ["file:///Users/test/Downloads/GitHub/opencode-quota/dist/tui.js", { debug: true }],
         ],
       }),
       "utf8",
