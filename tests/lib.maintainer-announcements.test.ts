@@ -28,8 +28,7 @@ const ecosystemAnnouncement = {
 } satisfies MaintainerAnnouncement;
 const openCode2FeedbackAnnouncement = {
   id: "opencode-2-feedback",
-  message:
-    "OpenCode 2 support is coming in OpenCode Quota 5.0, and 4.10.3 is the last release for OpenCode 1. Tell us what you want from the OpenCode 2 version.",
+  message: "OpenCode Quota 5.0 runs on OpenCode 2. Ideas for the next version? Tell us!",
   url: "https://github.com/slkiser/opencode-quota/issues/293",
   startsAt: "2026-09-25T00:00:00.000Z",
   endsAt: "2026-11-25T00:00:00.000Z",
