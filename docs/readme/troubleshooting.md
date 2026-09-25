@@ -27,7 +27,7 @@ OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.js
 | TUI toast is missing                                    | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`. Toasts appear only in the TUI.                                          |
 | Token reports are empty                                 | Start OpenCode once, then use a model so `opencode.db` contains usage.                                                                            |
 | Pricing looks old                                       | Run `/pricing_refresh`.                                                                                                                           |
-| Web or Desktop shows only one line                      | Expected: OpenCode 2 shows command results as a one-line notice. Run `npx @slkiser/opencode-quota show` in a terminal for the full report.        |
+| Web report columns do not line up                       | Expected: Web uses a proportional font. Use the TUI or run `npx @slkiser/opencode-quota show` in a terminal.                                      |
 
 ## Update safely
 

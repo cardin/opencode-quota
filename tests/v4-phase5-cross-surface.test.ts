@@ -180,7 +180,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const emit = (event: string, sessionID: string) => {
     for (const callback of events.get(event) ?? []) callback({ data: { sessionID } });
   };
-  let commands: Array<{ slash: { name: string }; run: (input?: unknown) => Promise<void> }> = [];
+  let commands: Array<{ id: string; run: () => Promise<void> }> = [];
   // Records the title and scrollbox text of each quota output dialog the TUI shows.
   const dialog = vi.fn((_input: { title: string; message: string }) => {});
   type Node = { type: string; props: Record<string, any> };
@@ -254,9 +254,9 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     },
   } as never);
   expect(slots).toEqual(["app", "sidebar.content", "prompt.footer", "home.footer.status"]);
-  const quota = commands.find((command) => command.slash.name === "quota");
+  const quota = commands.find((command) => command.id === "quota.quota");
   expect(quota).toBeDefined();
-  expect(commands.some((command) => command.slash.name === "quota_status")).toBe(true);
+  expect(commands.some((command) => command.id === "quota.quota_status")).toBe(true);
   const renderSurface = async (
     append: "sidebar.content" | "prompt.footer" | "home.footer.status",
     output: string[],

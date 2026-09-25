@@ -32,6 +32,7 @@ import {
   collectConcreteEnabledProviderIds,
   collectQuotaRenderData,
 } from "./lib/quota-render-data.js";
+import { readQuotaReport, readQuotaReportMetadata } from "./lib/quota-report-message.js";
 import {
   formatQuotaResetNotification,
   observeQuotaResetNotifications,
@@ -68,8 +69,7 @@ type KeymapCommand = {
   group: string;
   bind?: string;
   palette?: true;
-  slash?: { name: string; arguments?: true };
-  run: (input?: string) => void | Promise<void>;
+  run: () => void | Promise<void>;
 };
 type DialogTheme = {
   text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA } } };
@@ -635,17 +635,29 @@ function QuotaOutputDialog(props: {
   );
 }
 
+function showQuotaOutputDialog(
+  context: TuiContext,
+  output: { title: string; message: string; dialogSize: "medium" | "large" | "xlarge" },
+): Promise<void> {
+  return new Promise<void>((resolve) => {
+    context.ui.dialog.show(
+      () => <QuotaOutputDialog context={context} title={output.title} message={output.message} />,
+      resolve,
+    );
+    context.ui.dialog.set({ size: output.dialogSize });
+  });
+}
+
+/** Runs a quota command from the command palette. It opens the dialog and posts no message. */
 async function runQuotaCommand(
   context: TuiContext,
   command: QuotaDialogCommandId,
   sessionID: string | undefined,
-  input?: string,
 ): Promise<void> {
   const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === command)!;
-  let argumentsText = input?.trim() || undefined;
-  // Only /tokens_between needs arguments. /quota_announcements and /pricing_refresh
-  // accept typed arguments only to reject them, so they run without a prompt.
-  if (command === "tokens_between" && argumentsText === undefined) {
+  let argumentsText: string | undefined;
+  // Only /tokens_between needs arguments; the palette asks for them.
+  if (command === "tokens_between") {
     const value = await context.ui.dialog.prompt({
       title: spec.title,
       placeholder: "YYYY-MM-DD YYYY-MM-DD",
@@ -664,12 +676,10 @@ async function runQuotaCommand(
       resolveSessionMeta: (id) => getSessionModelMeta(context, id),
     });
     if (result.state === "noop") return;
-    await new Promise<void>((resolve) => {
-      context.ui.dialog.show(
-        () => <QuotaOutputDialog context={context} title={result.title} message={result.output} />,
-        resolve,
-      );
-      context.ui.dialog.set({ size: result.dialogSize });
+    await showQuotaOutputDialog(context, {
+      title: result.title,
+      message: result.output,
+      dialogSize: result.dialogSize,
     });
   } catch (error) {
     context.ui.toast.show({
@@ -678,6 +688,28 @@ async function runQuotaCommand(
       message: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
     });
   }
+}
+
+/**
+ * Typed quota slash commands run on the server, which posts the report into the chat.
+ * When a report arrives for the session on screen, open it in the dialog too.
+ */
+function showPostedQuotaReport(context: TuiContext, event: TuiEvent): void {
+  const sessionID = getSessionID(event);
+  if (!sessionID || sessionID !== getRouteSessionID(context)) return;
+  const item = event.data?.item as
+    | { type?: string; payload?: { text?: unknown; metadata?: Record<string, unknown> } }
+    | undefined;
+  if (item?.type !== "user" || typeof item.payload?.text !== "string") return;
+  const report = readQuotaReportMetadata(item.payload.metadata);
+  if (!report) return;
+  const spec = QUOTA_DIALOG_COMMANDS.find((candidate) => candidate.id === report.command);
+  if (!spec) return;
+  void showQuotaOutputDialog(context, {
+    title: report.title,
+    message: readQuotaReport(item.payload.text),
+    dialogSize: spec.dialogSize,
+  });
 }
 
 function getRouteSessionID(context: TuiContext): string | undefined {
@@ -692,11 +724,9 @@ function registerQuotaCommands(context: TuiContext): void {
       id: `quota.${spec.id}`,
       title: spec.title,
       group: "OpenCode Quota",
+      // No slash entry: the server plugin registers the "/" commands, so each is listed once.
       palette: true,
-      slash: spec.acceptsArguments
-        ? { name: spec.slashName, arguments: true as const }
-        : { name: spec.slashName },
-      run: (input?: string) => runQuotaCommand(context, spec.id, getRouteSessionID(context), input),
+      run: () => runQuotaCommand(context, spec.id, getRouteSessionID(context)),
     })),
   }));
 }
@@ -809,12 +839,16 @@ const plugin = Plugin.define({
           const id = event.data?.id;
           if (typeof id === "string") questionToolCalls.delete(id);
         });
+        const onInboxEnqueued = api.data.on("session.inbox.enqueued", (event) =>
+          showPostedQuotaReport(api, event),
+        );
         disposeEvents = () => {
           onExecutionSucceeded();
           onCompacted();
           onQuestionStarted();
           onQuestionSucceeded();
           onQuestionFailed();
+          onInboxEnqueued();
           questionToolCalls.clear();
         };
         return null;

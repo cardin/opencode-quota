@@ -60,8 +60,8 @@ The updater prints the complete preview before its own config or cache changes. 
 
 - OpenCode 1 is no longer supported. Stay on `4.10.3` if you still use OpenCode 1, or follow [Moving to OpenCode 2](docs/readme/updating.md#moving-to-opencode-2).
 - Logins are read only from OpenCode 2's database (`opencode.db`), never from `auth.json`. OpenCode 2 copies your old logins once, the first time it starts. If a provider is missing, log in again in OpenCode 2.
-- Web and Desktop have the quota slash commands but no toasts or panels, because OpenCode 2 gives plugins no Web UI hooks. A command's result appears as a one-line session notice, cut off at the window edge. For the full report, run `npx @slkiser/opencode-quota show` in a terminal.
-- One `"plugin"` entry in `opencode.json` now loads both the server and the TUI; no `tui.json` entry is needed. TUI slash commands open a dialog.
+- Web and Desktop have the quota slash commands but no toasts or panels, because OpenCode 2 gives plugins no Web UI hooks. On Web and Desktop, `/quota` posts the report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. If you uninstall the plugin, old reports in past chats are no longer filtered.
+- One `"plugin"` entry in `opencode.json` now loads both the server and the TUI; no `tui.json` entry is needed. TUI slash commands post the report in the chat and open a dialog; the command palette opens only the dialog.
 - `tuiCommandDisplay` and `tuiCompactStatus.suppressWhenNativeProviderQuota` were removed. Old keys are ignored.
 
 ## Choose your setup
@@ -95,7 +95,7 @@ The updater prints the complete preview before its own config or cache changes. 
 
 More ways to use it:
 
-- Check quota outside the TUI: run `npx @slkiser/opencode-quota show` in a terminal. In Web and Desktop, slash commands show a one-line notice, and the assistant can call the `quota_status` diagnostics tool.
+- Check quota outside the TUI: run `npx @slkiser/opencode-quota show` in a terminal. In Web and Desktop, slash commands post the report in the chat, and the assistant can call the `quota_status` diagnostics tool.
 - See every OpenCode login: each connection for a provider gets its own rows, and `*` marks the active one.
 - Automate quota checks with JSON output for scripts, status bars, and CI. Optional OpenTelemetry metrics support monitoring tools.
 - Customize the display with [`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings), OpenCode Go's preferred collapsed-sidebar window, spaced reset countdowns by default with a `resetTimeSpaced: false` dense opt-out, decimal reset precision, bare percent labels, and [`accountingDetail`](docs/readme/configuration.md#show-accounting-detail).
@@ -109,7 +109,7 @@ See [Configuration](docs/readme/configuration.md) for UI options and [Manual ins
 
 ### Core slash commands
 
-These run in the OpenCode TUI and show results in a dialog. Type arguments after the command, such as `/tokens_between 2026-09-01 2026-09-25`, or leave them out and a prompt asks for them. Web and Desktop list the same commands and show the result as a one-line session notice that is never sent to the model; see [Web and Desktop notes](docs/readme/manual-install.md#web-and-desktop-notes).
+These run in the OpenCode TUI, Web, and Desktop. Each posts its report in the chat as your message, and the AI never answers it; the TUI also opens the report in a dialog. Type arguments after the command, such as `/tokens_between 2026-09-01 2026-09-25`. In the TUI command palette, the same commands open only the dialog and ask for missing dates. See [Web and Desktop notes](docs/readme/manual-install.md#web-and-desktop-notes).
 
 | Command                                 | Use when                                                        |
 | --------------------------------------- | --------------------------------------------------------------- |

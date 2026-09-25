@@ -7,6 +7,7 @@ vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
 }));
 
 import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-commands.js";
+import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/plugin.js";
 
 type RegisteredTool = {
@@ -22,20 +23,27 @@ type RegisteredCommand = {
     delivery: "steer" | "queue";
   }) => Promise<void>;
 };
-type HookEvent = {
-  messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }>;
-};
+type Part = { type: string; text?: string };
+type Message = { role: string; metadata?: Record<string, unknown>; content: Part[] };
+type HookEvent = { messages: Message[]; result?: string };
 
 function createContext() {
   const tools: RegisteredTool[] = [];
   const commands: RegisteredCommand[] = [];
   const hooks = new Map<string, (event: HookEvent) => void>();
+  const calls: string[] = [];
   const ctx = {
     location: { directory: "/tmp/opencode/quota-plugin-v2" },
     provider: { list: vi.fn().mockResolvedValue({ data: [{ id: "openai" }] }) },
     session: {
       get: vi.fn().mockResolvedValue({ model: { id: "gpt-5", providerID: "openai" } }),
-      synthetic: vi.fn().mockResolvedValue({}),
+      wait: vi.fn(async () => {
+        calls.push("wait");
+      }),
+      prompt: vi.fn(async () => {
+        calls.push("prompt");
+        return {};
+      }),
       hook: vi.fn(async (name: string, callback: (event: HookEvent) => void) => {
         hooks.set(name, callback);
         return { dispose: async () => {} };
@@ -52,7 +60,7 @@ function createContext() {
       }),
     },
   };
-  return { ctx, tools, commands, hooks };
+  return { ctx, tools, commands, hooks, calls };
 }
 
 function findCommand(commands: RegisteredCommand[], name: string): RegisteredCommand {
@@ -65,9 +73,21 @@ function runCommand(commands: RegisteredCommand[], name: string, text = "") {
   return findCommand(commands, name).execute({
     sessionID: "session-web",
     prompt: { text },
-    delivery: "steer",
+    delivery: "queue",
   });
 }
+
+function hook(hooks: Map<string, (event: HookEvent) => void>, name: string) {
+  const found = hooks.get(name);
+  if (!found) throw new Error(`Hook not registered: ${name}`);
+  return found;
+}
+
+const user = (text: string, metadata?: Record<string, unknown>): Message => ({
+  role: "user",
+  ...(metadata ? { metadata } : {}),
+  content: [{ type: "text", text }],
+});
 
 describe("V2 server plugin", () => {
   beforeEach(() => {
@@ -103,9 +123,14 @@ describe("V2 server plugin", () => {
     );
   });
 
-  it("shows command output as a display-only synthetic message without a model turn", async () => {
-    const { ctx, commands } = createContext();
-    buildOutput.mockResolvedValue({ state: "output", output: "# Quota\nopenai 42%\u001b[31m" });
+  it("posts the report as a user message that never starts a model turn", async () => {
+    const { ctx, commands, calls } = createContext();
+    buildOutput.mockResolvedValue({
+      state: "output",
+      title: "OpenCode Quota",
+      output: "# Quota\nopenai 42%\u001b[31m",
+    });
+    vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
 
     await plugin.setup(ctx as never);
     await runCommand(commands, "quota");
@@ -113,20 +138,24 @@ describe("V2 server plugin", () => {
     expect(buildOutput).toHaveBeenCalledWith(
       expect.objectContaining({ command: "quota", sessionID: "session-web", arguments: undefined }),
     );
-    expect(ctx.session.synthetic).toHaveBeenCalledTimes(1);
-    const input = ctx.session.synthetic.mock.calls[0][0];
-    expect(input).toEqual({
+    expect(ctx.session.wait).toHaveBeenCalledWith({ sessionID: "session-web" });
+    expect(calls).toEqual(["wait", "prompt"]);
+    expect(ctx.session.prompt).toHaveBeenCalledTimes(1);
+    expect(ctx.session.prompt.mock.calls[0][0]).toEqual({
       sessionID: "session-web",
-      text: expect.any(String),
-      description: "# Quota\nopenai 42%",
+      text: formatQuotaReportMessage("# Quota\nopenai 42%"),
+      metadata: {
+        opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1_790_000_000_000 },
+      },
+      delivery: "steer",
       resume: false,
     });
-    expect(input.text).not.toContain("openai");
+    vi.mocked(Date.now).mockRestore();
   });
 
   it("passes typed arguments to the output builder", async () => {
     const { ctx, commands } = createContext();
-    buildOutput.mockResolvedValue({ state: "output", output: "report" });
+    buildOutput.mockResolvedValue({ state: "output", title: "Tokens", output: "report" });
 
     await plugin.setup(ctx as never);
     await runCommand(commands, "tokens_between", " 2026-09-01 2026-09-25 ");
@@ -136,10 +165,10 @@ describe("V2 server plugin", () => {
     );
   });
 
-  it("shows the builder's usage text when /tokens_between has no arguments", async () => {
+  it("posts the builder's usage text when /tokens_between has no arguments", async () => {
     const { ctx, commands } = createContext();
     const usage = "Invalid arguments for /tokens_between\n\nExpected: /tokens_between YYYY-MM-DD";
-    buildOutput.mockResolvedValue({ state: "output", output: usage });
+    buildOutput.mockResolvedValue({ state: "output", title: "Tokens", output: usage });
 
     await plugin.setup(ctx as never);
     await runCommand(commands, "tokens_between", "   ");
@@ -147,51 +176,106 @@ describe("V2 server plugin", () => {
     expect(buildOutput).toHaveBeenCalledWith(
       expect.objectContaining({ command: "tokens_between", arguments: undefined }),
     );
-    expect(ctx.session.synthetic.mock.calls[0][0].description).toBe(usage);
+    expect(ctx.session.prompt.mock.calls[0][0].text).toBe(formatQuotaReportMessage(usage));
   });
 
-  it("shows nothing when the plugin is disabled", async () => {
+  it("posts nothing when the plugin is disabled", async () => {
     const { ctx, commands } = createContext();
     buildOutput.mockResolvedValue({ state: "noop", command: "quota", reason: "disabled" });
 
     await plugin.setup(ctx as never);
     await runCommand(commands, "quota");
 
-    expect(ctx.session.synthetic).not.toHaveBeenCalled();
+    expect(ctx.session.wait).not.toHaveBeenCalled();
+    expect(ctx.session.prompt).not.toHaveBeenCalled();
   });
 
-  it("removes quota command messages from model requests and keeps everything else", async () => {
-    const { ctx, commands, hooks } = createContext();
-    buildOutput.mockResolvedValue({ state: "output", output: "report" });
-
+  it("removes only tagged quota reports from model requests", async () => {
+    const { ctx, hooks } = createContext();
     await plugin.setup(ctx as never);
-    await runCommand(commands, "quota");
-    const marker = ctx.session.synthetic.mock.calls[0][0].text as string;
+    const report = formatQuotaReportMessage("openai 42%");
 
-    expect([...hooks.keys()]).toEqual(["context", "compaction", "generate"]);
-    for (const hook of hooks.values()) {
-      const user = { role: "user", content: [{ type: "text", text: "What is my quota?" }] };
-      const assistant = { role: "assistant", content: [{ type: "text", text: marker }] };
-      const quoted = {
-        role: "user",
-        content: [
-          { type: "text", text: marker },
-          { type: "text", text: "Please explain the line above." },
-        ],
+    expect([...hooks.keys()]).toEqual(["context", "compaction", "generate", "title"]);
+    for (const name of ["context", "compaction", "generate"]) {
+      const tagged = user(report, { opencodeQuota: { command: "quota", title: "Quota", at: 1 } });
+      const question = user("What is my quota?");
+      const otherMetadata = user("Hello", { displayText: "Hello", comments: [] });
+      const assistant: Message = {
+        role: "assistant",
+        metadata: { opencodeQuota: { command: "quota", title: "Quota", at: 1 } },
+        content: [{ type: "text", text: "openai 42%" }],
       };
+      const image: Message = { role: "user", content: [{ type: "media" }] };
       const event: HookEvent = {
-        messages: [
-          { role: "user", content: [{ type: "text", text: marker }] },
-          user,
-          assistant,
-          quoted,
-          { role: "user", content: [{ type: "text", text: marker }] },
-        ],
+        messages: [tagged, question, otherMetadata, assistant, image, { ...tagged }],
       };
 
-      hook(event);
+      hook(hooks, name)(event);
 
-      expect(event.messages).toEqual([user, assistant, quoted]);
+      expect(event.messages).toEqual([question, otherMetadata, assistant, image]);
+      expect(event.messages[0]).toBe(question);
+      expect(event.messages[1]).toBe(otherMetadata);
     }
+  });
+
+  it("cuts reports out of compaction checkpoint text and keeps the rest", async () => {
+    const { ctx, hooks } = createContext();
+    await plugin.setup(ctx as never);
+    const report = formatQuotaReportMessage("openai 42%\nanthropic 7%");
+    const checkpoint: Message = {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `<recent-context>\n[User]: Fix the bug\n\n[User]: ${report}\n\n[Assistant]: Done\n</recent-context>`,
+        },
+        { type: "text", text: "no report here" },
+      ],
+    };
+    const assistantEcho: Message = { role: "assistant", content: [{ type: "text", text: report }] };
+
+    for (const name of ["context", "compaction", "generate"]) {
+      const event: HookEvent = { messages: [checkpoint, assistantEcho] };
+
+      hook(hooks, name)(event);
+
+      expect(event.messages[0].content).toEqual([
+        {
+          type: "text",
+          text: "<recent-context>\n[User]: Fix the bug\n\n[User]: \n\n[Assistant]: Done\n</recent-context>",
+        },
+        { type: "text", text: "no report here" },
+      ]);
+      expect(event.messages[0].content[1]).toBe(checkpoint.content[1]);
+      expect(event.messages[1]).toBe(assistantEcho);
+    }
+    expect(checkpoint.content[0].text).toContain("openai 42%");
+  });
+
+  it("never titles a session from a quota report", async () => {
+    const { ctx, hooks } = createContext();
+    await plugin.setup(ctx as never);
+    const title = hook(hooks, "title");
+    const report = formatQuotaReportMessage("openai 42%");
+
+    const reportOnly: HookEvent = { messages: [user(report)] };
+    title(reportOnly);
+    expect(reportOnly.result).toBe("");
+    expect(reportOnly.messages).toEqual([user("")]);
+
+    const mixed: HookEvent = {
+      messages: [user(`Original request:\n${report}\n\nRecent conversation:\nUser: Fix the bug`)],
+    };
+    title(mixed);
+    expect(mixed.result).toBeUndefined();
+    expect(mixed.messages).toEqual([
+      user("Original request:\n\n\nRecent conversation:\nUser: Fix the bug"),
+    ]);
+
+    const plain = user("Fix the bug");
+    const normal: HookEvent = { messages: [plain] };
+    title(normal);
+    expect(normal.result).toBeUndefined();
+    expect(normal.messages[0]).toBe(plain);
   });
 });

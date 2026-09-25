@@ -11,10 +11,7 @@ vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
 }));
 
 function startTui() {
-  const commands = new Map<
-    string,
-    { run: (input?: string) => Promise<void>; slash: { name: string } }
-  >();
+  const commands = new Map<string, { run: () => Promise<void>; slash?: unknown }>();
   const listeners = new Map<string, (event: { data?: Record<string, unknown> }) => void>();
   const show = vi.fn((_render: () => unknown, onClose?: () => void) => onClose?.());
   const set = vi.fn();
@@ -34,11 +31,7 @@ function startTui() {
       layer: vi.fn(
         (
           build: () => {
-            commands: Array<{
-              id: string;
-              run: (input?: string) => Promise<void>;
-              slash: { name: string };
-            }>;
+            commands: Array<{ id: string; run: () => Promise<void>; slash?: unknown }>;
           },
         ) => {
           for (const command of build().commands) commands.set(command.id, command);
@@ -72,12 +65,13 @@ describe("V2 CLI command boundary", () => {
     });
   });
 
-  it("registers the 12 local slash commands, not V1 server command hooks", () => {
+  it("registers the 12 palette commands without slash entries, not V1 server command hooks", () => {
     const tui = startTui();
     expect(tui.commands.size).toBe(12);
-    expect([...tui.commands.values()].map((item) => item.slash.name)).toEqual(
-      QUOTA_DIALOG_COMMANDS.map((item) => item.slashName),
+    expect([...tui.commands.keys()]).toEqual(
+      QUOTA_DIALOG_COMMANDS.map((item) => `quota.${item.id}`),
     );
+    expect([...tui.commands.values()].some((item) => item.slash !== undefined)).toBe(false);
     expect(new Set(QUOTA_DIALOG_COMMANDS.map((item) => item.id)).size).toBe(12);
     expect(tui.context.ui.slot).toHaveBeenCalledWith(expect.objectContaining({ append: "app" }));
     tui.dispose?.();
@@ -99,16 +93,16 @@ describe("V2 CLI command boundary", () => {
     tui.dispose?.();
   });
 
-  it("passes explicit /tokens_between arguments to the deterministic output builder", async () => {
+  it("passes the prompted /tokens_between range to the deterministic output builder", async () => {
     const tui = startTui();
-    await tui.commands.get("quota.tokens_between")?.run("not-a-date-range");
+    tui.prompt.mockResolvedValue("not-a-date-range");
+    await tui.commands.get("quota.tokens_between")?.run();
     expect(mocks.build).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "tokens_between",
         arguments: "not-a-date-range",
       }),
     );
-    expect(tui.prompt).not.toHaveBeenCalled();
     tui.dispose?.();
   });
 

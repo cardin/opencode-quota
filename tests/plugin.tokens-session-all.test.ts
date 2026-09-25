@@ -111,13 +111,13 @@ describe("/tokens_session_all command", () => {
     ]);
   });
 
-  it("registers /tokens_session_all as a V2 CLI slash command", async () => {
+  it("registers /tokens_session_all in the V2 TUI command palette", async () => {
     const { default: plugin } = await import("../src/tui-v2.js");
     const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
     const tokensSessionAllCommand = QUOTA_DIALOG_COMMANDS.find(
       (command) => command.id === "tokens_session_all",
     );
-    let commands: Array<{ slash: { name: string }; title: string }> = [];
+    let commands: Array<{ id: string; title: string }> = [];
     plugin.setup({
       keymap: {
         layer: (build: () => { commands: typeof commands }) => {
@@ -133,9 +133,9 @@ describe("/tokens_session_all command", () => {
       },
     } as never);
 
-    expect(
-      commands.find((command) => command.slash.name === tokensSessionAllCommand?.slashName),
-    ).toEqual(expect.objectContaining({ title: tokensSessionAllCommand?.title }));
+    expect(commands.find((command) => command.id === "quota.tokens_session_all")).toEqual(
+      expect.objectContaining({ title: tokensSessionAllCommand?.title }),
+    );
   });
 
   it("aggregates the current session tree for /tokens_session_all", async () => {

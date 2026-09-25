@@ -12,6 +12,7 @@ vi.mock("@opentui/solid", () => ({
   useTerminalDimensions: () => () => ({ width: 120, height: 40 }),
 }));
 
+import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/tui-v2.tsx";
 
 type Node = { type: string; props: Record<string, any> };
@@ -32,16 +33,18 @@ function findNode(node: unknown, type: string): Node | undefined {
 
 type RegisteredCommand = {
   id: string;
-  slash: { name: string; arguments?: true };
+  slash?: unknown;
   palette: boolean;
-  run: (input?: string) => Promise<void>;
+  run: () => Promise<void>;
 };
+type Listener = (event: { data?: Record<string, unknown> }) => void;
 
 function startTui(
   location?: { directory: string },
   route: { type: "home" } | { type: "session"; sessionID: string } = { type: "home" },
 ) {
   let layer: { commands: RegisteredCommand[] } | undefined;
+  const listeners = new Map<string, Listener>();
   const context = {
     location,
     theme: {
@@ -51,7 +54,10 @@ function startTui(
       })),
     },
     data: {
-      on: vi.fn(() => vi.fn()),
+      on: vi.fn((name: string, listener: Listener) => {
+        listeners.set(name, listener);
+        return vi.fn();
+      }),
       session: {
         get: vi.fn((sessionID: string) =>
           sessionID === "ses_known"
@@ -83,7 +89,8 @@ function startTui(
   plugin.setup(context as any);
   const commands = layer!.commands;
   const command = (id: string) => commands.find((item) => item.id === `quota.${id}`)!;
-  return { context, commands, command };
+  const emit = (name: string, data: Record<string, unknown>) => listeners.get(name)?.({ data });
+  return { context, commands, command, emit };
 }
 
 describe("V2 quota TUI commands", () => {
@@ -96,24 +103,25 @@ describe("V2 quota TUI commands", () => {
     });
   });
 
-  it("registers every quota command as a local slash command", () => {
+  it("registers every quota command in the palette and leaves slash commands to the server", () => {
     const { context, commands } = startTui();
 
-    expect(commands.map((command) => command.slash.name)).toEqual([
-      "quota",
-      "quota_status",
-      "quota_announcements",
-      "pricing_refresh",
-      "tokens_today",
-      "tokens_daily",
-      "tokens_weekly",
-      "tokens_monthly",
-      "tokens_all",
-      "tokens_session",
-      "tokens_session_all",
-      "tokens_between",
+    expect(commands.map((command) => command.id)).toEqual([
+      "quota.quota",
+      "quota.quota_status",
+      "quota.quota_announcements",
+      "quota.pricing_refresh",
+      "quota.tokens_today",
+      "quota.tokens_daily",
+      "quota.tokens_weekly",
+      "quota.tokens_monthly",
+      "quota.tokens_all",
+      "quota.tokens_session",
+      "quota.tokens_session_all",
+      "quota.tokens_between",
     ]);
     expect(commands.every((command) => command.palette)).toBe(true);
+    expect(commands.some((command) => "slash" in command)).toBe(false);
     expect(context.ui.slot).toHaveBeenCalledWith(expect.objectContaining({ append: "app" }));
     expect(context.ui.slot).toHaveBeenCalledWith(
       expect.objectContaining({ append: "sidebar.content" }),
@@ -130,56 +138,72 @@ describe("V2 quota TUI commands", () => {
       "session.tool.input.started",
       "session.tool.success",
       "session.tool.failed",
+      "session.inbox.enqueued",
     ]);
   });
 
-  it("asks OpenCode to keep typed slash arguments only for commands that take arguments", () => {
-    const { commands } = startTui();
-
-    expect(
-      commands.filter((command) => command.slash.arguments).map((command) => command.slash.name),
-    ).toEqual(["quota_announcements", "pricing_refresh", "tokens_between"]);
-  });
-
-  it("passes the typed /tokens_between string to the command without prompting", async () => {
+  it("prompts for /tokens_between dates in the palette and stops when cancelled", async () => {
     const { context, command } = startTui();
 
-    await command("tokens_between").run(" 2026-09-01 2026-09-25 ");
+    await command("tokens_between").run();
+    expect(context.ui.dialog.prompt).toHaveBeenCalledOnce();
+    expect(build).not.toHaveBeenCalled();
 
-    expect(context.ui.dialog.prompt).not.toHaveBeenCalled();
+    context.ui.dialog.prompt.mockResolvedValue(" 2026-09-01 2026-09-25 ");
+    await command("tokens_between").run();
     expect(build).toHaveBeenCalledWith(
       expect.objectContaining({ command: "tokens_between", arguments: "2026-09-01 2026-09-25" }),
     );
   });
 
-  it("prompts for /tokens_between arguments only when none were typed", async () => {
+  it("runs /quota_announcements and /pricing_refresh from the palette without a prompt", async () => {
     const { context, command } = startTui();
 
-    await command("tokens_between").run("");
-    await command("tokens_between").run();
-
-    expect(context.ui.dialog.prompt).toHaveBeenCalledTimes(2);
-    expect(build).not.toHaveBeenCalled();
-  });
-
-  it("runs /quota_announcements and /pricing_refresh without a prompt and forwards typed arguments", async () => {
-    const { context, command } = startTui();
-
-    for (const id of ["quota_announcements", "pricing_refresh"]) {
-      await command(id).run("");
-      await command(id).run();
-      await command(id).run(" extra ");
-    }
+    await command("quota_announcements").run();
+    await command("pricing_refresh").run();
 
     expect(context.ui.dialog.prompt).not.toHaveBeenCalled();
     expect(build.mock.calls.map(([params]) => [params.command, params.arguments])).toEqual([
       ["quota_announcements", undefined],
-      ["quota_announcements", undefined],
-      ["quota_announcements", "extra"],
       ["pricing_refresh", undefined],
-      ["pricing_refresh", undefined],
-      ["pricing_refresh", "extra"],
     ]);
+  });
+
+  it("opens the dialog when a quota report is posted to the session on screen", () => {
+    const { context, emit } = startTui(undefined, { type: "session", sessionID: "ses_open" });
+    const metadata = { opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1 } };
+    const item = (text: string, meta?: Record<string, unknown>, type = "user") => ({
+      type,
+      delivery: "steer",
+      payload: { text, ...(meta ? { metadata: meta } : {}) },
+    });
+    const report = formatQuotaReportMessage("openai 42%");
+
+    emit("session.inbox.enqueued", { sessionID: "ses_open", item: item("hello") });
+    emit("session.inbox.enqueued", {
+      sessionID: "ses_open",
+      item: item("hello", { displayText: "hello", comments: [] }),
+    });
+    emit("session.inbox.enqueued", { sessionID: "ses_open", item: item(report) });
+    emit("session.inbox.enqueued", {
+      sessionID: "ses_open",
+      item: item(report, metadata, "synthetic"),
+    });
+    emit("session.inbox.enqueued", { sessionID: "ses_other", item: item(report, metadata) });
+    expect(context.ui.dialog.show).not.toHaveBeenCalled();
+
+    vi.stubGlobal("React", {
+      createElement: (type: unknown, props: Record<string, unknown> | null) => ({ type, props }),
+    });
+    emit("session.inbox.enqueued", { sessionID: "ses_open", item: item(report, metadata) });
+
+    expect(context.ui.dialog.show).toHaveBeenCalledOnce();
+    expect(context.ui.dialog.set).toHaveBeenCalledWith({ size: "xlarge" });
+    const render = context.ui.dialog.show.mock.calls[0][0] as () => {
+      props: Record<string, unknown>;
+    };
+    expect(render().props).toMatchObject({ title: "OpenCode Quota", message: "openai 42%" });
+    expect(build).not.toHaveBeenCalled();
   });
 
   it("reads project config from the location's Git worktree root, like the server plugin", async () => {

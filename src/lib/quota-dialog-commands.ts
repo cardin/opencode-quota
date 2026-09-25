@@ -65,7 +65,6 @@ export type QuotaDialogCommandSpec = {
   description: string;
   dialogSize: "medium" | "large" | "xlarge";
   requiresSession?: boolean;
-  acceptsArguments?: boolean;
 };
 
 export type QuotaDialogCommandOutputResult =
@@ -225,7 +224,6 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
     title: "OpenCode Quota Announcements",
     description: "List active bundled maintainer announcements.",
     dialogSize: "xlarge",
-    acceptsArguments: true,
   },
   {
     id: "pricing_refresh",
@@ -233,7 +231,6 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
     title: "OpenCode Quota Pricing Refresh",
     description: "Refresh the local runtime pricing snapshot from models.dev.",
     dialogSize: "xlarge",
-    acceptsArguments: true,
   },
   ...TOKEN_REPORT_COMMANDS.map(
     (spec): QuotaDialogCommandSpec => ({
@@ -243,7 +240,6 @@ export const QUOTA_DIALOG_COMMANDS: readonly QuotaDialogCommandSpec[] = [
       description: spec.description,
       dialogSize: "xlarge",
       requiresSession: spec.kind === "session" || spec.kind === "session_tree",
-      acceptsArguments: spec.kind === "between",
     }),
   ),
 ] as const;

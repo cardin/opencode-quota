@@ -82,16 +82,17 @@ Put these settings in `quota-toast.jsonc`.
 | Quota bar under the prompt  | `tuiPromptBar.enabled: true`             |
 | Manual slash commands only  | Disable sidebar, toast, and compact line |
 
-TUI slash commands always open a dialog. Web and Desktop show none of the settings above.
+TUI slash commands post the report in the chat and open a dialog. Web and Desktop show none of the settings above.
 
 See [Configuration](configuration.md) for more examples and every setting.
 
 ## Web and Desktop notes
 
-- Web and Desktop list the same slash commands. The result appears as a one-line notice in the session, cut off at the window edge. For the full report, run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to run its `quota_status` tool.
-- The assistant never sees these notices: OpenCode Quota removes them from every model request. They stay in the session history.
-- Known limitation: when OpenCode compacts a long session, a recent notice can leave one short placeholder line (`[OpenCode Quota slash command output...]`) in the summary. The report itself is never included.
-- The TUI `/` menu lists each quota command twice: one opens the dialog, the other is the Web and Desktop version and adds a notice to the session.
+- On Web and Desktop, `/quota` posts the report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. If you uninstall the plugin, old reports in past chats are no longer filtered.
+- Each report starts with `[OpenCode Quota report]` and ends with `[End of OpenCode Quota report]`. These lines keep the report out of compaction summaries too.
+- Web shows chat messages in a proportional font, so report columns may not line up. For aligned columns, use the TUI or run `npx @slkiser/opencode-quota show` in a terminal.
+- If the AI is working when you run a command, the report appears after the AI finishes.
+- A new session whose first message is a report keeps its default title.
 
 ## Update safely
 

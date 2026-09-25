@@ -1185,7 +1185,7 @@ async function promptForSelections(
 
   if (interfaces === "web") {
     prompts.log.info(
-      "Web and Desktop show quota slash commands as one-line session notices, with no toasts or panels. For the full report, run `npx @slkiser/opencode-quota show` in a terminal.",
+      "Web and Desktop have quota slash commands but no toasts or panels. A command posts its report in the chat as your message; the AI never answers it.",
     );
   }
 

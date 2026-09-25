@@ -1,4 +1,4 @@
-/** OpenCode V2 server plugin: quota slash commands for Web and Desktop, plus a diagnostics tool. */
+/** OpenCode V2 server plugin: quota slash commands for every client, plus a diagnostics tool. */
 import { Plugin } from "@opencode/plugin";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
@@ -8,32 +8,41 @@ import {
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-commands.js";
-
-/**
- * The model-facing text of every quota slash command message. The report itself goes in
- * the synthetic message's `description`, which Web, Desktop, and the TUI display but
- * OpenCode never sends to the model. The session hooks below drop messages with exactly
- * this text, so they never reach the model either. The text is stored with the message,
- * so the filter keeps working after a restart.
- */
-const QUOTA_COMMAND_MESSAGE_TEXT =
-  "[OpenCode Quota slash command output. Shown to the user only; not part of the conversation.]";
+import {
+  containsQuotaReport,
+  formatQuotaReportMessage,
+  QUOTA_REPORT_METADATA_KEY,
+  type QuotaReportMetadata,
+  removeQuotaReports,
+} from "./lib/quota-report-message.js";
 
 type ModelMessage = {
   readonly role: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
   readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string | null }>;
 };
 
-function withoutQuotaCommandMessages<M extends ModelMessage>(messages: M[]): M[] {
-  return messages.filter(
-    (message) =>
-      !(
-        message.role === "user" &&
-        message.content.length === 1 &&
-        message.content[0].type === "text" &&
-        message.content[0].text === QUOTA_COMMAND_MESSAGE_TEXT
-      ),
-  );
+type ModelMessagePart = ModelMessage["content"][number];
+
+function hasQuotaReportText(part: ModelMessagePart): boolean {
+  return part.type === "text" && typeof part.text === "string" && containsQuotaReport(part.text);
+}
+
+/**
+ * Drops quota report messages, found by their metadata, and cuts reports out of the text of
+ * the remaining user messages. The cut covers compaction checkpoints, which hold copied
+ * message text without its metadata, and title requests, which get plain text only.
+ */
+function withoutQuotaReports<M extends ModelMessage>(messages: M[]): M[] {
+  return messages.flatMap((message): M[] => {
+    if (message.role !== "user") return [message];
+    if (message.metadata?.[QUOTA_REPORT_METADATA_KEY] !== undefined) return [];
+    if (!message.content.some(hasQuotaReportText)) return [message];
+    const content = message.content.map((part) =>
+      hasQuotaReportText(part) ? { ...part, text: removeQuotaReports(part.text as string) } : part,
+    );
+    return [{ ...message, content }];
+  });
 }
 
 export const QuotaToastPlugin = Plugin.define({
@@ -98,8 +107,8 @@ export const QuotaToastPlugin = Plugin.define({
       });
     });
 
-    // Web and Desktop list these in their "/" menu. The TUI also registers dialog
-    // commands with the same names, so the TUI "/" menu lists each name twice.
+    // Web, Desktop, and the TUI list these in their "/" menu. The TUI opens its dialog when
+    // a report arrives; its command palette runs the same reports without posting them.
     await ctx.command.transform((editor) => {
       for (const spec of QUOTA_DIALOG_COMMANDS) {
         editor.add({
@@ -112,12 +121,23 @@ export const QuotaToastPlugin = Plugin.define({
               invocation.prompt.text.trim() || undefined,
             );
             if (result.state === "noop") return;
-            // resume: false admits the message without starting a model turn. It waits in the
-            // session inbox until the next prompt; Web, Desktop, and the TUI show it right away.
-            await ctx.session.synthetic({
+            // A message admitted while the AI works is delivered into that turn at its next
+            // step, and can make the AI take one more step. Wait until the session is idle.
+            await ctx.session.wait({ sessionID: invocation.sessionID });
+            const metadata: QuotaReportMetadata = {
+              command: spec.id,
+              title: result.title,
+              at: Date.now(),
+            };
+            // The report is posted as the user's message. resume: false admits it without
+            // starting a model turn, so it waits in the session inbox, where Web, Desktop,
+            // and the TUI show it. "steer" delivers it together with the user's next message;
+            // "queue" would later give it a model turn of its own.
+            await ctx.session.prompt({
               sessionID: invocation.sessionID,
-              text: QUOTA_COMMAND_MESSAGE_TEXT,
-              description: sanitizeDisplayText(result.output),
+              text: formatQuotaReportMessage(sanitizeDisplayText(result.output)),
+              metadata: { [QUOTA_REPORT_METADATA_KEY]: metadata },
+              delivery: "steer",
               resume: false,
             });
           },
@@ -125,13 +145,23 @@ export const QuotaToastPlugin = Plugin.define({
       }
     });
 
-    // Keep quota command messages out of every model request built from session history:
+    // Keep quota reports out of every model request built from session history:
     // normal turns, compaction summaries, and generate requests.
     for (const hook of ["context", "compaction", "generate"] as const) {
       await ctx.session.hook(hook, (event) => {
-        event.messages = withoutQuotaCommandMessages(event.messages);
+        event.messages = withoutQuotaReports(event.messages);
       });
     }
+    // OpenCode titles a new session from its first user message, which can be a report.
+    // With nothing else to title from, skip the title request and keep the default title.
+    await ctx.session.hook("title", (event) => {
+      if (!event.messages.some((message) => message.content.some(hasQuotaReportText))) return;
+      event.messages = withoutQuotaReports(event.messages);
+      const textLeft = event.messages.some((message) =>
+        message.content.some((part) => part.type === "text" && part.text.trim() !== ""),
+      );
+      if (!textLeft) event.result = "";
+    });
   },
 });
 

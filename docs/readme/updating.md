@@ -46,7 +46,7 @@ The updater builds one plan, prints it in full, and then either stops or applies
 2. Run the update steps above.
 3. Run `/quota_status` in the OpenCode TUI. If a provider you use is missing, log in to it again in OpenCode 2 (`/connect`, or `opencode auth login <provider>`). OpenCode Quota never reads `auth.json`.
 
-The `opencode.json` plugin entry loads both the server and the TUI; no `tui.json` entry is needed. Web and Desktop have the quota slash commands but no toasts or panels on OpenCode 2; see [Web and Desktop notes](manual-install.md#web-and-desktop-notes). For the full report there, use `npx @slkiser/opencode-quota show` in a terminal.
+The `opencode.json` plugin entry loads both the server and the TUI; no `tui.json` entry is needed. Web and Desktop have the quota slash commands, which post the report in the chat, but no toasts or panels on OpenCode 2; see [Web and Desktop notes](manual-install.md#web-and-desktop-notes).
 
 ## Read the preview
 
