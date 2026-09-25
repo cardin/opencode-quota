@@ -11,7 +11,6 @@ import {
   type ConfigFileFormat,
   dedupeNonEmptyStrings,
   type EditableConfigPath,
-  extractPluginSpecsFromParsedConfig,
   findGitWorktreeRoot,
   getPluginSpecFromEntry,
   isQuotaPluginSpec,
@@ -42,7 +41,6 @@ import type { QuotaToastConfig, SessionTokenScope, TuiCommandDisplay } from "./t
 
 const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
-const TUI_SCHEMA_URL = "https://opencode.ai/tui.json";
 const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
 const TUI_COMMAND_DISPLAY_COMMENT =
@@ -76,7 +74,7 @@ export interface InitInstallerQuickSetupNote {
 }
 
 export interface PlannedConfigEdit {
-  kind: "opencode" | "tui" | "quota";
+  kind: "opencode" | "quota";
   path: string;
   existed: boolean;
   format: ConfigFileFormat;
@@ -130,7 +128,6 @@ type PromptOption = {
 type NormalizedQuotaUiIntent = {
   choices: InitQuotaUiChoice[];
   enableToast: boolean;
-  installTuiPlugin: boolean;
   enableSidebarPanel: boolean;
   enableCompactStatus: boolean;
 };
@@ -211,7 +208,6 @@ function normalizeQuotaUiIntent(selections: InitInstallerSelections): Normalized
   return {
     choices,
     enableToast: choices.includes("toast"),
-    installTuiPlugin: selections.interfaces !== "web",
     enableSidebarPanel,
     enableCompactStatus,
   };
@@ -289,12 +285,11 @@ function ensureSchema(root: JsonObject, schemaUrl: string, edit: PlannedConfigEd
 function appendQuotaPluginIfMissing(params: {
   container: unknown[];
   pathLabel: string;
-  kind: "opencode" | "tui";
   edit: PlannedConfigEdit;
 }): void {
   const alreadyConfigured = params.container.some((entry) => {
     const spec = getPluginSpecFromEntry(entry);
-    return typeof spec === "string" && isQuotaPluginSpec(spec, params.kind);
+    return typeof spec === "string" && isQuotaPluginSpec(spec, "opencode");
   });
 
   if (alreadyConfigured) {
@@ -323,51 +318,6 @@ function ensureTopLevelPluginArray(root: JsonObject, edit: PlannedConfigEdit): u
   }
 
   return root.plugin;
-}
-
-function ensureTuiPluginArray(
-  root: JsonObject,
-  edit: PlannedConfigEdit,
-): {
-  container: unknown[];
-  pathLabel: string;
-} {
-  if (isPlainObject(root.tui) && hasOwnKey(root.tui, "plugin")) {
-    const tuiRoot = root.tui as JsonObject;
-    if (!Array.isArray(tuiRoot.plugin)) {
-      throw new InitInstallerError(
-        `Cannot update ${edit.kind} config because tui.plugin is not an array.`,
-        { path: edit.path },
-      );
-    }
-
-    return {
-      container: tuiRoot.plugin,
-      pathLabel: "tui.plugin",
-    };
-  }
-
-  if (hasOwnKey(root, "plugin")) {
-    if (!Array.isArray(root.plugin)) {
-      throw new InitInstallerError(
-        `Cannot update ${edit.kind} config because plugin is not an array.`,
-        { path: edit.path },
-      );
-    }
-
-    return {
-      container: root.plugin,
-      pathLabel: "plugin",
-    };
-  }
-
-  const next: unknown[] = [];
-  root.plugin = next;
-  edit.changed = true;
-  return {
-    container: next,
-    pathLabel: "plugin",
-  };
 }
 
 function addSettingIfMissing(
@@ -699,7 +649,6 @@ async function planOpencodeEdit(params: {
   appendQuotaPluginIfMissing({
     container: plugin,
     pathLabel: "plugin",
-    kind: "opencode",
     edit,
   });
 
@@ -939,128 +888,6 @@ async function planQuotaConfigEdit(params: {
   return edit;
 }
 
-function getCanonicalQuotaPackageSpecForRemoval(entry: unknown): string | undefined {
-  const spec =
-    typeof entry === "string"
-      ? entry
-      : Array.isArray(entry) && typeof entry[0] === "string"
-        ? entry[0]
-        : undefined;
-  if (spec === "@slkiser/opencode-quota") return spec;
-  if (
-    spec !== undefined &&
-    /^@slkiser\/opencode-quota@(?:v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|[A-Za-z][0-9A-Za-z._-]*)$/.test(
-      spec,
-    )
-  ) {
-    return spec;
-  }
-  return undefined;
-}
-
-function removeQuotaPluginsFromTui(root: JsonObject, edit: PlannedConfigEdit): void {
-  const containers: Array<{ value: unknown; pathLabel: string }> = [
-    { value: root.plugin, pathLabel: "plugin" },
-  ];
-  if (isPlainObject(root.tui)) {
-    containers.push({ value: root.tui.plugin, pathLabel: "tui.plugin" });
-  }
-
-  for (const container of containers) {
-    if (!Array.isArray(container.value)) continue;
-    const retained = container.value.filter((entry) => {
-      const spec = getCanonicalQuotaPackageSpecForRemoval(entry);
-      if (spec !== undefined) {
-        edit.updatedKeys.push(`${container.pathLabel}: remove ${spec}`);
-        return false;
-      }
-      return true;
-    });
-    if (retained.length !== container.value.length) {
-      container.value.splice(0, container.value.length, ...retained);
-      edit.changed = true;
-    }
-  }
-}
-
-async function planTuiEdit(params: {
-  selections: InitInstallerSelections;
-  baseDir: string;
-}): Promise<PlannedConfigEdit> {
-  const target = resolveEditableConfigPath({
-    dir: params.baseDir,
-    kind: "tui",
-    preferredFormat: params.selections.configFormat ?? "jsonc",
-    convertJsonToJsonc: params.selections.interfaces !== "web",
-  });
-  const edit: PlannedConfigEdit = {
-    kind: "tui",
-    path: target.path,
-    existed: target.existed,
-    format: target.format,
-    changed: false,
-    addedPlugins: [],
-    addedKeys: [],
-    updatedKeys: [],
-    valueChanges: [],
-    skippedValues: [],
-    warnings: [],
-  };
-
-  if (params.selections.interfaces === "web" && !target.existed) {
-    return edit;
-  }
-
-  const root = target.existed
-    ? await readExistingConfig({
-        path: target.sourcePath,
-        format: target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json",
-      })
-    : {};
-  if (!target.existed) {
-    ensureSchema(root, TUI_SCHEMA_URL, edit);
-  }
-
-  if (params.selections.interfaces === "web") {
-    removeQuotaPluginsFromTui(root, edit);
-  } else {
-    const existingPluginSpecs = extractPluginSpecsFromParsedConfig(root);
-    if (existingPluginSpecs.some((spec) => isQuotaPluginSpec(spec, "tui"))) {
-      edit.skippedValues.push(`tui config already includes ${QUOTA_PLUGIN_SPEC}`);
-    } else {
-      const pluginTarget = ensureTuiPluginArray(root, edit);
-      appendQuotaPluginIfMissing({
-        container: pluginTarget.container,
-        pathLabel: pluginTarget.pathLabel,
-        kind: "tui",
-        edit,
-      });
-    }
-  }
-
-  const documentEdit = await planConfigDocumentEdit({
-    target,
-    desiredData: root,
-    managedComments:
-      params.selections.interfaces === "web"
-        ? []
-        : [
-            {
-              path: ["plugin"],
-              text: TUI_COMMAND_DISPLAY_COMMENT,
-            },
-            {
-              path: ["plugin"],
-              text: "// OpenCode Quota: loads the TUI sidebar, compact status, and local commands.",
-            },
-          ],
-  });
-  edit.changed = documentEdit.changed;
-  edit.documentEdit = documentEdit;
-
-  return edit;
-}
-
 function buildPlanSummary(plan: InitInstallerPlan): string[] {
   const quotaUiIntent = normalizeQuotaUiIntent(plan.selections);
   const opencodeFormat =
@@ -1224,10 +1051,6 @@ export async function planInitInstaller(params: {
     }),
     quotaEdit,
   ];
-  const tuiEdit = await planTuiEdit({ selections, baseDir });
-  if (selections.interfaces !== "web" || tuiEdit.existed) {
-    edits.push(tuiEdit);
-  }
 
   const quickSetupNotes = buildQuickSetupNotes(selections);
   const warnings = edits.flatMap((edit) => edit.warnings);

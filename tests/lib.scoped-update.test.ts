@@ -135,9 +135,28 @@ describe("scoped update config planning", () => {
     expect(readFileSync(ignoredJson, "utf8")).toContain("@1.0.0");
   });
 
+  it("leaves tui.json files untouched", async () => {
+    const f = fixture();
+    const projectTui = join(f.project, "tui.json");
+    const globalTui = join(f.global, "tui.jsonc");
+    const original = `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`;
+    write(projectTui, original);
+    write(globalTui, original);
+    const plan = await planScopedUpdate({
+      cwd: f.project,
+      env: f.env,
+      homeDir: join(f.root, "home"),
+      platform: "linux",
+    });
+    expect(plan.configPaths).toEqual([]);
+    expect(plan.configEdits).toEqual([]);
+    expect(readFileSync(projectTui, "utf8")).toBe(original);
+    expect(readFileSync(globalTui, "utf8")).toBe(original);
+  });
+
   it("honors OPENCODE_CONFIG_DIR and deduplicates project/global real paths", async () => {
     const f = fixture();
-    const config = join(f.project, "tui.jsonc");
+    const config = join(f.project, "opencode.jsonc");
     write(config, `{"plugin":["@slkiser/opencode-quota"]}`);
     const plan = await planScopedUpdate({
       cwd: f.project,
@@ -151,7 +170,7 @@ describe("scoped update config planning", () => {
     const f = fixture();
     const valid = join(f.project, "opencode.json");
     write(valid, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
-    write(join(f.global, "tui.jsonc"), `{ nope`);
+    write(join(f.global, "opencode.jsonc"), `{ nope`);
     await expect(
       planScopedUpdate({ cwd: f.project, env: f.env, homeDir: join(f.root, "home") }),
     ).rejects.toThrow("unparseable");
@@ -291,7 +310,7 @@ describe("scoped update config planning", () => {
   it("preserves package-first then explicit migration-only snapshot order", async () => {
     const f = fixture();
     const projectConfig = join(f.project, "opencode.json");
-    const globalConfig = join(f.global, "tui.json");
+    const globalConfig = join(f.global, "opencode.json");
     const globalSidecar = join(f.global, "opencode-quota", "quota-toast.json");
     const workspaceSidecar = join(f.project, "opencode-quota", "quota-toast.jsonc");
     write(projectConfig, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
@@ -661,7 +680,7 @@ describe("scoped update application safety", () => {
   it("preflights every snapshot before the first write", async () => {
     const f = fixture();
     const first = join(f.project, "opencode.json");
-    const second = join(f.global, "tui.json");
+    const second = join(f.global, "opencode.json");
     const original = `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`;
     write(first, original);
     write(second, original);
@@ -720,7 +739,7 @@ describe("scoped update application safety", () => {
   ] as const)("reports earlier writes when a later config %s fails", async (failureKind) => {
     const f = fixture();
     const first = join(f.project, "opencode.json");
-    const second = join(f.global, "tui.json");
+    const second = join(f.global, "opencode.json");
     write(first, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
     write(second, `{"plugin":["@slkiser/opencode-quota@3.11.1"]}`);
     const plan = await planScopedUpdate({

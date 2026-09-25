@@ -104,10 +104,8 @@ export function sanitizeOpenCodePackageSpec(
 }
 
 function selectedConfigPaths(root: string): string[] {
-  return (["opencode", "tui"] as const).flatMap((kind) => {
-    const path = resolveExistingConfigPath(root, kind);
-    return path ? [path] : [];
-  });
+  const path = resolveExistingConfigPath(root, "opencode");
+  return path ? [path] : [];
 }
 
 async function dedupeByRealPath(paths: string[]): Promise<string[]> {
@@ -127,10 +125,6 @@ function pluginArrays(config: unknown): Array<{ path: (string | number)[]; entri
   const root = config as Record<string, unknown>;
   const arrays: Array<{ path: (string | number)[]; entries: unknown[] }> = [];
   if (Array.isArray(root.plugin)) arrays.push({ path: ["plugin"], entries: root.plugin });
-  if (root.tui && typeof root.tui === "object" && !Array.isArray(root.tui)) {
-    const tui = root.tui as Record<string, unknown>;
-    if (Array.isArray(tui.plugin)) arrays.push({ path: ["tui", "plugin"], entries: tui.plugin });
-  }
   return arrays;
 }
 
