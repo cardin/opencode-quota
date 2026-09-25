@@ -19,7 +19,7 @@ OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.js
 
 | Problem                                                 | Try this                                                                                                                                          |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Slash commands are missing                              | They exist only in the TUI. Check the plugin entry above, then restart OpenCode.                                                                  |
+| Slash commands are missing                              | Check the plugin entry above, then restart OpenCode.                                                                                              |
 | `/quota` shows no providers                             | Run `/quota_status` or `opencode-quota status`, then check provider detection and authentication.                                                 |
 | Sidebar is missing                                      | Confirm the plugin is installed and `tuiSidebarPanel.enabled` is `true`.                                                                          |
 | Compact line is missing                                 | Confirm the plugin is installed and `tuiCompactStatus.enabled` is `true`.                                                                         |
@@ -27,7 +27,7 @@ OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.js
 | TUI toast is missing                                    | Check `enableToast`, `showOnIdle`, `showOnQuestion`, and `showOnCompact`. Toasts appear only in the TUI.                                          |
 | Token reports are empty                                 | Start OpenCode once, then use a model so `opencode.db` contains usage.                                                                            |
 | Pricing looks old                                       | Run `/pricing_refresh`.                                                                                                                           |
-| Web or Desktop shows no quota                           | Expected: OpenCode 2 gives plugins no Web UI. Run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to run `quota_status`.   |
+| Web or Desktop shows only one line                      | Expected: OpenCode 2 shows command results as a one-line notice. Run `npx @slkiser/opencode-quota show` in a terminal for the full report.        |
 
 ## Update safely
 

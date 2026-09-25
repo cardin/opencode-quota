@@ -1096,14 +1096,14 @@ describe("init installer planning and merge behavior", () => {
     expect(secondPlan.edits.find((edit) => edit.kind === "opencode")?.changed).toBe(false);
   });
 
-  it("tells Web users that Web and Desktop show no quota UI", async () => {
+  it("tells Web users what Web and Desktop show", async () => {
     const prompts = createPromptStub({ selectValues: ["web", Symbol.for("cancel")] });
 
     const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any });
 
     expect(code).toBe(0);
     expect(prompts.infoCalls).toContain(
-      "Web and Desktop show no quota UI. Run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to use its quota_status tool.",
+      "Web and Desktop show quota slash commands as one-line session notices, with no toasts or panels. For the full report, run `npx @slkiser/opencode-quota show` in a terminal.",
     );
   });
 

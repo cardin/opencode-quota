@@ -145,17 +145,21 @@ describe("V2 CLI command boundary", () => {
     tui.dispose?.();
   });
 
-  it("does not offer V1 web/server slash interception or agent-config normalization", async () => {
-    // V2 CLI commands are local keymap registrations. The server plugin only provides a tool;
-    // there is no V2 server command.execute.before hook to inject output into web sessions.
+  it("does not offer V1 slash interception or agent-config normalization", async () => {
+    // V2 TUI commands are local keymap registrations. The server plugin registers a tool and
+    // V2 server commands for Web and Desktop; it has no V1 command.execute.before hook.
     const server = (await import("../src/plugin.js")).default;
     const transform = vi.fn();
+    const commandTransform = vi.fn();
     await server.setup({
       location: { directory: process.cwd() },
       tool: { transform },
+      command: { transform: commandTransform },
+      session: { hook: vi.fn() },
       provider: { list: vi.fn() },
     } as never);
     expect(transform).toHaveBeenCalledOnce();
+    expect(commandTransform).toHaveBeenCalledOnce();
     expect((server as Record<string, unknown>)["command.execute.before"]).toBeUndefined();
     expect((server as Record<string, unknown>).config).toBeUndefined();
   });

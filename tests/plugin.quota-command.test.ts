@@ -68,7 +68,8 @@ async function createV2StatusTool(directory: string) {
   await server.setup({
     location: { directory },
     provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
-    session: { get: vi.fn().mockResolvedValue({}) },
+    session: { get: vi.fn().mockResolvedValue({}), hook: vi.fn() },
+    command: { transform: vi.fn() },
     tool: {
       transform: async (
         register: (editor: { add: (tool: { execute: typeof execute }) => void }) => void,
@@ -165,7 +166,7 @@ describe("/quota command behavior", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("registers the V2 server diagnostics tool with provider repair and no command hooks", async () => {
+  it("registers the V2 server diagnostics tool with provider repair and no V1 command hooks", async () => {
     const dialogModule = await import("../src/lib/quota-dialog-commands.js");
     const output = vi
       .spyOn(dialogModule, "buildQuotaDialogCommandOutput")
@@ -196,7 +197,11 @@ describe("/quota command behavior", () => {
         ),
       },
       provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
-      session: { get: vi.fn().mockResolvedValue({ model: { providerID: "openai", id: "gpt-5" } }) },
+      session: {
+        get: vi.fn().mockResolvedValue({ model: { providerID: "openai", id: "gpt-5" } }),
+        hook: vi.fn(),
+      },
+      command: { transform: vi.fn() },
     };
     await server.setup(ctx as never);
     expect(tool?.name).toBe("quota_status");

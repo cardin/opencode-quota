@@ -1185,7 +1185,7 @@ async function promptForSelections(
 
   if (interfaces === "web") {
     prompts.log.info(
-      "Web and Desktop show no quota UI. Run `npx @slkiser/opencode-quota show` in a terminal, or ask the assistant to use its quota_status tool.",
+      "Web and Desktop show quota slash commands as one-line session notices, with no toasts or panels. For the full report, run `npx @slkiser/opencode-quota show` in a terminal.",
     );
   }
 

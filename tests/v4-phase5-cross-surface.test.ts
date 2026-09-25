@@ -161,7 +161,9 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     provider: { list: vi.fn(async () => ({ data: providerIds.map((id) => ({ id })) })) },
     session: {
       get: vi.fn(async () => ({ model: { id: "model-one", providerID: providerIds[0] } })),
+      hook: vi.fn(),
     },
+    command: { transform: vi.fn() },
     tool: {
       transform: vi.fn(async (callback: (editor: { add(value: RegisteredTool): void }) => void) => {
         callback({

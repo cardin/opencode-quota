@@ -118,7 +118,9 @@ async function runQuotaStatus(sessionID: string): Promise<string> {
     provider: { list: vi.fn().mockResolvedValue({ data: [{ id: "opencode-go" }] }) },
     session: {
       get: vi.fn().mockResolvedValue({ model: { id: "model", providerID: "opencode-go" } }),
+      hook: vi.fn(),
     },
+    command: { transform: vi.fn() },
     tool: {
       transform: async (callback: (editor: { add: (tool: typeof quotaTool) => void }) => void) =>
         callback({
