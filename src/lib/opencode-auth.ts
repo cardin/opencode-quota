@@ -28,6 +28,14 @@ export type CredentialRow = {
   value: Record<string, unknown>;
 };
 
+/**
+ * Connection labels OpenCode assigns when the user never named the connection:
+ * `default` for a new connection, and `OAuth` / `API key` for credentials
+ * imported from the legacy auth.json. They say nothing about the account, so
+ * they must not appear in headers like `[OpenAI OAuth]`.
+ */
+const GENERIC_CREDENTIAL_LABELS: ReadonlySet<string> = new Set(["default", "oauth", "api key"]);
+
 export function formatCredentialDisplayNames(
   providerName: string,
   credentials: ReadonlyArray<{ row: CredentialRow; fallbackName: string }>,
@@ -37,7 +45,7 @@ export function formatCredentialDisplayNames(
     const alias = row.label.trim();
     const redundantAlias =
       !alias ||
-      alias.toLowerCase() === "default" ||
+      GENERIC_CREDENTIAL_LABELS.has(alias.toLowerCase()) ||
       alias.toLowerCase() === providerName.toLowerCase();
     const fallbackCategory = fallbackName
       .trim()
