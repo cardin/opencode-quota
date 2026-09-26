@@ -270,6 +270,8 @@ Thanks to everyone who has contributed to OpenCode Quota.
   <img src="https://contrib.rocks/image?repo=slkiser/opencode-quota" />
 </a>
 
+Help upstream: a 👍 on [opencode#38281](https://github.com/anomalyco/opencode/issues/38281) (ecosystem listing) and [#43132](https://github.com/anomalyco/opencode/issues/43132) (Web/Desktop plugin panels) helps. Please react; don't comment "+1".
+
 ## License
 
 MIT

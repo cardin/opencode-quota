@@ -57,6 +57,13 @@ export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[]
     endsAt: "2026-11-25T00:00:00.000Z",
   },
   {
+    id: "opencode-ecosystem-listing-thumbs-up",
+    message: "Help OpenCode list this plugin: add a thumbs-up to issue #38281.",
+    url: "https://github.com/anomalyco/opencode/issues/38281",
+    startsAt: "2026-09-26T00:00:00.000Z",
+    endsAt: "2026-10-26T00:00:00.000Z",
+  },
+  {
     id: "google-gemini-cli-org-only",
     message:
       "Gemini CLI quota support stays. It only works with Gemini Code Assist Standard or Enterprise (organization) accounts because Google ended personal accounts on 2026-06-18. Personal Google users should use Google AGY.",
