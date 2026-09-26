@@ -86,7 +86,7 @@ describe("opencode config provider discovery", () => {
       JSON.stringify({
         plugin: [
           "opencode-gemini-auth",
-          "@playwo/opencode-cursor-oauth",
+          "cursor-opencode-provider/plugin/opencode2",
           "@slkiser/opencode-quota",
         ],
       }),
@@ -99,17 +99,33 @@ describe("opencode config provider discovery", () => {
     ]);
   });
 
+  it("does not infer Cursor from OpenCode 1-only Cursor companion plugins", async () => {
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        plugin: [
+          "@playwo/opencode-cursor-oauth",
+          "opencode-cursor-oauth",
+          "@rama_nigg/open-cursor",
+        ],
+      }),
+      "utf8",
+    );
+
+    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
+  });
+
   it("deduplicates provider ids inferred from provider blocks and plugin specs", async () => {
     writeFileSync(
       join(globalConfigDir, "opencode.json"),
-      JSON.stringify({ plugin: ["open-cursor"] }),
+      JSON.stringify({ plugin: ["cursor-opencode-provider"] }),
       "utf8",
     );
     writeFileSync(
       join(workspaceDir, "opencode.json"),
       JSON.stringify({
         provider: { "alibaba-coding-plan": {}, cursor: {} },
-        plugin: [["@playwo/opencode-cursor-oauth", { enabled: true }]],
+        plugin: [["cursor-opencode-provider/server", { enabled: true }]],
       }),
       "utf8",
     );
@@ -130,7 +146,9 @@ describe("opencode config provider discovery", () => {
       join(workspaceDir, "opencode.json"),
       JSON.stringify({
         provider: { openai: {} },
-        plugins: [{ package: "@playwo/opencode-cursor-oauth", options: { enabled: true } }],
+        plugins: [
+          { package: "cursor-opencode-provider/plugin/opencode2", options: { enabled: true } },
+        ],
       }),
       "utf8",
     );

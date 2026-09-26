@@ -3,12 +3,11 @@ import { readFile } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { getPluginSpecFromEntry } from "./config-file-utils.js";
-import { CURSOR_LEGACY_PROVIDER_ID } from "./cursor-pricing.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getQuotaProviderRuntimeIds } from "./provider-metadata.js";
-import type { CursorOAuthAuthData } from "./types.js";
+import type { CursorAuthData } from "./types.js";
 
 export interface CursorAuthPresence {
   state: "missing" | "present" | "invalid";
@@ -25,20 +24,15 @@ export interface CursorOpenCodeIntegration {
   checkedPaths: string[];
 }
 
-export const CURSOR_CANONICAL_PLUGIN_PACKAGE = "@playwo/opencode-cursor-oauth";
-const CURSOR_LEGACY_PLUGIN_PACKAGES = ["opencode-cursor", "opencode-cursor-oauth"];
-const CURSOR_COMPAT_PLUGIN_PACKAGES = new Set([
-  CURSOR_CANONICAL_PLUGIN_PACKAGE,
-  ...CURSOR_LEGACY_PLUGIN_PACKAGES,
-  CURSOR_LEGACY_PROVIDER_ID,
-  "open-cursor",
-  "@rama_nigg/open-cursor",
-]);
-const CURSOR_COMPAT_PLUGIN_SUFFIXES = [
-  `/${CURSOR_CANONICAL_PLUGIN_PACKAGE}`,
-  ...CURSOR_LEGACY_PLUGIN_PACKAGES.map((pkg) => `/${pkg}`),
-  "/open-cursor",
-];
+export const CURSOR_CANONICAL_PLUGIN_PACKAGE = "cursor-opencode-provider";
+/**
+ * `cursor-opencode-provider` specs: the bare package (OpenCode 2 resolves its `./server`
+ * export), its OpenCode 2 entry `/plugin/opencode2`, or `/server`, each optionally
+ * version-pinned on the package or the entry, e.g. `cursor-opencode-provider@0.7.3/plugin/opencode2`.
+ */
+const CURSOR_PLUGIN_SPEC_PATTERN =
+  /^cursor-opencode-provider(@[^/]+)?(\/plugin\/opencode2|\/server)?(@[^/]+)?$/;
+const CURSOR_API_KEY_ENV = "CURSOR_API_KEY";
 
 function dedupe(list: string[]): string[] {
   return [...new Set(list.filter(Boolean))];
@@ -78,12 +72,14 @@ function hasNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function isValidCursorOAuthEntry(value: unknown): value is CursorOAuthAuthData {
+/** OpenCode 2 stores Cursor OAuth tokens as `oauth`, and an API key `key` credential that our reader maps to `api`. */
+function isValidCursorCredential(value: unknown): value is CursorAuthData {
   if (!value || typeof value !== "object") return false;
   const entry = value as Record<string, unknown>;
-  return (
-    entry.type === "oauth" && (hasNonEmptyString(entry.refresh) || hasNonEmptyString(entry.access))
-  );
+  if (entry.type === "oauth") {
+    return hasNonEmptyString(entry.refresh) || hasNonEmptyString(entry.access);
+  }
+  return entry.type === "api" && hasNonEmptyString(entry.key);
 }
 
 export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
@@ -97,7 +93,7 @@ export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
 
   const cursorAuth = (await readAuthFile())?.cursor;
   if (cursorAuth) {
-    if (isValidCursorOAuthEntry(cursorAuth)) {
+    if (isValidCursorCredential(cursorAuth)) {
       return {
         state: "present",
         selectedPath: credentialDatabasePath,
@@ -108,7 +104,16 @@ export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
 
     invalidPath = credentialDatabasePath;
     invalidError =
-      "Cursor credential in the OpenCode database is missing a valid oauth token payload";
+      "Cursor credential in the OpenCode database is missing a valid OAuth token or API key";
+  }
+
+  if (hasNonEmptyString(process.env[CURSOR_API_KEY_ENV])) {
+    return {
+      state: "present",
+      selectedPath: `env:${CURSOR_API_KEY_ENV}`,
+      presentPaths,
+      candidatePaths,
+    };
   }
 
   for (const path of legacyCandidatePaths) {
@@ -150,11 +155,7 @@ export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
 
 function pluginIncludesCursor(value: unknown): boolean {
   if (typeof value !== "string") return false;
-  const normalized = value.trim().toLowerCase();
-  return (
-    CURSOR_COMPAT_PLUGIN_PACKAGES.has(normalized) ||
-    CURSOR_COMPAT_PLUGIN_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
-  );
+  return CURSOR_PLUGIN_SPEC_PATTERN.test(value.trim().toLowerCase());
 }
 
 function providerConfigIncludesCursor(value: unknown): boolean {

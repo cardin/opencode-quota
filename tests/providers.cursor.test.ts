@@ -11,7 +11,7 @@ vi.mock("../src/lib/provider-availability.js", () => ({
 }));
 
 vi.mock("../src/lib/cursor-detection.js", () => ({
-  CURSOR_CANONICAL_PLUGIN_PACKAGE: "@playwo/opencode-cursor-oauth",
+  CURSOR_CANONICAL_PLUGIN_PACKAGE: "cursor-opencode-provider",
   inspectCursorAuthPresence: vi.fn(async () => ({
     state: "missing",
     presentPaths: [],

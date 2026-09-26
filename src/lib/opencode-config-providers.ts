@@ -75,16 +75,7 @@ const COMPANION_PLUGIN_PROVIDER_IDS: ReadonlyArray<{
   matches: readonly string[];
 }> = [
   { providerId: "google-gemini-cli", matches: ["opencode-gemini-auth"] },
-  {
-    providerId: "cursor",
-    matches: [
-      "@playwo/opencode-cursor-oauth",
-      "opencode-cursor-oauth",
-      "opencode-cursor",
-      "open-cursor",
-      "@rama_nigg/open-cursor",
-    ],
-  },
+  { providerId: "cursor", matches: ["cursor-opencode-provider"] },
 ];
 
 function mergeOpenCodeConfig(

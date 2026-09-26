@@ -64,6 +64,7 @@ describe("cursor detection", () => {
     mockAuth.value = null;
     vi.resetModules();
     delete process.env.CURSOR_ACP_HOME_DIR;
+    delete process.env.CURSOR_API_KEY;
   });
 
   it("prefers the Cursor OAuth credential in the OpenCode database", async () => {
@@ -107,15 +108,48 @@ describe("cursor detection", () => {
     expect(result.state).toBe("invalid");
     expect(result.selectedPath).toBe(testPaths.credentialDatabase);
     expect(result.error).toBe(
-      "Cursor credential in the OpenCode database is missing a valid oauth token payload",
+      "Cursor credential in the OpenCode database is missing a valid OAuth token or API key",
     );
   });
 
-  it("detects the canonical Cursor companion package and provider.cursor config", async () => {
+  it("accepts a Cursor API key credential in the OpenCode database", async () => {
+    mockFiles.set(testPaths.credentialDatabase, "");
+    // The credential reader maps OpenCode 2's stored `{ type: "key", key }` to `type: "api"`.
+    mockAuth.value = { cursor: { type: "api", key: "crsr_test-key" } };
+
+    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
+    const result = await inspectCursorAuthPresence();
+
+    expect(result.state).toBe("present");
+    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
+  });
+
+  it("reports a Cursor API key credential without a key as invalid", async () => {
+    mockFiles.set(testPaths.credentialDatabase, "");
+    mockAuth.value = { cursor: { type: "api", key: " " } };
+
+    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
+    const result = await inspectCursorAuthPresence();
+
+    expect(result.state).toBe("invalid");
+    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
+  });
+
+  it("accepts the CURSOR_API_KEY environment variable", async () => {
+    process.env.CURSOR_API_KEY = "crsr_env-key";
+
+    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
+    const result = await inspectCursorAuthPresence();
+
+    expect(result.state).toBe("present");
+    expect(result.selectedPath).toBe("env:CURSOR_API_KEY");
+  });
+
+  it("detects the cursor-opencode-provider plugin and provider.cursor config", async () => {
     mockFiles.set(
       testPaths.opencodeConfig,
       JSON.stringify({
-        plugin: ["@playwo/opencode-cursor-oauth"],
+        plugin: ["cursor-opencode-provider/plugin/opencode2"],
         provider: {
           cursor: {
             name: "Cursor",
@@ -129,17 +163,17 @@ describe("cursor detection", () => {
     );
     const result = await inspectCursorOpenCodeIntegration();
 
-    expect(CURSOR_CANONICAL_PLUGIN_PACKAGE).toBe("@playwo/opencode-cursor-oauth");
+    expect(CURSOR_CANONICAL_PLUGIN_PACKAGE).toBe("cursor-opencode-provider");
     expect(result.pluginEnabled).toBe(true);
     expect(result.providerConfigured).toBe(true);
     expect(result.matchedPaths).toEqual([testPaths.opencodeConfig]);
   });
 
-  it("detects the Cursor companion and provider in OpenCode 2 native plugins and providers", async () => {
+  it("detects the Cursor plugin and provider in OpenCode 2 native plugins and providers", async () => {
     mockFiles.set(
       testPaths.opencodeConfig,
       JSON.stringify({
-        plugins: [{ package: "@playwo/opencode-cursor-oauth", options: {} }],
+        plugins: [{ package: "cursor-opencode-provider/plugin/opencode2", options: {} }],
         providers: { cursor: { name: "Cursor" } },
       }),
     );
@@ -152,32 +186,56 @@ describe("cursor detection", () => {
     expect(result.matchedPaths).toEqual([testPaths.opencodeConfig]);
   });
 
-  it("keeps legacy Cursor plugin names as compatibility aliases", async () => {
-    const aliases = [
+  it("detects every cursor-opencode-provider entry and version-pinned spec", async () => {
+    const specs = [
+      "cursor-opencode-provider",
+      "cursor-opencode-provider/plugin/opencode2",
+      "cursor-opencode-provider/server",
+      "cursor-opencode-provider@0.7.3",
+      "cursor-opencode-provider@latest/plugin/opencode2",
+      "cursor-opencode-provider/plugin/opencode2@0.7.3",
+      "cursor-opencode-provider@0.7.3/server",
+      " Cursor-OpenCode-Provider/Plugin/OpenCode2 ",
+    ];
+
+    const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
+
+    for (const spec of specs) {
+      mockFiles.clear();
+      mockFiles.set(testPaths.opencodeConfig, JSON.stringify({ plugin: [spec] }));
+
+      const result = await inspectCursorOpenCodeIntegration();
+
+      expect(result.pluginEnabled, spec).toBe(true);
+      expect(result.providerConfigured, spec).toBe(false);
+      expect(result.matchedPaths, spec).toEqual([testPaths.opencodeConfig]);
+    }
+  });
+
+  it("no longer detects OpenCode 1-only Cursor companions or other entries", async () => {
+    const specs = [
+      "@playwo/opencode-cursor-oauth",
       "opencode-cursor-oauth",
       "opencode-cursor",
       "cursor-acp",
       "open-cursor",
       "@rama_nigg/open-cursor",
       "PoolPirate/opencode-cursor",
+      "cursor-opencode-provider/plugin",
+      "cursor-opencode-provider/plugin/v2",
+      "@someone/cursor-opencode-provider",
     ];
 
     const { inspectCursorOpenCodeIntegration } = await import("../src/lib/cursor-detection.js");
 
-    for (const alias of aliases) {
+    for (const spec of specs) {
       mockFiles.clear();
-      mockFiles.set(
-        testPaths.opencodeConfig,
-        JSON.stringify({
-          plugin: [alias],
-        }),
-      );
+      mockFiles.set(testPaths.opencodeConfig, JSON.stringify({ plugin: [spec] }));
 
       const result = await inspectCursorOpenCodeIntegration();
 
-      expect(result.pluginEnabled, alias).toBe(true);
-      expect(result.providerConfigured, alias).toBe(false);
-      expect(result.matchedPaths, alias).toEqual([testPaths.opencodeConfig]);
+      expect(result.pluginEnabled, spec).toBe(false);
+      expect(result.matchedPaths, spec).toEqual([]);
     }
   });
 

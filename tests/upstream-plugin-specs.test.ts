@@ -5,7 +5,6 @@ import {
   UPSTREAM_PLUGIN_REFERENCE_ROOT,
   UPSTREAM_PLUGIN_SPECS,
 } from "../scripts/lib/upstream-plugin-specs.mjs";
-import { CURSOR_CANONICAL_PLUGIN_PACKAGE } from "../src/lib/cursor-detection.js";
 
 describe("upstream-plugin-specs", () => {
   it("tracks the expected upstream plugin ids", () => {
@@ -65,11 +64,5 @@ describe("upstream-plugin-specs", () => {
         (spec) => spec.pluginId,
       ),
     ).toEqual(["opencode-agy-auth"]);
-  });
-
-  it("keeps the runtime Cursor package name aligned with the upstream spec", () => {
-    expect(getUpstreamPluginSpec("opencode-cursor-oauth")?.packageName).toBe(
-      CURSOR_CANONICAL_PLUGIN_PACKAGE,
-    );
   });
 });

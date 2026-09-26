@@ -308,11 +308,12 @@ export interface CopilotAuthData {
 
 export type AlibabaCodingPlanTier = "lite" | "pro";
 
-export interface CursorOAuthAuthData {
+export interface CursorAuthData {
   type: string;
   access?: string;
   refresh?: string;
   expires?: number;
+  key?: string;
   [key: string]: unknown;
 }
 
@@ -473,7 +474,7 @@ export interface AuthData {
   nanogpt?: NanoGptAuthData;
   "nano-gpt"?: NanoGptAuthData;
   deepseek?: DeepSeekAuthData;
-  cursor?: CursorOAuthAuthData;
+  cursor?: CursorAuthData;
   alibaba?: AlibabaAuthData;
   "alibaba-coding-plan"?: AlibabaAuthData;
   "zai-coding-plan"?: {
