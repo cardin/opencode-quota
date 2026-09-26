@@ -48,12 +48,20 @@ The updater builds one plan, prints it in full, and then either stops or applies
 
 What changed in `5.0.0`:
 
-- **OpenCode 1 is no longer supported.** Stay on `4.10.3` if you still use OpenCode 1.
+- **OpenCode 1 is no longer supported.** `init` and `update` detect OpenCode 1 and keep you on 4.x. See [OpenCode 1](#opencode-1).
 - **Logins come only from `opencode.db`.** OpenCode Quota reads logins only from OpenCode 2's database, never from `auth.json`. OpenCode 2 copies your old logins once, the first time it starts. If a provider is missing, log in again in OpenCode 2.
 - **Web and Desktop have slash commands but no toasts or panels,** because OpenCode 2 gives plugins no Web UI hooks. On Web and Desktop, `/quota` posts the report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. If you uninstall the plugin, old reports in past chats are no longer filtered. See [Web and Desktop notes](manual-install.md#web-and-desktop-notes).
 - **One plugin entry.** One `"plugin"` entry in `opencode.json` loads both the server and the TUI; no `tui.json` entry is needed.
 - **TUI reports open in a popup.** TUI slash commands and the command palette open the report in a popup and leave no chat message. `tuiCommandDisplay` now defaults to `"dialog"`; set `"inline"` to keep TUI slash reports in the chat instead.
 - **Removed setting.** `tuiCompactStatus.suppressWhenNativeProviderQuota` was removed; the old key is ignored.
+
+## OpenCode 1
+
+`init` and `update` run `opencode --version` first.
+
+- **OpenCode 2:** they work as described on this page.
+- **OpenCode 1:** `init` stops without changing anything and tells you to run `npx @slkiser/opencode-quota@4 init`. `update` keeps you on 4.x: its preview proposes pinning bare, `@latest`, `@next`, and exact-version quota specs to `@slkiser/opencode-quota@4`, applied like any other safe change.
+- **Unknown** (for example, `opencode` is not on your PATH): `init` asks which OpenCode you use. `update` assumes OpenCode 2 and prints a note; on OpenCode 1, set `"plugin": ["@slkiser/opencode-quota@4"]` yourself.
 
 ## Read the preview
 
@@ -76,7 +84,7 @@ Manual findings do not make the command fail. They remain your responsibility.
 
 The updater can:
 
-- change supported OpenCode Quota plugin package specs to `@latest`;
+- change supported OpenCode Quota plugin package specs to `@latest` (on OpenCode 1, pin them to `@4` instead);
 - remove only package-cache directories that pass path, symlink, containment, and exact package-manifest checks;
 - migrate recognized `opencodeZenDisplay` values in known file-backed quota config locations:
   - `"default"` becomes root `accountingDetail: "summary"`;

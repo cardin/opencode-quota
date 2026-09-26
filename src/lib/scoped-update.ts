@@ -16,6 +16,7 @@ import {
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { editConfigDocumentPaths, parseConfigDocument } from "./opencode-config-editor.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { detectOpenCodeMajor, type OpenCodeMajor } from "./opencode-version.js";
 import {
   auditObsoleteUpdateSources,
   discoverExistingScopedUpdateMigrationCandidates,
@@ -30,11 +31,12 @@ import {
 
 export const QUOTA_PACKAGE_NAME = "@slkiser/opencode-quota";
 export const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
+export const QUOTA_V4_SPEC = `${QUOTA_PACKAGE_NAME}@4`;
 /** Moving specs that update keeps as written; OpenCode re-resolves them after the cache cleanup. */
-const QUOTA_MOVING_SPECS = new Set([
+const QUOTA_MOVING_SPECS: ReadonlySet<string> = new Set([
   QUOTA_LATEST_SPEC,
   `${QUOTA_PACKAGE_NAME}@next`,
-  `${QUOTA_PACKAGE_NAME}@4`,
+  QUOTA_V4_SPEC,
 ]);
 const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 
@@ -70,6 +72,7 @@ export interface ScopedUpdatePlan {
   foundSpecs: string[];
   cacheCandidates: string[];
   authoritativeLatest: boolean;
+  openCodeMajor: OpenCodeMajor | undefined;
   safeActions: ScopedUpdateSafeAction[];
   manualFindings: ScopedUpdateManualFinding[];
 }
@@ -143,9 +146,20 @@ function pluginArrays(config: unknown): Array<{ path: (string | number)[]; entri
   return arrays;
 }
 
+/** OpenCode Quota 5 needs OpenCode 2, so on OpenCode 1 every quota spec except `@4` is pinned to `@4`. */
+function quotaUpdateTarget(openCodeMajor: OpenCodeMajor | undefined): {
+  keptSpecs: ReadonlySet<string>;
+  replacementSpec: string;
+} {
+  return openCodeMajor === 1
+    ? { keptSpecs: new Set([QUOTA_V4_SPEC]), replacementSpec: QUOTA_V4_SPEC }
+    : { keptSpecs: QUOTA_MOVING_SPECS, replacementSpec: QUOTA_LATEST_SPEC };
+}
+
 function updateConfig(
   raw: string,
   path: string,
+  openCodeMajor: OpenCodeMajor | undefined,
 ): {
   updated: string;
   replacements: number;
@@ -159,6 +173,7 @@ function updateConfig(
     throw new ScopedUpdateError(`Cannot update unparseable config: ${path}`, { path });
   }
 
+  const target = quotaUpdateTarget(openCodeMajor);
   const edits: Array<{ path: (string | number)[]; value: unknown }> = [];
   let replacements = 0;
   const specs: string[] = [];
@@ -175,7 +190,7 @@ function updateConfig(
               : null;
       if (spec === null || !isCanonicalQuotaUpdateSpec(spec)) continue;
       specs.push(spec);
-      if (QUOTA_MOVING_SPECS.has(spec)) continue;
+      if (target.keptSpecs.has(spec)) continue;
       // Replace only the package spec; keep the entry's plugin options.
       const targetPath =
         typeof entry === "string"
@@ -183,7 +198,7 @@ function updateConfig(
           : Array.isArray(entry)
             ? [...array.path, index, 0]
             : [...array.path, index, "package"];
-      edits.push({ path: targetPath, value: QUOTA_LATEST_SPEC });
+      edits.push({ path: targetPath, value: target.replacementSpec });
       replacements++;
     }
   }
@@ -214,6 +229,7 @@ export async function planScopedUpdate(
     env?: NodeJS.ProcessEnv;
     homeDir?: string;
     platform?: NodeJS.Platform;
+    openCodeMajor?: OpenCodeMajor;
   } = {},
 ): Promise<ScopedUpdatePlan> {
   const cwd = params.cwd ?? process.cwd();
@@ -234,7 +250,7 @@ export async function planScopedUpdate(
     const canonicalPath = await realpath(path);
     const originalBytes = await readFile(path);
     const original = originalBytes.toString("utf8");
-    const planned = updateConfig(original, path);
+    const planned = updateConfig(original, path, params.openCodeMajor);
     foundSpecs.push(...planned.specs);
     const roles = new Set<ScopedUpdateConfigRole>(["package-authority"]);
     if (planned.replacements > 0) {
@@ -359,7 +375,9 @@ export async function planScopedUpdate(
   }
 
   const uniqueSpecs = [...new Set(foundSpecs)];
-  const cacheSpecs = [...new Set([...uniqueSpecs, QUOTA_LATEST_SPEC])];
+  const cacheSpecs = [
+    ...new Set([...uniqueSpecs, quotaUpdateTarget(params.openCodeMajor).replacementSpec]),
+  ];
   const cacheCandidates = cacheSpecs.map((spec) =>
     join(runtime.cacheDir, "packages", sanitizeOpenCodePackageSpec(spec, params.platform)),
   );
@@ -371,6 +389,7 @@ export async function planScopedUpdate(
     foundSpecs: uniqueSpecs,
     cacheCandidates: [...new Set(cacheCandidates)],
     authoritativeLatest: uniqueSpecs.length > 0,
+    openCodeMajor: params.openCodeMajor,
     safeActions: sortScopedUpdateSafeActions(safeActions),
     manualFindings: sortScopedUpdateManualFindings(manualFindings),
   };
@@ -479,6 +498,18 @@ function formatManualFinding(finding: ScopedUpdateManualFinding): string {
 
 export function formatScopedUpdatePreview(plan: ScopedUpdatePlan): string[] {
   const lines = ["Responsible OpenCode Quota update preview"];
+
+  if (plan.openCodeMajor === 1) {
+    lines.push(
+      "",
+      `You're on OpenCode 1. OpenCode Quota 5 needs OpenCode 2, so update keeps you on OpenCode Quota 4 by pinning ${QUOTA_V4_SPEC}.`,
+    );
+  } else if (plan.openCodeMajor === undefined) {
+    lines.push(
+      "",
+      `Could not detect your OpenCode version; assuming OpenCode 2. On OpenCode 1, use ${QUOTA_V4_SPEC} instead.`,
+    );
+  }
 
   if (plan.safeActions.length > 0) {
     lines.push("", "Safe changes this command can make:");
@@ -626,7 +657,7 @@ export async function applyScopedUpdatePlan(
       throw failure("Config changed before cache deletion:", snapshot.path);
     }
     if (!snapshot.roles.includes("package-authority")) continue;
-    const currentPlan = updateConfig(current.toString("utf8"), snapshot.path);
+    const currentPlan = updateConfig(current.toString("utf8"), snapshot.path, plan.openCodeMajor);
     if (currentPlan.specs.some((spec) => QUOTA_MOVING_SPECS.has(spec))) authoritativeLatest = true;
   }
 
@@ -660,7 +691,10 @@ export async function runScopedUpdateCommand(
   const yes = argv.includes("--yes");
   const log = params.log ?? console.log;
   try {
-    const plan = await planScopedUpdate(params);
+    const plan = await planScopedUpdate({
+      ...params,
+      openCodeMajor: await detectOpenCodeMajor(),
+    });
     for (const line of formatScopedUpdatePreview(plan)) log(line);
 
     const hasConfigChanges = plan.configSnapshots.some((snapshot) => snapshot.changed);

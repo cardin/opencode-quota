@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +24,10 @@ import { parseJsonOrJsonc } from "../src/lib/jsonc.js";
 const packageVersion = vi.hoisted(() => ({ value: "5.0.0" }));
 vi.mock("../src/lib/version.js", () => ({
   getPackageVersion: async () => packageVersion.value,
+}));
+const openCodeMajor = vi.hoisted(() => ({ value: 2 as 1 | 2 | undefined }));
+vi.mock("../src/lib/opencode-version.js", () => ({
+  detectOpenCodeMajor: async () => openCodeMajor.value,
 }));
 
 function readJson(path: string): any {
@@ -64,6 +76,7 @@ function createPromptStub(params: {
   const multiselectCalls: { message: string; required?: boolean; options: unknown[] }[] = [];
   const outroCalls: string[] = [];
   const infoCalls: string[] = [];
+  const errorCalls: string[] = [];
   const confirmCalls: { message: string; initialValue?: boolean }[] = [];
 
   return {
@@ -89,12 +102,15 @@ function createPromptStub(params: {
         infoCalls.push(message);
       },
       success: () => {},
-      error: () => {},
+      error: (message: string) => {
+        errorCalls.push(message);
+      },
     },
     selectCalls,
     multiselectCalls,
     outroCalls,
     infoCalls,
+    errorCalls,
     confirmCalls,
   };
 }
@@ -120,6 +136,58 @@ describe("init installer planning and merge behavior", () => {
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
     packageVersion.value = "5.0.0";
+    openCodeMajor.value = 2;
+  });
+
+  it("stops on OpenCode 1 before prompting or writing anything", async () => {
+    openCodeMajor.value = 1;
+    const prompts = createPromptStub({ selectValues: DEFAULT_PROMPT_SELECT_VALUES });
+
+    const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any });
+
+    expect(code).toBe(1);
+    expect(prompts.selectCalls).toEqual([]);
+    expect(prompts.errorCalls).toEqual([
+      "You're on OpenCode 1. OpenCode Quota 5 needs OpenCode 2.",
+    ]);
+    expect(prompts.outroCalls).toEqual([
+      "For OpenCode 1, run: npx @slkiser/opencode-quota@4 init — no files changed.",
+    ]);
+    expect(readdirSync(tempDir)).toEqual([]);
+  });
+
+  it("asks which OpenCode is used when the version is unknown and stops on OpenCode 1", async () => {
+    openCodeMajor.value = undefined;
+    const prompts = createPromptStub({ selectValues: ["1", ...DEFAULT_PROMPT_SELECT_VALUES] });
+
+    const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any });
+
+    expect(code).toBe(1);
+    expect(prompts.selectCalls).toHaveLength(1);
+    expect(prompts.selectCalls[0]).toMatchObject({
+      message: "Could not detect your OpenCode version. Which OpenCode do you use?",
+      initialValue: "2",
+    });
+    expect(prompts.outroCalls).toEqual([
+      "For OpenCode 1, run: npx @slkiser/opencode-quota@4 init — no files changed.",
+    ]);
+    expect(readdirSync(tempDir)).toEqual([]);
+  });
+
+  it("continues setup when an unknown OpenCode version is answered as OpenCode 2", async () => {
+    openCodeMajor.value = undefined;
+    const prompts = createPromptStub({
+      selectValues: ["2", ...DEFAULT_PROMPT_SELECT_VALUES],
+      multiselectValues: [["toast"]],
+      confirmValues: [true, true],
+    });
+
+    const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any });
+
+    expect(code).toBe(0);
+    expect(readJson(join(tempDir, "opencode.jsonc")).plugin).toEqual([
+      "@slkiser/opencode-quota@latest",
+    ]);
   });
 
   it("creates recommended project opencode.jsonc at the worktree root for toast mode", async () => {

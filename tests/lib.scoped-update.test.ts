@@ -10,9 +10,16 @@ import {
   isCanonicalQuotaUpdateSpec,
   planScopedUpdate,
   QUOTA_LATEST_SPEC,
+  QUOTA_V4_SPEC,
   runScopedUpdateCommand,
   sanitizeOpenCodePackageSpec,
 } from "../src/lib/scoped-update.js";
+
+// Commands must not run a real `opencode` binary; undefined matches plans built without a version.
+const openCodeMajor = vi.hoisted(() => ({ value: undefined as 1 | 2 | undefined }));
+vi.mock("../src/lib/opencode-version.js", () => ({
+  detectOpenCodeMajor: async () => openCodeMajor.value,
+}));
 
 const tempDirs: string[] = [];
 function tempDir(): string {
@@ -51,6 +58,7 @@ function fixture() {
 }
 
 afterEach(() => {
+  openCodeMajor.value = undefined;
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   for (const path of tempDirs.splice(0)) rmSync(path, { recursive: true, force: true });
@@ -1207,5 +1215,112 @@ describe("scoped update application safety", () => {
     expect(log).toHaveBeenCalledWith("No files changed. Fix the reason above, then rerun update.");
     expect(log.mock.calls.flat().join("\n")).not.toContain("failure-secret-canary");
     expect(log.mock.calls.flat().join("\n")).not.toContain("star");
+  });
+});
+
+describe("scoped update OpenCode version handling", () => {
+  it("on OpenCode 1 pins bare, latest, next, and exact specs to @4 and keeps @4", async () => {
+    const f = fixture();
+    const config = join(f.project, "opencode.json");
+    write(
+      config,
+      `{"plugin":["@slkiser/opencode-quota",["@slkiser/opencode-quota@latest",{"setting":true}],"@slkiser/opencode-quota@next","@slkiser/opencode-quota@5.0.0","${QUOTA_V4_SPEC}","other"]}`,
+    );
+    const plan = await planScopedUpdate({
+      cwd: f.project,
+      env: f.env,
+      homeDir: join(f.root, "home"),
+      platform: "linux",
+      openCodeMajor: 1,
+    });
+    expect(plan.safeActions).toEqual([{ kind: "package-spec", path: config, replacements: 4 }]);
+    expect(plan.cacheCandidates).toContain(join(f.cache, "packages", QUOTA_V4_SPEC));
+    expect(formatScopedUpdatePreview(plan)).toContain(
+      `You're on OpenCode 1. OpenCode Quota 5 needs OpenCode 2, so update keeps you on OpenCode Quota 4 by pinning ${QUOTA_V4_SPEC}.`,
+    );
+
+    await applyScopedUpdatePlan(plan);
+    expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({
+      plugin: [
+        QUOTA_V4_SPEC,
+        [QUOTA_V4_SPEC, { setting: true }],
+        QUOTA_V4_SPEC,
+        QUOTA_V4_SPEC,
+        QUOTA_V4_SPEC,
+        "other",
+      ],
+    });
+  });
+
+  it("update --yes applies the @4 pin when it detects OpenCode 1", async () => {
+    openCodeMajor.value = 1;
+    const f = fixture();
+    const config = join(f.project, "opencode.json");
+    write(config, `{"plugin":["${QUOTA_LATEST_SPEC}"]}`);
+    const log = vi.fn();
+
+    expect(
+      await runScopedUpdateCommand({
+        argv: ["--yes"],
+        cwd: f.project,
+        env: f.env,
+        homeDir: join(f.root, "home"),
+        platform: "linux",
+        log,
+      }),
+    ).toBe(0);
+
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).toContain("You're on OpenCode 1.");
+    expect(output).toContain(`edit ${config} (1 package replacement)`);
+    expect(readFileSync(config, "utf8")).toBe(`{"plugin":["${QUOTA_V4_SPEC}"]}`);
+  });
+
+  it("on OpenCode 2 keeps moving specs and prints no version note", async () => {
+    openCodeMajor.value = 2;
+    const f = fixture();
+    const config = join(f.project, "opencode.json");
+    const original = `{"plugin":["${QUOTA_LATEST_SPEC}"]}`;
+    write(config, original);
+    const log = vi.fn();
+
+    expect(
+      await runScopedUpdateCommand({
+        argv: ["--dry-run"],
+        cwd: f.project,
+        env: f.env,
+        homeDir: join(f.root, "home"),
+        platform: "linux",
+        log,
+      }),
+    ).toBe(0);
+
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).not.toContain("OpenCode 1");
+    expect(output).not.toContain("Could not detect");
+    expect(readFileSync(config, "utf8")).toBe(original);
+  });
+
+  it("with an unknown OpenCode version updates as OpenCode 2 and prints a note", async () => {
+    const f = fixture();
+    const config = join(f.project, "opencode.json");
+    write(config, `{"plugin":["@slkiser/opencode-quota@4.10.3"]}`);
+    const log = vi.fn();
+
+    expect(
+      await runScopedUpdateCommand({
+        argv: ["--yes"],
+        cwd: f.project,
+        env: f.env,
+        homeDir: join(f.root, "home"),
+        platform: "linux",
+        log,
+      }),
+    ).toBe(0);
+
+    expect(log).toHaveBeenCalledWith(
+      `Could not detect your OpenCode version; assuming OpenCode 2. On OpenCode 1, use ${QUOTA_V4_SPEC} instead.`,
+    );
+    expect(readFileSync(config, "utf8")).toBe(`{"plugin":["${QUOTA_LATEST_SPEC}"]}`);
   });
 });

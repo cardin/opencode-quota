@@ -25,6 +25,7 @@ import {
   validateConfigDocumentEdit,
 } from "./opencode-config-editor.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { detectOpenCodeMajor } from "./opencode-version.js";
 import {
   getQuotaProviderDisplayLabel,
   normalizeQuotaProviderId,
@@ -1458,6 +1459,28 @@ export async function runInitInstaller(params?: {
   prompts.intro("Configure @slkiser/opencode-quota");
 
   try {
+    let openCodeMajor = await detectOpenCodeMajor();
+    if (openCodeMajor === undefined) {
+      const answer = await prompts.select({
+        message: "Could not detect your OpenCode version. Which OpenCode do you use?",
+        initialValue: "2",
+        options: [
+          { label: "OpenCode 2", value: "2", hint: "default" },
+          { label: "OpenCode 1", value: "1" },
+        ],
+      });
+      if (prompts.isCancel(answer)) {
+        prompts.outro("OpenCode Quota setup cancelled — no files changed.");
+        return 0;
+      }
+      openCodeMajor = answer === "1" ? 1 : 2;
+    }
+    if (openCodeMajor === 1) {
+      prompts.log.error("You're on OpenCode 1. OpenCode Quota 5 needs OpenCode 2.");
+      prompts.outro("For OpenCode 1, run: npx @slkiser/opencode-quota@4 init — no files changed.");
+      return 1;
+    }
+
     const pluginSpec = await resolveQuotaPluginSpec();
     const selections = await promptForSelections(prompts, {
       cwd: params?.cwd,

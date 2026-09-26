@@ -29,7 +29,7 @@ npx @slkiser/opencode-quota init
 ```
 
 > [!IMPORTANT]
-> Requires OpenCode `2.0.16` or newer. Node.js `22.13+` is required for `npx @slkiser/opencode-quota ...` (on Node 23, `23.4+`).
+> Requires OpenCode `2.0.16` or newer. On OpenCode 1? Use `npx @slkiser/opencode-quota@4 init`. Node.js `22.13+` is required for `npx @slkiser/opencode-quota ...` (on Node 23, `23.4+`).
 
 Upgrading from 4.x? Read [what changed in 5.0](#breaking-changes-in-500).
 
@@ -65,7 +65,7 @@ The updater always shows a preview first. `--yes` applies only the safe edits it
 ### Breaking changes in 5.0.0
 
 > [!WARNING]
-> - OpenCode 1 is no longer supported. Stay on `4.10.3` if you still use it.
+> - OpenCode 1 is no longer supported. `init` and `update` detect OpenCode 1 and keep you on 4.x (`@slkiser/opencode-quota@4`).
 > - Logins come only from OpenCode 2's `opencode.db`, never `auth.json`. If a provider is missing, log in again.
 > - Web and Desktop get the slash commands (report posts in the chat) but no toasts or panels.
 > - One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
