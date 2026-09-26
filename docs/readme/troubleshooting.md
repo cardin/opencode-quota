@@ -266,6 +266,6 @@ Run `/quota_status` and check pricing snapshot health plus the `opencode.db` pat
 | `/tokens_*` is empty                   | Start OpenCode once so it creates `opencode.db`, then run a session with model usage.                         |
 | Pricing looks stale                    | Run `/pricing_refresh`.                                                                                       |
 | Runtime pricing does not change output | Check `pricingSnapshot.source` in `opencode-quota/quota-toast.json`; `bundled` keeps packaged pricing active. |
-| Cursor model has unknown pricing       | Run `/pricing_refresh`; Cursor `auto` and `composer*` use bundled deterministic pricing.                      |
+| Cursor model has unknown pricing       | Run `/pricing_refresh`; Cursor `auto`, `composer*`, and `grok-4.5`–`grok-4.7` use bundled Cursor pricing.     |
 
 </details>

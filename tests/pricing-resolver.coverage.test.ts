@@ -324,6 +324,205 @@ describe("resolvePricingKey snapshot coverage", () => {
       cache_read: 0.35,
       output: 7.5,
     });
+    expect(lookupCursorLocalCost("composer-2.5")).toEqual({
+      input: 0.5,
+      cache_read: 0.2,
+      output: 2.5,
+    });
+    expect(lookupCursorLocalCost("composer-2.5-fast")).toEqual({
+      input: 3,
+      cache_read: 0.5,
+      output: 15,
+    });
+    expect(lookupCursorLocalCost("grok-4.5")).toEqual({ input: 2, cache_read: 0.5, output: 6 });
+    expect(lookupCursorLocalCost("grok-4.5-fast")).toEqual({ input: 4, cache_read: 1, output: 18 });
+    expect(lookupCursorLocalCost("grok-4.6")).toEqual({ input: 2, cache_read: 0.5, output: 6 });
+    expect(lookupCursorLocalCost("grok-4.6-fast")).toEqual({ input: 4, cache_read: 1, output: 12 });
+    expect(lookupCursorLocalCost("grok-4.7")).toEqual({ input: 2, cache_read: 0.5, output: 6 });
+    expect(lookupCursorLocalCost("grok-4.7-fast")).toEqual({ input: 4, cache_read: 1, output: 12 });
+  });
+
+  it("prices cursor-opencode-provider model ids at Cursor's published rates", () => {
+    const cursorModelsPool = [
+      "composer-2.5",
+      "composer-2.5-fast",
+      "grok-4.5",
+      "grok-4.5-fast",
+      "grok-4.6",
+      "grok-4.6-fast",
+      "grok-4.7",
+      "grok-4.7-fast",
+    ];
+    for (const modelID of cursorModelsPool) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual({
+        kind: "local",
+        model: modelID,
+        pool: "auto_composer",
+      });
+    }
+
+    const otherModelsPool = [
+      ["claude-fable-5", "anthropic", "claude-fable-5", { input: 10, output: 50, cache_read: 1 }],
+      [
+        "claude-fable-5-1",
+        "anthropic",
+        "claude-fable-5-1",
+        { input: 10, output: 50, cache_read: 0.25 },
+      ],
+      [
+        "claude-haiku-4-5",
+        "anthropic",
+        "claude-haiku-4-5",
+        { input: 1, output: 5, cache_read: 0.1 },
+      ],
+      [
+        "claude-opus-4-5",
+        "anthropic",
+        "claude-opus-4-5",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      [
+        "claude-opus-4-6",
+        "anthropic",
+        "claude-opus-4-6",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      [
+        "claude-opus-4-7",
+        "anthropic",
+        "claude-opus-4-7",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      [
+        "claude-opus-4-8",
+        "anthropic",
+        "claude-opus-4-8",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      ["claude-opus-5", "anthropic", "claude-opus-5", { input: 5, output: 25, cache_read: 0.5 }],
+      [
+        "claude-opus-5-5",
+        "anthropic",
+        "claude-opus-5-5",
+        { input: 4, output: 20, cache_read: 0.2 },
+      ],
+      [
+        "claude-sonnet-4",
+        "anthropic",
+        "claude-sonnet-4-0",
+        { input: 3, output: 15, cache_read: 0.3 },
+      ],
+      [
+        "claude-sonnet-4-5",
+        "anthropic",
+        "claude-sonnet-4-5",
+        { input: 3, output: 15, cache_read: 0.3 },
+      ],
+      [
+        "claude-sonnet-4-6",
+        "anthropic",
+        "claude-sonnet-4-6",
+        { input: 3, output: 15, cache_read: 0.3 },
+      ],
+      [
+        "claude-sonnet-5",
+        "anthropic",
+        "claude-sonnet-5",
+        { input: 2, output: 10, cache_read: 0.2 },
+      ],
+      [
+        "gemini-2.5-flash",
+        "google",
+        "gemini-2.5-flash",
+        { input: 0.3, output: 2.5, cache_read: 0.03 },
+      ],
+      [
+        "gemini-3-flash",
+        "google",
+        "gemini-3-flash-preview",
+        { input: 0.5, output: 3, cache_read: 0.05 },
+      ],
+      [
+        "gemini-3.1-pro",
+        "google",
+        "gemini-3.1-pro-preview",
+        { input: 2, output: 12, cache_read: 0.2 },
+      ],
+      [
+        "gemini-3.5-flash",
+        "google",
+        "gemini-3.5-flash",
+        { input: 1.5, output: 9, cache_read: 0.15 },
+      ],
+      ["glm-5.2", "zai", "glm-5.2", { input: 1.4, output: 4.4, cache_read: 0.26 }],
+      ["gpt-5-mini", "openai", "gpt-5-mini", { input: 0.25, output: 2, cache_read: 0.025 }],
+      ["gpt-5.1", "openai", "gpt-5.1", { input: 1.25, output: 10, cache_read: 0.125 }],
+      ["gpt-5.2", "openai", "gpt-5.2", { input: 1.75, output: 14, cache_read: 0.175 }],
+      ["gpt-5.3-codex", "openai", "gpt-5.3-codex", { input: 1.75, output: 14, cache_read: 0.175 }],
+      ["gpt-5.4", "openai", "gpt-5.4", { input: 2.5, output: 15, cache_read: 0.25 }],
+      ["gpt-5.4-mini", "openai", "gpt-5.4-mini", { input: 0.75, output: 4.5, cache_read: 0.075 }],
+      ["gpt-5.4-nano", "openai", "gpt-5.4-nano", { input: 0.2, output: 1.25, cache_read: 0.02 }],
+      ["gpt-5.5", "openai", "gpt-5.5", { input: 5, output: 30, cache_read: 0.5 }],
+      ["gpt-5.6-luna", "openai", "gpt-5.6-luna", { input: 0.2, output: 1.2, cache_read: 0.02 }],
+      ["gpt-5.6-sol", "openai", "gpt-5.6-sol", { input: 4, output: 20, cache_read: 0.4 }],
+      ["gpt-5.6-terra", "openai", "gpt-5.6-terra", { input: 2, output: 12, cache_read: 0.2 }],
+      [
+        "kimi-k2.7-code",
+        "moonshotai",
+        "kimi-k2.7-code",
+        { input: 0.95, output: 4, cache_read: 0.19 },
+      ],
+      ["kimi-k3", "moonshotai", "kimi-k3", { input: 3, output: 15, cache_read: 0.3 }],
+    ] as const;
+    for (const [modelID, providerHint, modelHint, rates] of otherModelsPool) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual({
+        kind: "official",
+        providerHint,
+        modelHint,
+        pool: "api",
+      });
+      expect(lookupCost(providerHint, modelHint), modelID).toMatchObject(rates);
+    }
+  });
+
+  it("prices -1m ids at the base rate only where Cursor documents no long-context surcharge", () => {
+    const sameRateLongContext = [
+      ["claude-opus-4-6-1m", "claude-opus-4-6"],
+      ["claude-opus-4-7-1m", "claude-opus-4-7"],
+      ["claude-opus-4-8-1m", "claude-opus-4-8"],
+      ["claude-opus-5-1m", "claude-opus-5"],
+      ["claude-opus-5-5-1m", "claude-opus-5-5"],
+      ["claude-sonnet-4-5-1m", "claude-sonnet-4-5"],
+      ["claude-sonnet-4-6-1m", "claude-sonnet-4-6"],
+      ["claude-sonnet-5-1m", "claude-sonnet-5"],
+      ["kimi-k3-1m", "kimi-k3"],
+    ] as const;
+    for (const [modelID, baseModelID] of sameRateLongContext) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual(
+        resolveCursorModel(`cursor/${baseModelID}`),
+      );
+    }
+
+    // Unpublished (Auto), tiered long-context surcharges, or models.dev rates that differ
+    // from Cursor's published rates stay unknown instead of guessing a price.
+    const unconfirmed = [
+      "default",
+      "claude-fable-5-1m",
+      "claude-fable-5-1-1m",
+      "claude-sonnet-4-1m",
+      "gemini-3.6-flash",
+      "gemini-3.7-flash",
+      "gemini-3.8-flash",
+      "gpt-5.4-1m",
+      "gpt-5.5-1m",
+      "gpt-5.6-sol-1m",
+      "grok-4.7-1m",
+      "grok-4.7-1m-fast",
+      "muse-spark-1.3",
+    ];
+    for (const modelID of unconfirmed) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual({ kind: "unknown" });
+    }
   });
 
   it("keeps every Cursor API alias aligned with a priced snapshot key", () => {
