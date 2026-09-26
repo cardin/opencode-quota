@@ -16,7 +16,7 @@
 </p>
 
 > [!TIP]
-> Help upstream: a 👍 on [opencode#38281](https://github.com/anomalyco/opencode/issues/38281) (ecosystem listing) and [#43132](https://github.com/anomalyco/opencode/issues/43132) (Web/Desktop plugin panels) helps. Please react; don't comment "+1".
+> **Like this plugin?** A 👍 on [opencode#38281](https://github.com/anomalyco/opencode/issues/38281) helps get it listed, and [#43132](https://github.com/anomalyco/opencode/issues/43132) asks for Web/Desktop panels.
 
 [![OpenCode Quota sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/slkiser/opencode-quota)
 
