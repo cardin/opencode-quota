@@ -259,7 +259,6 @@ Project guides:
 - [Troubleshooting](docs/readme/troubleshooting.md)
 - [External integration](docs/readme/external-integration.md)
 - [Updating safely](docs/readme/updating.md)
-- [v4 migration guide](docs/readme/v4-migration.md) (upgrading from v3)
 
 External references:
 

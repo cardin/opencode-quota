@@ -20,10 +20,9 @@ describe("Gemini CLI organization-only documentation", () => {
   const configuration = read("docs/readme/configuration.md");
   const providers = read("docs/readme/providers.md");
   const troubleshooting = read("docs/readme/troubleshooting.md");
-  const migration = read("docs/readme/v4-migration.md");
 
   it("no longer calls Gemini CLI deprecated or planned for removal", () => {
-    for (const document of [readme, providers, troubleshooting, migration]) {
+    for (const document of [readme, providers, troubleshooting]) {
       expect(document).not.toContain("Gemini CLI (deprecated)");
       expect(document).not.toContain("v5.0.0");
       expect(document).not.toContain("Existing setups only");
@@ -61,12 +60,6 @@ describe("Gemini CLI organization-only documentation", () => {
     expect(providerSection).toContain("opencode-gemini-auth");
     expect(providerSection).toContain("opencode auth login google");
     expect(providerSection).toContain("include `google-gemini-cli` in `enabledProviders`");
-
-    expect(migration).toContain(ORG_ONLY);
-    expect(migration).toContain("Google ended personal accounts on 2026-06-18.");
-    expect(migration).toContain(
-      "OpenCode Quota does not migrate your configuration or authentication and does not silently switch providers.",
-    );
   });
 
   it("keeps repair guidance and keeps Gemini CLI out of new configuration examples", () => {
