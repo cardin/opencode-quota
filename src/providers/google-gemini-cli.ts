@@ -39,7 +39,7 @@ function isGeminiCliModel(model: string): boolean {
 
 async function isGeminiCliConfigured(ctx: QuotaProviderContext): Promise<boolean> {
   try {
-    return await hasGeminiCliQuotaRuntimeAvailable(ctx.client);
+    return await hasGeminiCliQuotaRuntimeAvailable();
   } catch {
     return false;
   }
@@ -58,7 +58,7 @@ export const googleGeminiCliProvider: QuotaProvider = {
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const [auth, companion] = await Promise.all([
-      inspectGeminiCliAuthPresence(ctx.client),
+      inspectGeminiCliAuthPresence(),
       inspectGeminiCliCompanionPresence(),
     ]);
     const statusDetails = statusDetailsFromRecord({
@@ -84,7 +84,7 @@ export const googleGeminiCliProvider: QuotaProvider = {
       const results = await Promise.all(
         credentialRows.map(async (row) => ({
           row,
-          result: await queryGeminiCliQuota(ctx.client, {
+          result: await queryGeminiCliQuota({
             requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
               ? ctx.config.requestTimeoutMs
               : undefined,
@@ -147,7 +147,7 @@ export const googleGeminiCliProvider: QuotaProvider = {
         statusDetails,
       );
     }
-    const result = await queryGeminiCliQuota(ctx.client, {
+    const result = await queryGeminiCliQuota({
       requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
         ? ctx.config.requestTimeoutMs
         : undefined,

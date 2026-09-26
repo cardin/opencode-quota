@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const fetchResponse = vi.fn();
@@ -150,7 +153,15 @@ function authAccount(
 }
 
 describe("google agy logic", () => {
+  let configDir: string;
+
+  function writeGlobalConfig(config: unknown) {
+    writeFileSync(join(configDir, "opencode.json"), JSON.stringify(config));
+  }
+
   beforeEach(() => {
+    configDir = mkdtempSync(join(tmpdir(), "opencode-quota-agy-config-"));
+    vi.stubEnv("OPENCODE_CONFIG_DIR", configDir);
     vi.clearAllMocks();
     mocks.readAuthFileCached.mockResolvedValue(null);
     mocks.fetchResponse.mockResolvedValue(mockJsonResponse({ groups: [] }));
@@ -167,6 +178,10 @@ describe("google agy logic", () => {
     delete process.env.OPENCODE_AGY_ENDPOINT;
     delete process.env.GOOGLE_CLOUD_PROJECT;
     delete process.env.GOOGLE_CLOUD_PROJECT_ID;
+  });
+
+  afterEach(() => {
+    rmSync(configDir, { recursive: true, force: true });
   });
 
   it("composes ordered account and winning companion identities without exposing them", async () => {
@@ -234,34 +249,28 @@ describe("google agy logic", () => {
     process.env.GOOGLE_CLOUD_PROJECT = "generic-gcp-project";
     await expect(resolveAgyConfiguredProjectId()).resolves.toBe("generic-gcp-project");
 
-    await expect(
-      resolveAgyConfiguredProjectId({
-        config: {
-          get: async () => ({
-            data: {
-              provider: {
-                "google-agy": { options: { projectId: "configured-agy-project" } },
-              },
-            },
-          }),
-        },
-      }),
-    ).resolves.toBe("configured-agy-project");
+    writeGlobalConfig({
+      provider: { "google-agy": { options: { projectId: "configured-agy-project" } } },
+    });
+    await expect(resolveAgyConfiguredProjectId()).resolves.toBe("configured-agy-project");
 
     process.env.OPENCODE_AGY_PROJECT_ID = "explicit-agy-project";
-    await expect(
-      resolveAgyConfiguredProjectId({
-        config: {
-          get: async () => ({
-            data: {
-              provider: {
-                "google-agy": { options: { projectId: "configured-agy-project" } },
-              },
-            },
-          }),
-        },
-      }),
-    ).resolves.toBe("explicit-agy-project");
+    await expect(resolveAgyConfiguredProjectId()).resolves.toBe("explicit-agy-project");
+  });
+
+  it("reads the project id from OpenCode 2 native provider settings", async () => {
+    writeGlobalConfig({
+      providers: { "google-agy": { settings: { projectId: "native-agy-project" } } },
+    });
+    await expect(resolveAgyConfiguredProjectId()).resolves.toBe("native-agy-project");
+  });
+
+  it("lets a native providers entry replace the legacy provider entry", async () => {
+    writeGlobalConfig({
+      provider: { "google-agy": { options: { projectId: "legacy-agy-project" } } },
+      providers: { "google-agy": { settings: { projectId: "native-agy-project" } } },
+    });
+    await expect(resolveAgyConfiguredProjectId()).resolves.toBe("native-agy-project");
   });
 
   it("preserves auth-key order, project precedence, and duplicate suppression", () => {
@@ -351,7 +360,7 @@ describe("google agy logic", () => {
     });
     mocks.fetchResponse.mockResolvedValueOnce(mockJsonResponse(summaryResponse()));
 
-    const result = await queryGoogleAgyQuota(undefined, { requestTimeoutMs: 12_345 });
+    const result = await queryGoogleAgyQuota({ requestTimeoutMs: 12_345 });
     expect(result).toMatchObject({ success: true });
 
     expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(

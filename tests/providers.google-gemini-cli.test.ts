@@ -31,13 +31,13 @@ describe("google gemini cli provider", () => {
     (queryGeminiCliQuota as any).mockResolvedValue(null);
 
     await googleGeminiCliProvider.fetch({ client: {}, config: { requestTimeoutMs: 5000 } } as any);
-    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({}, { requestTimeoutMs: undefined });
+    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({ requestTimeoutMs: undefined });
 
     await googleGeminiCliProvider.fetch({
       client: {},
       config: { requestTimeoutMs: 12000, requestTimeoutMsConfigured: true },
     } as any);
-    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({}, { requestTimeoutMs: 12000 });
+    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({ requestTimeoutMs: 12000 });
   });
 
   it("returns attempted:false when Gemini CLI auth is not configured", async () => {

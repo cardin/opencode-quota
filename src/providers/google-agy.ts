@@ -102,7 +102,7 @@ function formatRemainingAmount(value: string | undefined): string | undefined {
 
 async function isAgyConfigured(ctx: QuotaProviderContext): Promise<boolean> {
   try {
-    return await hasAgyQuotaRuntimeAvailable(ctx.client);
+    return await hasAgyQuotaRuntimeAvailable();
   } catch {
     return false;
   }
@@ -121,7 +121,7 @@ export const googleAgyProvider: QuotaProvider = {
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const [auth, companion] = await Promise.all([
-      inspectAgyAuthPresence(ctx.client),
+      inspectAgyAuthPresence(),
       inspectAgyCompanionPresence(),
     ]);
     const statusDetails = statusDetailsFromRecord({
@@ -145,7 +145,7 @@ export const googleAgyProvider: QuotaProvider = {
       const results = await Promise.all(
         credentialRows.map(async (row) => ({
           row,
-          result: await queryGoogleAgyQuota(ctx.client, {
+          result: await queryGoogleAgyQuota({
             requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
               ? ctx.config.requestTimeoutMs
               : undefined,
@@ -197,7 +197,7 @@ export const googleAgyProvider: QuotaProvider = {
         statusDetails,
       );
     }
-    const result = await queryGoogleAgyQuota(ctx.client, {
+    const result = await queryGoogleAgyQuota({
       requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
         ? ctx.config.requestTimeoutMs
         : undefined,

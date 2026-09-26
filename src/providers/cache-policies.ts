@@ -161,11 +161,11 @@ export const PROVIDER_CACHE_POLICIES = {
   }),
   "google-gemini-cli": {
     kind: "resolved-auth",
-    resolveIdentity: (ctx) => resolveGeminiCliAuthIdentity(ctx.client),
+    resolveIdentity: () => resolveGeminiCliAuthIdentity(),
   },
   "google-agy": {
     kind: "resolved-auth",
-    resolveIdentity: (ctx) => resolveGoogleAgyAuthIdentity(ctx.client),
+    resolveIdentity: () => resolveGoogleAgyAuthIdentity(),
   },
   zai: resolvedCredentialPolicy("zai", async () => {
     const resolved = await resolveZaiAuthCached({ maxAgeMs: DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS });

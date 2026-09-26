@@ -45,13 +45,13 @@ describe("google agy provider", () => {
     (queryGoogleAgyQuota as any).mockResolvedValue(null);
 
     await googleAgyProvider.fetch({ client: {}, config: { requestTimeoutMs: 5000 } } as any);
-    expect(queryGoogleAgyQuota).toHaveBeenLastCalledWith({}, { requestTimeoutMs: undefined });
+    expect(queryGoogleAgyQuota).toHaveBeenLastCalledWith({ requestTimeoutMs: undefined });
 
     await googleAgyProvider.fetch({
       client: {},
       config: { requestTimeoutMs: 12000, requestTimeoutMsConfigured: true },
     } as any);
-    expect(queryGoogleAgyQuota).toHaveBeenLastCalledWith({}, { requestTimeoutMs: 12000 });
+    expect(queryGoogleAgyQuota).toHaveBeenLastCalledWith({ requestTimeoutMs: 12000 });
   });
 
   it("returns attempted:false when Google AGY auth is not configured", async () => {

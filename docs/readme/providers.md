@@ -465,13 +465,13 @@ If you use manual provider selection, include `google-agy` in `enabledProviders`
 }
 ```
 
-If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_ID` or `provider.google-agy.options.projectId`.
+If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_ID` or `projectId` in your user/global `opencode.json` (the OpenCode 1 form `provider.google-agy.options.projectId` also works):
 
 ```jsonc
 {
-  "provider": {
+  "providers": {
     "google-agy": {
-      "options": {
+      "settings": {
         "projectId": "your-google-cloud-project",
       },
     },

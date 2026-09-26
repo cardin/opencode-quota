@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const fetchResponse = vi.fn();
@@ -78,7 +81,15 @@ function mockJsonResponse(data: unknown, status = 200) {
 }
 
 describe("gemini cli auth resolution", () => {
+  let configDir: string;
+
+  function writeGlobalConfig(config: unknown) {
+    writeFileSync(join(configDir, "opencode.json"), JSON.stringify(config));
+  }
+
   beforeEach(() => {
+    configDir = mkdtempSync(join(tmpdir(), "opencode-quota-gemini-config-"));
+    vi.stubEnv("OPENCODE_CONFIG_DIR", configDir);
     vi.clearAllMocks();
     mocks.readAuthFileCached.mockResolvedValue(null);
     mocks.fetchResponse.mockResolvedValue(mockJsonResponse({ buckets: [] }));
@@ -92,6 +103,10 @@ describe("gemini cli auth resolution", () => {
     delete process.env.OPENCODE_GEMINI_PROJECT_ID;
     delete process.env.GOOGLE_CLOUD_PROJECT;
     delete process.env.GOOGLE_CLOUD_PROJECT_ID;
+  });
+
+  afterEach(() => {
+    rmSync(configDir, { recursive: true, force: true });
   });
 
   it("composes ordered account and companion identities", async () => {
@@ -258,39 +273,40 @@ describe("gemini cli auth resolution", () => {
 
   it("prefers explicit OpenCode provider config over generic Google project env vars", async () => {
     process.env.GOOGLE_CLOUD_PROJECT = "generic-shell-project";
+    writeGlobalConfig({
+      provider: { google: { options: { projectId: "configured-opencode-project" } } },
+    });
 
-    await expect(
-      resolveGeminiCliConfiguredProjectId({
-        config: {
-          get: async () => ({
-            data: {
-              provider: {
-                google: { options: { projectId: "configured-opencode-project" } },
-              },
-            },
-          }),
-        },
-      }),
-    ).resolves.toBe("configured-opencode-project");
+    await expect(resolveGeminiCliConfiguredProjectId()).resolves.toBe(
+      "configured-opencode-project",
+    );
+  });
+
+  it("reads the project id from OpenCode 2 native provider settings", async () => {
+    writeGlobalConfig({
+      providers: { google: { settings: { projectId: "native-opencode-project" } } },
+    });
+
+    await expect(resolveGeminiCliConfiguredProjectId()).resolves.toBe("native-opencode-project");
+  });
+
+  it("lets a native providers entry replace the legacy provider entry", async () => {
+    writeGlobalConfig({
+      provider: { google: { options: { projectId: "legacy-opencode-project" } } },
+      providers: { google: { settings: { projectId: "native-opencode-project" } } },
+    });
+
+    await expect(resolveGeminiCliConfiguredProjectId()).resolves.toBe("native-opencode-project");
   });
 
   it("keeps OPENCODE_GEMINI_PROJECT_ID as the highest-priority project override", async () => {
     process.env.OPENCODE_GEMINI_PROJECT_ID = "explicit-gemini-project";
     process.env.GOOGLE_CLOUD_PROJECT = "generic-shell-project";
+    writeGlobalConfig({
+      providers: { google: { settings: { projectId: "native-opencode-project" } } },
+    });
 
-    await expect(
-      resolveGeminiCliConfiguredProjectId({
-        config: {
-          get: async () => ({
-            data: {
-              provider: {
-                google: { options: { projectId: "configured-opencode-project" } },
-              },
-            },
-          }),
-        },
-      }),
-    ).resolves.toBe("explicit-gemini-project");
+    await expect(resolveGeminiCliConfiguredProjectId()).resolves.toBe("explicit-gemini-project");
   });
 
   it("reports invalid auth when OAuth exists but no project id can be resolved", async () => {

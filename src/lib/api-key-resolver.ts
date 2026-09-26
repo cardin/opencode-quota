@@ -122,6 +122,22 @@ export function getProviderConfigSettings(
   return asRecord(asRecord(asRecord(root?.provider)?.[providerKey])?.options);
 }
 
+/**
+ * Read one provider string setting from trusted user/global OpenCode config.
+ * The first candidate (`opencode.jsonc`, then `opencode.json`) that sets it wins.
+ */
+export async function readGlobalProviderConfigString(
+  providerKey: string,
+  settingKey: string,
+): Promise<string | undefined> {
+  for (const candidate of getGlobalOpencodeConfigCandidatePaths()) {
+    const result = await readOpencodeConfig(candidate.path, candidate.isJsonc);
+    const value = getProviderConfigSettings(result?.config, providerKey)?.[settingKey];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
 export function extractProviderOptionsApiKey(
   config: unknown,
   params: {
