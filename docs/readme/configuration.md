@@ -27,6 +27,7 @@ Strict `.json` files also work. Run `/quota_status` if you are unsure which file
 | Estimate when eligible fixed quota runs out | `quotaProjection: "runway"`   |
 | Show percentages without `left` or `used`   | `percentLabelStyle: "bare"`   |
 | Use dense reset countdown units            | `resetTimeSpaced: false`        |
+| Show reset countdowns as decimals (`5.7d`) | `resetTimeDecimals: 1`        |
 | Show supplementary accounting facts        | `accountingDetail: "detailed"` |
 | Keep TUI slash results in the chat         | `tuiCommandDisplay: "inline"` |
 | Show TUI slash results only in a popup     | `tuiCommandDisplay: "dialog"` |

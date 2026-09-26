@@ -88,6 +88,8 @@ See [Configuration](configuration.md) for more examples and every setting.
 
 ## Web and Desktop notes
 
+- Slash commands work in the TUI, Web, and Desktop. Add arguments after the command, like `/tokens_between 2026-09-01 2026-09-25`.
+- In the TUI, a slash command opens the report in a popup and leaves no chat message (the default `tuiCommandDisplay: "dialog"`). With `tuiCommandDisplay: "inline"`, the report stays in the chat instead. The TUI command palette runs the same commands, opens only the popup, and asks for missing dates.
 - On Web and Desktop, `/quota` posts the report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. If you uninstall the plugin, old reports in past chats are no longer filtered.
 - Each report starts with `[OpenCode Quota report]` and ends with `[End of OpenCode Quota report]`. These lines keep the report out of compaction summaries too.
 - Web shows chat messages in a proportional font, so report columns may not line up. For aligned columns, use the TUI or run `npx @slkiser/opencode-quota show` in a terminal.

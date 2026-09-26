@@ -46,7 +46,14 @@ The updater builds one plan, prints it in full, and then either stops or applies
 2. Run the update steps above.
 3. Run `/quota_status` in the OpenCode TUI. If a provider you use is missing, log in to it again in OpenCode 2 (`/connect`, or `opencode auth login <provider>`). OpenCode Quota never reads `auth.json`.
 
-The `opencode.json` plugin entry loads both the server and the TUI; no `tui.json` entry is needed. Web and Desktop have the quota slash commands, which post the report in the chat, but no toasts or panels on OpenCode 2; see [Web and Desktop notes](manual-install.md#web-and-desktop-notes).
+What changed in `5.0.0`:
+
+- **OpenCode 1 is no longer supported.** Stay on `4.10.3` if you still use OpenCode 1.
+- **Logins come only from `opencode.db`.** OpenCode Quota reads logins only from OpenCode 2's database, never from `auth.json`. OpenCode 2 copies your old logins once, the first time it starts. If a provider is missing, log in again in OpenCode 2.
+- **Web and Desktop have slash commands but no toasts or panels,** because OpenCode 2 gives plugins no Web UI hooks. On Web and Desktop, `/quota` posts the report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. If you uninstall the plugin, old reports in past chats are no longer filtered. See [Web and Desktop notes](manual-install.md#web-and-desktop-notes).
+- **One plugin entry.** One `"plugin"` entry in `opencode.json` loads both the server and the TUI; no `tui.json` entry is needed.
+- **TUI reports open in a popup.** TUI slash commands and the command palette open the report in a popup and leave no chat message. `tuiCommandDisplay` now defaults to `"dialog"`; set `"inline"` to keep TUI slash reports in the chat instead.
+- **Removed setting.** `tuiCompactStatus.suppressWhenNativeProviderQuota` was removed; the old key is ignored.
 
 ## Read the preview
 

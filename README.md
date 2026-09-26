@@ -15,6 +15,9 @@
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" /></a>
 </p>
 
+> [!TIP]
+> Help upstream: a 👍 on [opencode#38281](https://github.com/anomalyco/opencode/issues/38281) (ecosystem listing) and [#43132](https://github.com/anomalyco/opencode/issues/43132) (Web/Desktop plugin panels) helps. Please react; don't comment "+1".
+
 [![OpenCode Quota sidebar](https://shawnkiser.com/opencode-quota/opencode-quota-sidebar.webp)](https://github.com/slkiser/opencode-quota)
 
 ---
@@ -28,7 +31,7 @@ npx @slkiser/opencode-quota init
 > [!IMPORTANT]
 > Requires OpenCode `2.0.16` or newer. Node.js `22.13+` is required for `npx @slkiser/opencode-quota ...` (on Node 23, `23.4+`).
 
-Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
+Upgrading from 4.x? Read [what changed in 5.0](#breaking-changes-in-500).
 
 After installation:
 
@@ -54,15 +57,18 @@ After installation:
 
 4. Restart OpenCode.
 
-The updater prints the complete preview before its own config or cache changes. `--yes` authorizes only the previewed safe config edits and manifest-verified cache cleanup; it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md) for detailed behavior and manual credential steps.
+The updater always shows a preview first. `--yes` applies only the safe edits it previewed, and it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md).
 
-**Breaking changes in 5.0.0:**
+### Breaking changes in 5.0.0
 
-- OpenCode 1 is no longer supported. Stay on `4.10.3` if you still use OpenCode 1, or follow [Moving to OpenCode 2](docs/readme/updating.md#moving-to-opencode-2).
-- Logins are read only from OpenCode 2's database (`opencode.db`), never from `auth.json`. OpenCode 2 copies your old logins once, the first time it starts. If a provider is missing, log in again in OpenCode 2.
-- Web and Desktop have the quota slash commands but no toasts or panels, because OpenCode 2 gives plugins no Web UI hooks. On Web and Desktop, `/quota` posts the report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. If you uninstall the plugin, old reports in past chats are no longer filtered.
-- One `"plugin"` entry in `opencode.json` now loads both the server and the TUI; no `tui.json` entry is needed. TUI slash commands and the command palette open the report in a popup and leave no chat message.
-- `tuiCommandDisplay` now defaults to `"dialog"`; set `"inline"` to keep TUI slash reports in the chat instead. `tuiCompactStatus.suppressWhenNativeProviderQuota` was removed; the old key is ignored.
+> [!WARNING]
+> - OpenCode 1 is no longer supported. Stay on `4.10.3` if you still use it.
+> - Logins come only from OpenCode 2's `opencode.db`, never `auth.json`. If a provider is missing, log in again.
+> - Web and Desktop get the slash commands (report posts in the chat) but no toasts or panels.
+> - One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
+> - TUI slash reports now open in a popup. Set `tuiCommandDisplay: "inline"` to keep them in the chat.
+>
+> Details: [Moving to OpenCode 2](docs/readme/updating.md#moving-to-opencode-2).
 
 ## Choose your setup
 
@@ -95,13 +101,13 @@ The updater prints the complete preview before its own config or cache changes. 
 
 More ways to use it:
 
-- Check quota outside the TUI: run `npx @slkiser/opencode-quota show` in a terminal. In Web and Desktop, slash commands post the report in the chat, and the assistant can call the `quota_status` diagnostics tool.
-- See every OpenCode login: each connection for a provider gets its own rows, and `*` marks the active one.
-- Automate quota checks with JSON output for scripts, status bars, and CI. Optional OpenTelemetry metrics support monitoring tools.
-- Customize the display with [`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings), OpenCode Go's preferred collapsed-sidebar window, spaced reset countdowns by default with a `resetTimeSpaced: false` dense opt-out, decimal reset precision, bare percent labels, and [`accountingDetail`](docs/readme/configuration.md#show-accounting-detail).
-- Optionally estimate **Runs out ≈ 1h 50m** for supported fixed windows with [`quotaProjection: "runway"`](docs/readme/configuration.md#estimate-when-fixed-quota-runs-out). It is off by default and leaves JSON output unchanged.
-- Choose current-session or descendant-tree token totals. Get reset popups for selected windows with [`resetNotifications`](docs/readme/configuration.md#notify-when-quota-becomes-available-again).
-- Troubleshoot authentication, quota sources, pricing, and maintainer notices.
+- **Terminal:** run `npx @slkiser/opencode-quota show`. In Web and Desktop, slash commands post the report in the chat, and the AI can call the `quota_status` tool.
+- **Several logins:** each login for a provider gets its own rows; `*` marks the active one.
+- **Scripts and CI:** JSON output and optional OpenTelemetry metrics. See [External integration](docs/readme/external-integration.md).
+- **Display:** a quota bar under the prompt ([`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings)), OpenCode Go's collapsed-sidebar row ([`tuiSidebarPanel.opencodeGoPreferredWindow`](docs/readme/configuration.md#tui-settings)), reset countdown style ([`resetTimeSpaced`](docs/readme/configuration.md#common-changes), [`resetTimeDecimals`](docs/readme/configuration.md#common-changes)), bare `81%` labels ([`percentLabelStyle`](docs/readme/configuration.md#common-changes)), and extra accounting rows ([`accountingDetail`](docs/readme/configuration.md#show-accounting-detail)).
+- **Runs-out estimate:** [`quotaProjection: "runway"`](docs/readme/configuration.md#estimate-when-fixed-quota-runs-out) shows **Runs out ≈ 1h 50m** for supported fixed windows. Off by default; JSON is unchanged.
+- **Tokens and resets:** include subagent sessions with [`sessionTokenScope: "tree"`](docs/readme/configuration.md#include-subagent-session-tokens); get a popup when quota comes back with [`resetNotifications`](docs/readme/configuration.md#notify-when-quota-becomes-available-again).
+- **Troubleshooting:** `/quota_status` checks logins, quota sources, pricing, and maintainer notices.
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.
 
@@ -109,7 +115,7 @@ See [Configuration](docs/readme/configuration.md) for UI options and [Manual ins
 
 ### Core slash commands
 
-These run in the OpenCode TUI, Web, and Desktop. Each posts its report in the chat as your message, and the AI never answers it; the TUI also opens the report in a dialog. Type arguments after the command, such as `/tokens_between 2026-09-01 2026-09-25`. In the TUI command palette, the same commands open only the dialog and ask for missing dates. See [Web and Desktop notes](docs/readme/manual-install.md#web-and-desktop-notes).
+Type these in OpenCode. Add arguments after the command, like `/tokens_between 2026-09-01 2026-09-25`. See [Web and Desktop notes](docs/readme/manual-install.md#web-and-desktop-notes).
 
 | Command                                 | Use when                                                        |
 | --------------------------------------- | --------------------------------------------------------------- |
@@ -252,6 +258,8 @@ Project guides:
 - [Providers](docs/readme/providers.md)
 - [Troubleshooting](docs/readme/troubleshooting.md)
 - [External integration](docs/readme/external-integration.md)
+- [Updating safely](docs/readme/updating.md)
+- [v4 migration guide](docs/readme/v4-migration.md) (upgrading from v3)
 
 External references:
 
@@ -269,8 +277,6 @@ Thanks to everyone who has contributed to OpenCode Quota.
 <a href="https://github.com/slkiser/opencode-quota/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=slkiser/opencode-quota" />
 </a>
-
-Help upstream: a 👍 on [opencode#38281](https://github.com/anomalyco/opencode/issues/38281) (ecosystem listing) and [#43132](https://github.com/anomalyco/opencode/issues/43132) (Web/Desktop plugin panels) helps. Please react; don't comment "+1".
 
 ## License
 
