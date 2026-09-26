@@ -129,7 +129,24 @@ jobs:
           name: release-package
           path: package-artifacts
 
+      - name: Choose npm dist-tag
+        id: dist-tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          if [ "$RELEASE_PRERELEASE" = "true" ] || [[ "$VERSION" == *-* ]]; then
+            DIST_TAG="next"
+          else
+            DIST_TAG="latest"
+          fi
+          echo "Publishing $VERSION to the npm '$DIST_TAG' dist-tag"
+          echo "dist-tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+
       - name: Verify and publish exact release artifact
+        env:
+          DIST_TAG: ${{ steps.dist-tag.outputs.dist-tag }}
         run: |
           node scripts/verify-release-artifact.mjs package-artifacts
           TARBALLS=(package-artifacts/*.tgz)
@@ -137,7 +154,7 @@ jobs:
             echo "Expected exactly one release tarball." >&2
             exit 1
           fi
-          npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts
+          npm publish "./${TARBALLS[0]}" --tag "$DIST_TAG" --access public --provenance --ignore-scripts
 
   backfill-version:
     runs-on: ubuntu-latest
@@ -193,6 +210,12 @@ jobs:
           if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Target '$BRANCH' is not a remote branch; falling back to '$DEFAULT_BRANCH'."
             BRANCH="$DEFAULT_BRANCH"
+          fi
+
+          git fetch origin "$BRANCH"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$BRANCH"; then
+            echo "Release commit $GITHUB_SHA is not on branch '$BRANCH'; refusing to commit the version there." >&2
+            exit 1
           fi
 
           echo "Committing synced package version to branch '$BRANCH'"

@@ -1,10 +1,16 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
 interface WorkflowStep {
+  id?: string;
   name?: string;
+  env?: Record<string, string>;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
@@ -560,14 +566,17 @@ describe("package manifest compatibility", () => {
       name: "release-package",
       path: "package-artifacts",
     });
-    const publishRun = namedStep(publish, "Verify and publish exact release artifact").run ?? "";
+    expect(stepIndex(publish, "Choose npm dist-tag")).toBeLessThan(
+      stepIndex(publish, "Verify and publish exact release artifact"),
+    );
+    const publishStep = namedStep(publish, "Verify and publish exact release artifact");
+    expect(publishStep.env).toEqual({ DIST_TAG: "${{ steps.dist-tag.outputs.dist-tag }}" });
+    const publishRun = publishStep.run ?? "";
     expect(publishRun).toContain("node scripts/verify-release-artifact.mjs package-artifacts");
     expect(publishRun).toContain(
-      'npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts',
+      'npm publish "./${TARBALLS[0]}" --tag "$DIST_TAG" --access public --provenance --ignore-scripts',
     );
-    expect(publishRun).not.toContain(
-      'npm publish "${TARBALLS[0]}" --access public --provenance --ignore-scripts',
-    );
+    expect(publishRun).not.toContain('npm publish "${TARBALLS[0]}"');
     expect(publishRun).not.toContain("pnpm pack");
     expect(publishRun).not.toContain("pnpm run build");
 
@@ -590,8 +599,46 @@ describe("package manifest compatibility", () => {
     expect(namedStep(backfill, "Sync and verify version for repository backfill").run).toContain(
       "pnpm run verify:release-version",
     );
-    expect(namedStep(backfill, "Commit synced version back to repository").run).toContain(
-      'git push origin HEAD:"$BRANCH"',
+    const backfillCommitRun =
+      namedStep(backfill, "Commit synced version back to repository").run ?? "";
+    expect(backfillCommitRun).toContain('git push origin HEAD:"$BRANCH"');
+    // A beta targets the v5 branch; never write its version onto a branch without the release commit.
+    const ancestryCheck = backfillCommitRun.indexOf(
+      'git merge-base --is-ancestor "$GITHUB_SHA" "origin/$BRANCH"',
     );
+    expect(ancestryCheck).toBeGreaterThanOrEqual(0);
+    expect(ancestryCheck).toBeLessThan(backfillCommitRun.indexOf("git commit"));
+  });
+
+  it("publishes prereleases to the npm next tag and stable releases to latest", () => {
+    const chooseTag = namedStep(publishWorkflow.jobs.publish, "Choose npm dist-tag");
+    expect(chooseTag.id).toBe("dist-tag");
+    expect(chooseTag.env).toEqual({
+      RELEASE_TAG: "${{ github.event.release.tag_name }}",
+      RELEASE_PRERELEASE: "${{ github.event.release.prerelease }}",
+    });
+
+    const distTagFor = (tag: string, prerelease: string): string => {
+      const dir = mkdtempSync(join(tmpdir(), "opencode-quota-dist-tag-"));
+      try {
+        const output = join(dir, "github-output");
+        execFileSync("bash", ["-e", "-c", chooseTag.run ?? "exit 1"], {
+          env: {
+            ...process.env,
+            RELEASE_TAG: tag,
+            RELEASE_PRERELEASE: prerelease,
+            GITHUB_OUTPUT: output,
+          },
+          stdio: "ignore",
+        });
+        return readFileSync(output, "utf8");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    expect(distTagFor("v5.0.0-beta.1", "true")).toBe("dist-tag=next\n");
+    expect(distTagFor("v5.0.0-beta.1", "false")).toBe("dist-tag=next\n");
+    expect(distTagFor("v5.0.0", "true")).toBe("dist-tag=next\n");
+    expect(distTagFor("v5.0.0", "false")).toBe("dist-tag=latest\n");
   });
 });

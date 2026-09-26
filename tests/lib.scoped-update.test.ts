@@ -57,16 +57,19 @@ afterEach(() => {
 });
 
 describe("scoped update specs and paths", () => {
-  it("accepts only bare, latest, and exact SemVer package specs", () => {
+  it("accepts only bare, latest, next, 4, and exact SemVer package specs", () => {
     for (const spec of [
       "@slkiser/opencode-quota",
       "@slkiser/opencode-quota@latest",
+      "@slkiser/opencode-quota@next",
+      "@slkiser/opencode-quota@4",
       "@slkiser/opencode-quota@3.11.1",
       "@slkiser/opencode-quota@3.11.2-beta.1+build.2",
     ])
       expect(isCanonicalQuotaUpdateSpec(spec)).toBe(true);
     for (const spec of [
-      "@slkiser/opencode-quota@next",
+      "@slkiser/opencode-quota@beta",
+      "@slkiser/opencode-quota@5",
       "@slkiser/opencode-quota@^3.11.1",
       "@slkiser/opencode-quota@~3.11.1",
       "npm:@slkiser/opencode-quota@3.11.1",
@@ -144,7 +147,10 @@ describe("scoped update config planning", () => {
     );
     const params = { cwd: f.project, env: f.env, homeDir: join(f.root, "home") };
     const plan = await planScopedUpdate(params);
-    expect(plan.foundSpecs).toEqual(["@slkiser/opencode-quota@3.11.1"]);
+    expect(plan.foundSpecs).toEqual([
+      "@slkiser/opencode-quota@next",
+      "@slkiser/opencode-quota@3.11.1",
+    ]);
     await applyScopedUpdatePlan(plan);
     expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({
       plugins: [
@@ -154,6 +160,33 @@ describe("scoped update config planning", () => {
         "other",
       ],
     });
+  });
+
+  it.each([
+    "@slkiser/opencode-quota@next",
+    "@slkiser/opencode-quota@4",
+  ])("keeps %s as written and refreshes its package cache", async (spec) => {
+    const f = fixture();
+    const config = join(f.project, "opencode.json");
+    const original = `{"plugin":["${spec}"]}`;
+    write(config, original);
+    const cache = join(f.cache, "packages", ...spec.split("/"));
+    const manifest = join(cache, "node_modules", "@slkiser", "opencode-quota", "package.json");
+    write(manifest, `{"name":"@slkiser/opencode-quota"}`);
+    const plan = await planScopedUpdate({
+      cwd: f.project,
+      env: f.env,
+      homeDir: join(f.root, "home"),
+      platform: "linux",
+    });
+    expect(plan.configEdits).toEqual([]);
+    expect(plan.foundSpecs).toEqual([spec]);
+    expect(plan.authoritativeLatest).toBe(true);
+
+    const result = await applyScopedUpdatePlan(plan);
+    expect(readFileSync(config, "utf8")).toBe(original);
+    expect(result.writtenPaths).toEqual([]);
+    expect(result.removedCachePaths).toEqual([cache]);
   });
 
   it("leaves tui.json files untouched", async () => {

@@ -38,8 +38,8 @@ import {
 } from "./quota-format-style.js";
 import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
 import type { QuotaToastConfig, SessionTokenScope, TuiCommandDisplay } from "./types.js";
+import { getPackageVersion } from "./version.js";
 
-const QUOTA_PLUGIN_SPEC = "@slkiser/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
@@ -118,6 +118,19 @@ export class InitInstallerError extends Error {
 }
 
 type JsonObject = Record<string, unknown>;
+
+/** A prerelease (version with `-`) installs from the npm `next` tag; a stable release from `latest`. */
+export function getQuotaPluginSpecForVersion(version: string): string {
+  return version.includes("-") ? "@slkiser/opencode-quota@next" : "@slkiser/opencode-quota@latest";
+}
+
+async function resolveQuotaPluginSpec(): Promise<string> {
+  const version = await getPackageVersion();
+  if (!version) {
+    throw new InitInstallerError("Cannot read the OpenCode Quota package version.");
+  }
+  return getQuotaPluginSpecForVersion(version);
+}
 
 type PromptOption = {
   label: string;
@@ -290,18 +303,19 @@ function isQuotaPluginEntry(entry: unknown): boolean {
 function appendQuotaPluginIfMissing(params: {
   container: unknown[];
   pathLabel: string;
+  pluginSpec: string;
   edit: PlannedConfigEdit;
 }): void {
   const alreadyConfigured = params.container.some(isQuotaPluginEntry);
 
   if (alreadyConfigured) {
-    params.edit.skippedValues.push(`${params.pathLabel} already includes ${QUOTA_PLUGIN_SPEC}`);
+    params.edit.skippedValues.push(`${params.pathLabel} already includes ${params.pluginSpec}`);
     return;
   }
 
-  params.container.push(QUOTA_PLUGIN_SPEC);
+  params.container.push(params.pluginSpec);
   params.edit.changed = true;
-  params.edit.addedPlugins.push(`${params.pathLabel}: ${QUOTA_PLUGIN_SPEC}`);
+  params.edit.addedPlugins.push(`${params.pathLabel}: ${params.pluginSpec}`);
 }
 
 function ensureTopLevelPluginArray(root: JsonObject, edit: PlannedConfigEdit): unknown[] {
@@ -607,6 +621,7 @@ function syncLegacyQuotaToast(params: {
 async function planOpencodeEdit(params: {
   selections: InitInstallerSelections;
   baseDir: string;
+  pluginSpec: string;
   legacyQuotaToastToSync?: JsonObject;
 }): Promise<PlannedConfigEdit> {
   const target = resolveEditableConfigPath({
@@ -642,12 +657,13 @@ async function planOpencodeEdit(params: {
 
   // OpenCode 2 also loads plugins from the native `plugins` array; never add a second entry.
   if (Array.isArray(root.plugins) && root.plugins.some(isQuotaPluginEntry)) {
-    edit.skippedValues.push(`plugins already includes ${QUOTA_PLUGIN_SPEC}`);
+    edit.skippedValues.push(`plugins already includes ${params.pluginSpec}`);
   } else {
     const plugin = ensureTopLevelPluginArray(root, edit);
     appendQuotaPluginIfMissing({
       container: plugin,
       pathLabel: "plugin",
+      pluginSpec: params.pluginSpec,
       edit,
     });
   }
@@ -1043,6 +1059,7 @@ export async function planInitInstaller(params: {
     await planOpencodeEdit({
       selections,
       baseDir,
+      pluginSpec: await resolveQuotaPluginSpec(),
       legacyQuotaToastToSync: params.syncLegacyConfig ? quotaEdit.plannedData : undefined,
     }),
     quotaEdit,
@@ -1194,7 +1211,7 @@ async function readExistingInstallerAnswers(baseDir: string): Promise<ExistingIn
 
 async function promptForSelections(
   prompts: PromptAdapter,
-  context: { cwd?: string; env?: NodeJS.ProcessEnv; homeDir?: string },
+  context: { cwd?: string; env?: NodeJS.ProcessEnv; homeDir?: string; pluginSpec: string },
 ): Promise<InitInstallerSelections | null> {
   const interfaces = await prompts.select({
     message: "Which OpenCode interfaces do you use?",
@@ -1340,7 +1357,7 @@ async function promptForSelections(
     manualProviders = selected.filter((value): value is string => typeof value === "string");
   }
   prompts.log.info("Custom providers are configured after installation.");
-  prompts.log.info("npx @slkiser/opencode-quota@latest provider add");
+  prompts.log.info(`npx ${context.pluginSpec} provider add`);
 
   const formatStyle = await prompts.select({
     message: "Quota reset periods",
@@ -1441,10 +1458,12 @@ export async function runInitInstaller(params?: {
   prompts.intro("Configure @slkiser/opencode-quota");
 
   try {
+    const pluginSpec = await resolveQuotaPluginSpec();
     const selections = await promptForSelections(prompts, {
       cwd: params?.cwd,
       env: params?.env,
       homeDir: params?.homeDir,
+      pluginSpec,
     });
     if (!selections) {
       prompts.outro("OpenCode Quota setup cancelled — no files changed.");
@@ -1472,7 +1491,7 @@ export async function runInitInstaller(params?: {
 
     if (params?.dryRun) {
       prompts.outro(
-        "OpenCode Quota setup preview complete — no files changed. Run npx @slkiser/opencode-quota@latest init to apply.",
+        `OpenCode Quota setup preview complete — no files changed. Run npx ${pluginSpec} init to apply.`,
       );
       return 0;
     }

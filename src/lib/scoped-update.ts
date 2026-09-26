@@ -30,6 +30,12 @@ import {
 
 export const QUOTA_PACKAGE_NAME = "@slkiser/opencode-quota";
 export const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
+/** Moving specs that update keeps as written; OpenCode re-resolves them after the cache cleanup. */
+const QUOTA_MOVING_SPECS = new Set([
+  QUOTA_LATEST_SPEC,
+  `${QUOTA_PACKAGE_NAME}@next`,
+  `${QUOTA_PACKAGE_NAME}@4`,
+]);
 const GITHUB_REPO_URL = "https://github.com/slkiser/opencode-quota";
 
 const EXACT_SEMVER =
@@ -85,7 +91,7 @@ export class ScopedUpdateError extends Error {
 }
 
 export function isCanonicalQuotaUpdateSpec(spec: string): boolean {
-  if (spec === QUOTA_PACKAGE_NAME || spec === QUOTA_LATEST_SPEC) return true;
+  if (spec === QUOTA_PACKAGE_NAME || QUOTA_MOVING_SPECS.has(spec)) return true;
   const prefix = `${QUOTA_PACKAGE_NAME}@`;
   return spec.startsWith(prefix) && EXACT_SEMVER.test(spec.slice(prefix.length));
 }
@@ -169,7 +175,7 @@ function updateConfig(
               : null;
       if (spec === null || !isCanonicalQuotaUpdateSpec(spec)) continue;
       specs.push(spec);
-      if (spec === QUOTA_LATEST_SPEC) continue;
+      if (QUOTA_MOVING_SPECS.has(spec)) continue;
       // Replace only the package spec; keep the entry's plugin options.
       const targetPath =
         typeof entry === "string"
@@ -621,7 +627,7 @@ export async function applyScopedUpdatePlan(
     }
     if (!snapshot.roles.includes("package-authority")) continue;
     const currentPlan = updateConfig(current.toString("utf8"), snapshot.path);
-    if (currentPlan.specs.includes(QUOTA_LATEST_SPEC)) authoritativeLatest = true;
+    if (currentPlan.specs.some((spec) => QUOTA_MOVING_SPECS.has(spec))) authoritativeLatest = true;
   }
 
   const removedCachePaths: string[] = [];

@@ -4,11 +4,19 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyInitInstallerPlan,
+  getQuotaPluginSpecForVersion,
   type InitInstallerSelections,
   planInitInstaller,
   runInitInstaller,
 } from "../src/lib/init-installer.js";
 import { parseJsonOrJsonc } from "../src/lib/jsonc.js";
+
+// The release workflow syncs package.json to the release tag before `pnpm verify`,
+// so these tests pin the running package version instead of reading package.json.
+const packageVersion = vi.hoisted(() => ({ value: "5.0.0" }));
+vi.mock("../src/lib/version.js", () => ({
+  getPackageVersion: async () => packageVersion.value,
+}));
 
 function readJson(path: string): any {
   const resolvedPath = !existsSync(path) && path.endsWith(".json") ? `${path}c` : path;
@@ -111,6 +119,7 @@ describe("init installer planning and merge behavior", () => {
 
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
+    packageVersion.value = "5.0.0";
   });
 
   it("creates recommended project opencode.jsonc at the worktree root for toast mode", async () => {
@@ -1111,6 +1120,34 @@ describe("init installer planning and merge behavior", () => {
 
     const secondPlan = await planInitInstaller({ cwd: projectDir, selections });
     expect(secondPlan.edits.find((edit) => edit.kind === "opencode")?.changed).toBe(false);
+  });
+
+  it("chooses the npm tag from the running package version", () => {
+    expect(getQuotaPluginSpecForVersion("5.0.0")).toBe("@slkiser/opencode-quota@latest");
+    expect(getQuotaPluginSpecForVersion("5.0.0-beta.1")).toBe("@slkiser/opencode-quota@next");
+  });
+
+  it("writes and suggests @next when the running package is a prerelease", async () => {
+    packageVersion.value = "5.0.0-beta.1";
+    const projectDir = join(tempDir, "project-next");
+    mkdirSync(projectDir, { recursive: true });
+
+    const plan = await planInitInstaller({ cwd: projectDir, selections: installerSelections() });
+    await applyInitInstallerPlan(plan);
+    expect(readJson(join(projectDir, "opencode.jsonc")).plugin).toEqual([
+      "@slkiser/opencode-quota@next",
+    ]);
+
+    const prompts = createPromptStub({
+      selectValues: DEFAULT_PROMPT_SELECT_VALUES,
+      multiselectValues: [["toast"]],
+    });
+    const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any, dryRun: true });
+    expect(code).toBe(0);
+    expect(prompts.infoCalls).toContain("npx @slkiser/opencode-quota@next provider add");
+    expect(prompts.outroCalls).toContain(
+      "OpenCode Quota setup preview complete — no files changed. Run npx @slkiser/opencode-quota@next init to apply.",
+    );
   });
 
   it("preserves existing exact, range, tag, tuple, and local specs", async () => {
