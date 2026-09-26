@@ -40,18 +40,18 @@ describe("upstream-plugin-issues", () => {
     expect(body).toContain("<!-- opencode-quota:latest-version=1.3.0 -->");
   });
 
-  it("uses the canonical Cursor package and repo while keeping the internal tracked key stable", () => {
-    const cursorSpec = getUpstreamPluginSpec("opencode-cursor-oauth");
+  it("uses the Cursor companion package and repo in issue details", () => {
+    const cursorSpec = getUpstreamPluginSpec("cursor-opencode-provider");
     expect(cursorSpec).toBeTruthy();
     if (!cursorSpec) return;
 
     const cursorTracked = {
-      npmUrl: "https://www.npmjs.com/package/%40playwo/opencode-cursor-oauth/v/0.4.3",
-      packageName: "@playwo/opencode-cursor-oauth",
-      publishedAt: "2026-04-08T14:04:58.057Z",
-      referenceDir: "references/upstream-plugins/opencode-cursor-oauth",
-      repo: "PoolPirate/opencode-cursor",
-      version: "0.4.3",
+      npmUrl: "https://www.npmjs.com/package/cursor-opencode-provider/v/0.7.3",
+      packageName: "cursor-opencode-provider",
+      publishedAt: "2026-09-20T10:00:00.000Z",
+      referenceDir: "references/upstream-plugins/cursor-opencode-provider",
+      repo: "oakimov/cursor-opencode-provider",
+      version: "0.7.3",
     };
 
     const body = buildUpstreamPluginIssueBody({
@@ -61,10 +61,12 @@ describe("upstream-plugin-issues", () => {
       tracked: cursorTracked,
     });
 
-    expect(body).toContain("- Plugin: `opencode-cursor-oauth`");
-    expect(body).toContain("- Package: `@playwo/opencode-cursor-oauth`");
-    expect(body).toContain("- Repository: `PoolPirate/opencode-cursor`");
-    expect(body).toContain("- Reference path: `references/upstream-plugins/opencode-cursor-oauth`");
+    expect(body).toContain("- Plugin: `cursor-opencode-provider`");
+    expect(body).toContain("- Package: `cursor-opencode-provider`");
+    expect(body).toContain("- Repository: `oakimov/cursor-opencode-provider`");
+    expect(body).toContain(
+      "- Reference path: `references/upstream-plugins/cursor-opencode-provider`",
+    );
   });
 
   it("uses the canonical scoped AGY package and repository in issue details", () => {
@@ -94,26 +96,22 @@ describe("upstream-plugin-issues", () => {
   });
 
   it("treats same-version Cursor metadata drift as an available update", () => {
-    const cursorSpec = getUpstreamPluginSpec("opencode-cursor-oauth");
+    const cursorSpec = getUpstreamPluginSpec("cursor-opencode-provider");
     expect(cursorSpec).toBeTruthy();
     if (!cursorSpec) return;
 
     const trackedCursor = {
-      npmUrl: "https://www.npmjs.com/package/opencode-cursor-oauth/v/0.4.3",
-      packageName: "opencode-cursor-oauth",
-      publishedAt: "2026-04-08T14:04:58.057Z",
-      referenceDir: "references/upstream-plugins/opencode-cursor-oauth",
-      repo: "ephraimduncan/opencode-cursor",
-      version: "0.4.3",
+      npmUrl: "https://www.npmjs.com/package/cursor-opencode-provider/v/0.7.3",
+      packageName: "cursor-opencode-provider",
+      publishedAt: "2026-09-20T10:00:00.000Z",
+      referenceDir: "references/upstream-plugins/cursor-opencode-provider",
+      repo: "old-owner/cursor-opencode-provider",
+      version: "0.7.3",
     };
 
     const latestCursor = {
-      npmUrl: "https://www.npmjs.com/package/%40playwo/opencode-cursor-oauth/v/0.4.3",
-      packageName: "@playwo/opencode-cursor-oauth",
-      publishedAt: "2026-04-08T14:04:58.057Z",
-      referenceDir: "references/upstream-plugins/opencode-cursor-oauth",
-      repo: "PoolPirate/opencode-cursor",
-      version: "0.4.3",
+      ...trackedCursor,
+      repo: "oakimov/cursor-opencode-provider",
     };
 
     const plan = planUpstreamPluginIssueAction({
@@ -124,7 +122,7 @@ describe("upstream-plugin-issues", () => {
     });
 
     expect(plan.create).toMatchObject({
-      title: "[check] opencode-cursor-oauth had update",
+      title: "[check] cursor-opencode-provider had update",
     });
     expect(plan.create?.body).toContain("<!-- opencode-quota:issue-state=update_available -->");
   });

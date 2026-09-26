@@ -14,28 +14,35 @@ import {
 } from "../src/lib/modelsdev-pricing.js";
 import { resolvePricingKey } from "../src/lib/quota-stats.js";
 
-const CURSOR_UPSTREAM_MODELS_PATH = new URL(
-  "../references/upstream-plugins/opencode-cursor-oauth/dist/models.js",
+const CURSOR_UPSTREAM_PRICING_PATH = new URL(
+  "../references/upstream-plugins/cursor-opencode-provider/dist/pricing-data.js",
   import.meta.url,
 );
 
-const CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS = new Set<string>();
+// Price not confirmed, so these stay unknown: models.dev rates differ from Cursor's for the
+// Gemini Flash ids, and muse-spark (meta) is not a pricing snapshot provider.
+const CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS = new Set<string>([
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
+  "gemini-3.8-flash",
+  "muse-spark-1.3",
+]);
 
-function getCursorUpstreamFallbackModelIds(): string[] {
-  const source = readFileSync(CURSOR_UPSTREAM_MODELS_PATH, "utf8");
-  const marker = "const FALLBACK_MODELS = [";
+function getCursorUpstreamPricedModelIds(): string[] {
+  const source = readFileSync(CURSOR_UPSTREAM_PRICING_PATH, "utf8");
+  const marker = "export const CURSOR_MODEL_COSTS = ";
   const start = source.indexOf(marker);
   if (start === -1) {
-    throw new Error("Unable to locate Cursor upstream FALLBACK_MODELS in synced reference");
+    throw new Error("Unable to locate Cursor upstream CURSOR_MODEL_COSTS in synced reference");
   }
 
-  const bodyStart = source.indexOf("[", start);
+  const bodyStart = start + marker.length;
   let depth = 0;
   let bodyEnd = -1;
   for (let index = bodyStart; index < source.length; index += 1) {
     const char = source[index];
-    if (char === "[") depth += 1;
-    if (char === "]") {
+    if (char === "{") depth += 1;
+    if (char === "}") {
       depth -= 1;
       if (depth === 0) {
         bodyEnd = index;
@@ -44,13 +51,12 @@ function getCursorUpstreamFallbackModelIds(): string[] {
     }
   }
 
-  if (bodyStart === -1 || bodyEnd === -1) {
-    throw new Error("Unable to parse Cursor upstream FALLBACK_MODELS in synced reference");
+  if (source[bodyStart] !== "{" || bodyEnd === -1) {
+    throw new Error("Unable to parse Cursor upstream CURSOR_MODEL_COSTS in synced reference");
   }
 
-  return [...source.slice(bodyStart, bodyEnd + 1).matchAll(/\bid\s*:\s*"([^"]+)"/g)]
-    .map((match) => match[1]!)
-    .sort((a, b) => a.localeCompare(b));
+  const costs = JSON.parse(source.slice(bodyStart, bodyEnd + 1)) as Record<string, unknown>;
+  return Object.keys(costs).sort((a, b) => a.localeCompare(b));
 }
 
 describe("resolvePricingKey snapshot coverage", () => {
@@ -567,20 +573,20 @@ describe("resolvePricingKey snapshot coverage", () => {
     expect(failures).toEqual([]);
   });
 
-  it("accounts for every synced upstream Cursor fallback model id", () => {
-    const fallbackModelIds = getCursorUpstreamFallbackModelIds();
+  it("accounts for every synced upstream Cursor priced model id", () => {
+    const upstreamModelIds = getCursorUpstreamPricedModelIds();
     const intentionallyUnknown = [...CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS].sort((a, b) =>
       a.localeCompare(b),
     );
 
     expect(
-      intentionallyUnknown.filter((modelID) => !fallbackModelIds.includes(modelID)),
-      "Remove stale entries from CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS when upstream fallback ids change.",
+      intentionallyUnknown.filter((modelID) => !upstreamModelIds.includes(modelID)),
+      "Remove stale entries from CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS when upstream priced ids change.",
     ).toEqual([]);
 
     const failures: string[] = [];
 
-    for (const modelID of fallbackModelIds) {
+    for (const modelID of upstreamModelIds) {
       const resolvedModel = resolveCursorModel(`cursor/${modelID}`);
       const resolvedPricing = resolvePricingKey({
         providerID: "cursor",

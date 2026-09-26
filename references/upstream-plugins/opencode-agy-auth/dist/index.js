@@ -268,7 +268,7 @@ function createAgyActivityRequestId() {
 import os from "os";
 
 // src/sdk/agy-cli-version.ts
-var AGY_CLI_VERSION = "1.2.10";
+var AGY_CLI_VERSION = "1.2.11";
 
 // src/sdk/user-agent.ts
 var cachedUserAgent = null;
@@ -579,6 +579,12 @@ async function resolveQuotaResetDelay(accessToken, projectId, model, userAgentMo
     return null;
   }
 }
+var retryInternals = {
+  parseRetryDelayValue,
+  parseRetryDelayFromMessage,
+  findResetTimeForModel,
+  resolveQuotaResetDelay
+};
 
 // src/sdk/retry/helpers.ts
 var DEFAULT_MAX_ATTEMPTS = 3;
@@ -1575,7 +1581,11 @@ function createOAuthAuthorizeMethod(options) {
     const isHeadless = !!(process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.OPENCODE_HEADLESS);
     const authorization = await authorizeAgy();
     if (!isHeadless) {
-      openBrowserUrl(authorization.url);
+      if (options?.openBrowser) {
+        options.openBrowser(authorization.url);
+      } else {
+        openBrowserUrl(authorization.url);
+      }
     }
     return {
       url: authorization.url,
@@ -1629,16 +1639,23 @@ function parseOAuthCallbackInput(input) {
   }
   return { code: trimmed };
 }
+function defaultOpenBrowserLauncher(command, args) {
+  const child = spawn(command, args, {
+    stdio: "ignore",
+    detached: true
+  });
+  child.unref?.();
+}
+var openBrowserLauncher = defaultOpenBrowserLauncher;
 function openBrowserUrl(url2) {
+  if ((process.env.NODE_ENV === "test" || process.env.VITEST) && openBrowserLauncher === defaultOpenBrowserLauncher) {
+    return;
+  }
   try {
     const platform2 = process.platform;
     const command = platform2 === "darwin" ? "open" : platform2 === "win32" ? "rundll32" : "xdg-open";
     const args = platform2 === "win32" ? ["url.dll,FileProtocolHandler", url2] : [url2];
-    const child = spawn(command, args, {
-      stdio: "ignore",
-      detached: true
-    });
-    child.unref?.();
+    openBrowserLauncher(command, args);
   } catch {
   }
 }
@@ -15320,6 +15337,12 @@ function formatRelativeResetTime(resetTime) {
 
 // src/plugin/quota.ts
 var AGY_QUOTA_TOOL_NAME = "agy_quota";
+var AGY_V2_QUOTA_COMMAND = "agy-quota";
+var AGY_V2_QUOTA_COMMAND_TEMPLATE = `Retrieve Agy Code Assist quota usage for the current authenticated account.
+
+Immediately call \`${AGY_QUOTA_TOOL_NAME}\` with no arguments and return its output verbatim.
+Do not call other tools.
+`;
 function createAgyQuotaTool({
   client,
   getAuthResolver,
@@ -15559,6 +15582,12 @@ function splitModelVariant(modelId) {
 
 // src/plugin/quota-summary.ts
 var AGY_QUOTA_SUMMARY_TOOL_NAME = "agy_quota_summary";
+var AGY_V2_QUOTA_SUMMARY_COMMAND = "agy-quota-summary";
+var AGY_V2_QUOTA_SUMMARY_COMMAND_TEMPLATE = `Retrieve Agy Code Assist quota summary (weekly and 5-hour limits by model group) for the current authenticated account.
+
+Immediately call \`${AGY_QUOTA_SUMMARY_TOOL_NAME}\` with no arguments and return its output verbatim.
+Do not call other tools.
+`;
 function createAgyQuotaSummaryTool({
   client,
   getAuthResolver,
@@ -16056,6 +16085,7 @@ var models_default = {
     106143956,
     105856899,
     106064030,
+    106264162,
     106711598,
     106106760,
     106021688,
@@ -16081,6 +16111,7 @@ var models_default = {
     106121399,
     106100654,
     106064028,
+    106264150,
     105906495,
     106283614,
     106640124,
@@ -16147,7 +16178,7 @@ var models_default = {
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
         remainingFraction: 1,
-        resetTime: "2026-09-24T13:14:02Z"
+        resetTime: "2026-09-25T11:24:59Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16186,7 +16217,7 @@ var models_default = {
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
         remainingFraction: 1,
-        resetTime: "2026-09-24T13:14:02Z"
+        resetTime: "2026-09-25T11:24:59Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16222,8 +16253,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16305,8 +16336,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16388,8 +16419,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16468,8 +16499,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       requiresImageOutputOutsideFunctionResponses: true,
@@ -16549,8 +16580,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16654,8 +16685,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16724,8 +16755,8 @@ var models_default = {
       model: "MODEL_PLACEHOLDER_M21",
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       }
     },
     "gemini-3.1-flash-lite": {
@@ -16743,8 +16774,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       }
     },
     "gemini-3.1-pro-high": {
@@ -16775,8 +16806,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16866,8 +16897,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16971,8 +17002,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17054,8 +17085,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17161,8 +17192,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17280,8 +17311,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17399,8 +17430,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17518,8 +17549,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17636,8 +17667,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17747,8 +17778,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17860,8 +17891,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17973,8 +18004,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18085,8 +18116,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18196,8 +18227,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18309,8 +18340,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18422,8 +18453,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18534,8 +18565,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18624,8 +18655,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18702,7 +18733,7 @@ var models_default = {
       modelProvider: "MODEL_PROVIDER_OPENAI",
       quotaInfo: {
         remainingFraction: 1,
-        resetTime: "2026-09-24T13:14:02Z"
+        resetTime: "2026-09-25T11:24:59Z"
       },
       recommended: true,
       supportsThinking: true,
@@ -19775,8 +19806,13 @@ function normalizeToolSchemaTypes(tools, toolMapper) {
         }
         if (fn) {
           if (!fn.parameters) {
+            fn.parameters = fn.parameters_json_schema ?? fn.parametersJsonSchema;
+          }
+          if (!fn.parameters) {
             fn.parameters = { type: "OBJECT", properties: {} };
           }
+          delete fn.parameters_json_schema;
+          delete fn.parametersJsonSchema;
           sanitizeSchema(fn.parameters);
         }
       }
@@ -20201,22 +20237,81 @@ var ChatLoggerImpl = class {
   }
 };
 
-// src/plugin.ts
-var AGY_QUOTA_COMMAND = "agyquota";
-var AGY_QUOTA_COMMAND_TEMPLATE = `Retrieve Agy Code Assist quota usage for the current authenticated account.
+// src/plugin/headers.ts
+function getSafeHeader(headers, key) {
+  if (!headers) {
+    return void 0;
+  }
+  const targetKey = key.toLowerCase();
+  if (typeof headers.get === "function") {
+    try {
+      return headers.get(targetKey) || void 0;
+    } catch {
+    }
+  }
+  if (Array.isArray(headers)) {
+    const found = headers.find((item) => {
+      if (Array.isArray(item) && typeof item[0] === "string") {
+        return item[0].toLowerCase() === targetKey;
+      }
+      return false;
+    });
+    return found ? String(found[1]) : void 0;
+  }
+  if (typeof headers === "object") {
+    const foundKey = Object.keys(headers).find((k) => k.toLowerCase() === targetKey);
+    return foundKey ? headers[foundKey] !== void 0 ? String(headers[foundKey]) : void 0 : void 0;
+  }
+  return void 0;
+}
+function setSafeHeaders(initHeaders, newHeaders) {
+  if (typeof globalThis.Headers !== "undefined") {
+    const headers = new globalThis.Headers(initHeaders ?? {});
+    for (const [k, v] of Object.entries(newHeaders)) {
+      headers.set(k, v);
+    }
+    return headers;
+  }
+  if (Array.isArray(initHeaders)) {
+    const nextHeaders2 = [...initHeaders];
+    for (const [k, v] of Object.entries(newHeaders)) {
+      const idx = nextHeaders2.findIndex((item) => Array.isArray(item) && typeof item[0] === "string" && item[0].toLowerCase() === k.toLowerCase());
+      if (idx !== -1) {
+        nextHeaders2[idx] = [k, v];
+      } else {
+        nextHeaders2.push([k, v]);
+      }
+    }
+    return nextHeaders2;
+  }
+  const nextHeaders = {};
+  if (initHeaders && typeof initHeaders === "object") {
+    for (const [k, v] of Object.entries(initHeaders)) {
+      nextHeaders[k] = String(v);
+    }
+  }
+  for (const [k, v] of Object.entries(newHeaders)) {
+    const existingKey = Object.keys(nextHeaders).find((key) => key.toLowerCase() === k.toLowerCase());
+    if (existingKey) {
+      nextHeaders[existingKey] = v;
+    } else {
+      nextHeaders[k] = v;
+    }
+  }
+  return nextHeaders;
+}
+function toUrlString(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  const candidate = value.url;
+  if (candidate) {
+    return candidate;
+  }
+  return value.toString();
+}
 
-Immediately call \`${AGY_QUOTA_TOOL_NAME}\` with no arguments and return its output verbatim.
-Do not call other tools.
-`;
-var AGY_QUOTA_SUMMARY_COMMAND = "agyquotasummary";
-var AGY_QUOTA_SUMMARY_COMMAND_TEMPLATE = `Retrieve Agy Code Assist quota summary (weekly and 5-hour limits by model group) for the current authenticated account.
-
-Immediately call \`${AGY_QUOTA_SUMMARY_TOOL_NAME}\` with no arguments and return its output verbatim.
-Do not call other tools.
-`;
-var latestAgyAuthResolver;
-var latestAgyConfiguredProjectId;
-var latestAgyUserAgentModel;
+// src/plugin/tier.ts
 var STATIC_MODELS_SIMPLE = {
   "gemini-3.8-flash": {
     name: "Gemini 3.8 Flash",
@@ -20304,6 +20399,39 @@ var TIER_MAPPING = {
     high: "gemini-3.1-pro-high"
   }
 };
+function resolveModelTier(baseModelId, headersOrInit) {
+  const parts = baseModelId.split("@");
+  const base = parts[0] || "";
+  const suffixTier = parts[1]?.toLowerCase();
+  const mapping = TIER_MAPPING[base];
+  if (!mapping) {
+    return baseModelId;
+  }
+  const rawHeaders = headersOrInit && typeof headersOrInit === "object" && "headers" in headersOrInit ? headersOrInit.headers : headersOrInit;
+  const headerTier = getSafeHeader(rawHeaders, "x-agy-tier")?.toLowerCase() || null;
+  const requestedTier = headerTier || suffixTier;
+  if (requestedTier && Object.prototype.hasOwnProperty.call(mapping, requestedTier)) {
+    return mapping[requestedTier] || baseModelId;
+  }
+  return mapping["medium"] ?? mapping["high"] ?? baseModelId;
+}
+
+// src/plugin.ts
+var AGY_QUOTA_COMMAND = "agyquota";
+var AGY_QUOTA_COMMAND_TEMPLATE = `Retrieve Agy Code Assist quota usage for the current authenticated account.
+
+Immediately call \`${AGY_QUOTA_TOOL_NAME}\` with no arguments and return its output verbatim.
+Do not call other tools.
+`;
+var AGY_QUOTA_SUMMARY_COMMAND = "agyquotasummary";
+var AGY_QUOTA_SUMMARY_COMMAND_TEMPLATE = `Retrieve Agy Code Assist quota summary (weekly and 5-hour limits by model group) for the current authenticated account.
+
+Immediately call \`${AGY_QUOTA_SUMMARY_TOOL_NAME}\` with no arguments and return its output verbatim.
+Do not call other tools.
+`;
+var latestAgyAuthResolver;
+var latestAgyConfiguredProjectId;
+var latestAgyUserAgentModel;
 var buildModelFromSimple = (modelId, simple) => {
   const isClaude = modelId.startsWith("claude-");
   const isGpt = modelId.startsWith("gpt-");
@@ -20396,83 +20524,6 @@ var buildModelFromSimple = (modelId, simple) => {
 var STATIC_MODELS = {};
 for (const [modelId, simple] of Object.entries(STATIC_MODELS_SIMPLE)) {
   STATIC_MODELS[modelId] = buildModelFromSimple(modelId, simple);
-}
-function getSafeHeader(headers, key) {
-  if (!headers) {
-    return void 0;
-  }
-  const targetKey = key.toLowerCase();
-  if (typeof headers.get === "function") {
-    try {
-      return headers.get(targetKey) || void 0;
-    } catch {
-    }
-  }
-  if (Array.isArray(headers)) {
-    const found = headers.find((item) => {
-      if (Array.isArray(item) && typeof item[0] === "string") {
-        return item[0].toLowerCase() === targetKey;
-      }
-      return false;
-    });
-    return found ? String(found[1]) : void 0;
-  }
-  if (typeof headers === "object") {
-    const foundKey = Object.keys(headers).find((k) => k.toLowerCase() === targetKey);
-    return foundKey ? headers[foundKey] !== void 0 ? String(headers[foundKey]) : void 0 : void 0;
-  }
-  return void 0;
-}
-function setSafeHeaders(initHeaders, newHeaders) {
-  if (typeof globalThis.Headers !== "undefined") {
-    const headers = new globalThis.Headers(initHeaders ?? {});
-    for (const [k, v] of Object.entries(newHeaders)) {
-      headers.set(k, v);
-    }
-    return headers;
-  }
-  if (Array.isArray(initHeaders)) {
-    const nextHeaders2 = [...initHeaders];
-    for (const [k, v] of Object.entries(newHeaders)) {
-      const idx = nextHeaders2.findIndex((item) => Array.isArray(item) && typeof item[0] === "string" && item[0].toLowerCase() === k.toLowerCase());
-      if (idx !== -1) {
-        nextHeaders2[idx] = [k, v];
-      } else {
-        nextHeaders2.push([k, v]);
-      }
-    }
-    return nextHeaders2;
-  }
-  const nextHeaders = {};
-  if (initHeaders && typeof initHeaders === "object") {
-    for (const [k, v] of Object.entries(initHeaders)) {
-      nextHeaders[k] = String(v);
-    }
-  }
-  for (const [k, v] of Object.entries(newHeaders)) {
-    const existingKey = Object.keys(nextHeaders).find((key) => key.toLowerCase() === k.toLowerCase());
-    if (existingKey) {
-      nextHeaders[existingKey] = v;
-    } else {
-      nextHeaders[k] = v;
-    }
-  }
-  return nextHeaders;
-}
-function resolveModelTier(baseModelId, init) {
-  const parts = baseModelId.split("@");
-  const base = parts[0] || "";
-  const suffixTier = parts[1]?.toLowerCase();
-  const mapping = TIER_MAPPING[base];
-  if (!mapping) {
-    return baseModelId;
-  }
-  const headerTier = getSafeHeader(init?.headers, "x-agy-tier")?.toLowerCase() || null;
-  const requestedTier = headerTier || suffixTier;
-  if (requestedTier && Object.prototype.hasOwnProperty.call(mapping, requestedTier)) {
-    return mapping[requestedTier] || baseModelId;
-  }
-  return mapping["medium"] ?? mapping["high"];
 }
 var AgyCLIOAuthPlugin = async ({ client }) => {
   let latestConfig;
@@ -20801,25 +20852,782 @@ async function ensureProjectContextOrThrow(authRecord, client, configuredProject
     throw error45;
   }
 }
-function toUrlString(value) {
-  if (typeof value === "string") {
-    return value;
-  }
-  const candidate = value.url;
-  if (candidate) {
-    return candidate;
-  }
-  return value.toString();
+
+// src/plugin/types.ts
+function defineOpenCodeV2Plugin(def) {
+  return def;
 }
 
+// src/plugin/v2-storage.ts
+import { closeSync, existsSync as existsSync6, mkdirSync as mkdirSync5, openSync, readFileSync as readFileSync5, renameSync as renameSync4, unlinkSync as unlinkSync4, writeFileSync as writeFileSync5 } from "fs";
+import { randomUUID as randomUUID4 } from "crypto";
+import { homedir as homedir4 } from "os";
+import { join as join6 } from "path";
+var storedAuthOverrideForTesting = void 0;
+function loadStoredAuthFromJson() {
+  if (storedAuthOverrideForTesting !== void 0) {
+    return storedAuthOverrideForTesting;
+  }
+  const authPath = join6(homedir4(), ".local", "share", "opencode", "auth.json");
+  try {
+    if (existsSync6(authPath)) {
+      const content = readFileSync5(authPath, "utf8");
+      const data = JSON.parse(content);
+      return data?.[AGY_PROVIDER_ID];
+    }
+  } catch {
+  }
+  return void 0;
+}
+function saveStoredAuthToJson(authRecord) {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST || storedAuthOverrideForTesting !== void 0) {
+    return;
+  }
+  const dirPath = join6(homedir4(), ".local", "share", "opencode");
+  if (!existsSync6(dirPath)) {
+    mkdirSync5(dirPath, { recursive: true });
+  }
+  const authPath = join6(dirPath, "auth.json");
+  const data = existsSync6(authPath) ? JSON.parse(readFileSync5(authPath, "utf8")) : {};
+  data[AGY_PROVIDER_ID] = {
+    type: "oauth",
+    refresh: authRecord.refresh,
+    access: authRecord.access,
+    expires: authRecord.expires
+  };
+  const tempPath = `${authPath}.${process.pid}.${randomUUID4()}.tmp`;
+  let tempFileDescriptor;
+  let ownsTempFile = false;
+  try {
+    tempFileDescriptor = openSync(tempPath, "wx", 384);
+    ownsTempFile = true;
+    writeFileSync5(tempFileDescriptor, JSON.stringify(data, null, 2), {
+      encoding: "utf8"
+    });
+    closeSync(tempFileDescriptor);
+    tempFileDescriptor = void 0;
+    renameSync4(tempPath, authPath);
+  } catch (error45) {
+    if (tempFileDescriptor !== void 0) {
+      try {
+        closeSync(tempFileDescriptor);
+      } catch {
+      }
+    }
+    if (ownsTempFile) {
+      try {
+        unlinkSync4(tempPath);
+      } catch {
+      }
+    }
+    throw error45;
+  }
+}
+
+// src/plugin/v2-fetch.ts
+function createV2FetchInterceptor(getAuthSnapshot) {
+  return async function agyV2Fetch(input, init) {
+    const isGL = isGenerativeLanguageRequest(input);
+    const isInternal = toUrlString(input).includes("cloudcode-pa.googleapis.com");
+    if (!isGL && !isInternal) {
+      return (globalThis.fetch || fetch)(input, init);
+    }
+    let rawAuth = getAuthSnapshot ? await getAuthSnapshot() : void 0;
+    if (!rawAuth) {
+      rawAuth = loadStoredAuthFromJson();
+    }
+    if (!rawAuth || !isOAuthAuth(rawAuth)) {
+      return (globalThis.fetch || fetch)(input, init);
+    }
+    let authRecord = resolveCachedAuth(rawAuth);
+    if (accessTokenExpired(authRecord)) {
+      const refreshed = await refreshAccessToken(authRecord, { auth: { set: async () => {
+      } } });
+      if (refreshed) {
+        authRecord = refreshed;
+      }
+    }
+    if (!authRecord.access) {
+      return (globalThis.fetch || fetch)(input, init);
+    }
+    if (isInternal) {
+      const hasAuth = getSafeHeader(init?.headers, "Authorization") !== void 0;
+      if (hasAuth) {
+        return (globalThis.fetch || fetch)(input, init);
+      }
+      const userAgent = buildAgyCliUserAgent();
+      const headers = setSafeHeaders(init?.headers, {
+        Authorization: `Bearer ${authRecord.access}`,
+        "User-Agent": userAgent
+      });
+      return (globalThis.fetch || fetch)(input, {
+        ...init,
+        headers
+      });
+    }
+    const requestTarget = parseGenerativeLanguageRequest(input);
+    const requestUserAgentModel = requestTarget?.effectiveModel;
+    let projectContext;
+    try {
+      projectContext = await ensureProjectContext(
+        authRecord,
+        { auth: { set: async () => {
+        } } },
+        void 0,
+        requestUserAgentModel
+      );
+    } catch {
+      projectContext = {
+        effectiveProjectId: parseRefreshParts(authRecord.refresh).projectId || "antigravity",
+        auth: authRecord
+      };
+    }
+    const originalRequestedModel = parseGenerativeLanguageRequest(input)?.effectiveModel;
+    let modifiedInput = input;
+    if (isGL && originalRequestedModel) {
+      const originalBase = originalRequestedModel.replace("google-agy/", "");
+      const resolvedBase = resolveModelTier(originalBase, init);
+      if (originalBase !== resolvedBase) {
+        if (typeof modifiedInput === "string") {
+          modifiedInput = modifiedInput.replace(`models/${originalBase}`, `models/${resolvedBase}`);
+        } else if (typeof Request !== "undefined" && modifiedInput instanceof Request) {
+          const newUrl = modifiedInput.url.replace(`models/${originalBase}`, `models/${resolvedBase}`);
+          modifiedInput = new Request(newUrl, modifiedInput);
+        }
+      }
+    }
+    const transformed = prepareAgyRequest(
+      modifiedInput,
+      init,
+      authRecord.access,
+      projectContext.effectiveProjectId,
+      void 0
+    );
+    const chatLogger = createChatLogger();
+    if (chatLogger) {
+      chatLogger.logRequest(
+        toUrlString(transformed.request),
+        transformed.init.method || "GET",
+        transformed.init.headers,
+        transformed.init.body
+      );
+    }
+    const response = await fetchWithRetry(transformed.request, transformed.init);
+    return transformAgyResponse(
+      response,
+      transformed.streaming,
+      null,
+      transformed.requestedModel,
+      transformed.sessionId,
+      chatLogger
+    );
+  };
+}
+
+// src/plugin/v2-session.ts
+function createV2HttpRequestHook(state = {}) {
+  return async (event) => {
+    if (!event) return;
+    const rawUrl = typeof event.url === "string" ? event.url : event.request?.url || "";
+    const isGL = isGenerativeLanguageRequest(rawUrl);
+    const isInternal = rawUrl.includes("cloudcode-pa.googleapis.com");
+    if (!isGL && !isInternal) {
+      return;
+    }
+    event.headers = event.headers || {};
+    let modelName;
+    let rawAuth = event.auth;
+    if (rawAuth && !rawAuth.type) {
+      const tokenVal = rawAuth.access || rawAuth.token;
+      if (tokenVal || rawAuth.refresh) {
+        rawAuth = { type: "oauth", access: tokenVal, ...rawAuth };
+      }
+    }
+    if (!rawAuth || !isOAuthAuth(rawAuth)) {
+      rawAuth = loadStoredAuthFromJson();
+    }
+    let authRecord = rawAuth && isOAuthAuth(rawAuth) ? resolveCachedAuth(rawAuth) : void 0;
+    if (authRecord && accessTokenExpired(authRecord)) {
+      const refreshed = await refreshAccessToken(authRecord, { auth: { set: async () => {
+      } } });
+      if (refreshed) {
+        authRecord = refreshed;
+        try {
+          saveStoredAuthToJson(refreshed);
+        } catch {
+          console.warn("[Agy Auth] Refreshed credentials could not be persisted; the current request will continue.");
+        }
+      }
+    }
+    if (isGL) {
+      const parsed = parseGenerativeLanguageRequest(rawUrl);
+      modelName = parsed?.effectiveModel;
+      if (modelName) {
+        state.lastInterceptedModel = modelName;
+      }
+      if (typeof event.headers.delete === "function") {
+        event.headers.delete("x-goog-api-key");
+        event.headers.delete("api-key");
+      } else {
+        for (const key of Object.keys(event.headers)) {
+          const lower = key.toLowerCase();
+          if (lower === "x-goog-api-key" || lower === "api-key") {
+            delete event.headers[key];
+          }
+        }
+      }
+      if (event.request?.headers) {
+        if (typeof event.request.headers.delete === "function") {
+          event.request.headers.delete("x-goog-api-key");
+          event.request.headers.delete("api-key");
+        } else {
+          for (const key of Object.keys(event.request.headers)) {
+            const lower = key.toLowerCase();
+            if (lower === "x-goog-api-key" || lower === "api-key") {
+              delete event.request.headers[key];
+            }
+          }
+        }
+      }
+      let cleanUrl = rawUrl;
+      try {
+        const parsedUrl = new URL(rawUrl);
+        let urlChanged = false;
+        for (const param of ["key", "x-goog-api-key", "api-key"]) {
+          if (parsedUrl.searchParams.has(param)) {
+            parsedUrl.searchParams.delete(param);
+            urlChanged = true;
+          }
+        }
+        if (urlChanged) {
+          cleanUrl = parsedUrl.toString();
+        }
+      } catch {
+      }
+      if (authRecord && authRecord.access) {
+        let projectContext;
+        try {
+          projectContext = await ensureProjectContext(
+            authRecord,
+            { auth: { set: async () => {
+            } } },
+            void 0,
+            modelName
+          );
+        } catch {
+          projectContext = {
+            effectiveProjectId: parseRefreshParts(authRecord.refresh).projectId || "antigravity",
+            auth: authRecord
+          };
+        }
+        const originalRequestedModel = modelName;
+        let modifiedUrl = cleanUrl;
+        if (originalRequestedModel) {
+          const originalBase = originalRequestedModel.replace("google-agy/", "");
+          const initHeaders = event.headers instanceof Headers ? event.headers : event.request?.headers;
+          const resolvedBase = resolveModelTier(originalBase, { headers: initHeaders });
+          if (originalBase !== resolvedBase) {
+            modifiedUrl = modifiedUrl.replace(`models/${originalBase}`, `models/${resolvedBase}`);
+          }
+        }
+        let bodyPayload = event.body;
+        if (bodyPayload === void 0 && event.request) {
+          if (typeof event.request.clone === "function") {
+            try {
+              bodyPayload = await event.request.clone().text();
+            } catch {
+            }
+          } else if (event.request.body !== void 0) {
+            bodyPayload = event.request.body;
+          }
+        }
+        let preExistingUserAgent;
+        if (typeof event.headers?.get === "function") {
+          preExistingUserAgent = event.headers.get("user-agent") || event.headers.get("User-Agent") || void 0;
+        } else if (event.headers && typeof event.headers === "object") {
+          preExistingUserAgent = event.headers["user-agent"] || event.headers["User-Agent"] || void 0;
+        }
+        if (!preExistingUserAgent && typeof event.request?.headers?.get === "function") {
+          preExistingUserAgent = event.request.headers.get("user-agent") || event.request.headers.get("User-Agent") || void 0;
+        } else if (!preExistingUserAgent && event.request?.headers && typeof event.request.headers === "object") {
+          preExistingUserAgent = event.request.headers["user-agent"] || event.request.headers["User-Agent"] || void 0;
+        }
+        const method = event.method || event.request?.method || "POST";
+        const requestHeaders = event.headers || event.request?.headers;
+        const transformed = prepareAgyRequest(
+          modifiedUrl,
+          {
+            method,
+            headers: requestHeaders,
+            body: bodyPayload
+          },
+          authRecord.access,
+          projectContext.effectiveProjectId
+        );
+        const targetUrl = toUrlString(transformed.request);
+        if (typeof event.url === "string") {
+          event.url = targetUrl;
+        }
+        if (event.request && typeof event.request === "object") {
+          if (typeof Request !== "undefined" && event.request instanceof Request) {
+            event.request = new Request(targetUrl, {
+              method: transformed.init.method,
+              headers: transformed.init.headers,
+              body: transformed.init.body
+            });
+          } else if (typeof event.request.url === "string") {
+            try {
+              event.request.url = targetUrl;
+            } catch {
+            }
+          }
+        }
+        const headerEntries = transformed.init.headers instanceof Headers ? Array.from(transformed.init.headers.entries()) : Object.entries(transformed.init.headers || {});
+        for (const [k, v] of headerEntries) {
+          const lowerK = k.toLowerCase();
+          if (lowerK === "user-agent") {
+            if (preExistingUserAgent) {
+              continue;
+            }
+            if (typeof event.headers?.set === "function") {
+              event.headers.set("User-Agent", v);
+            } else if (event.headers) {
+              event.headers["User-Agent"] = v;
+            }
+            if (event.request?.headers && typeof event.request.headers.set === "function") {
+              event.request.headers.set("User-Agent", v);
+            } else if (event.request?.headers && typeof event.request.headers === "object") {
+              event.request.headers["User-Agent"] = v;
+            }
+            continue;
+          }
+          if (typeof event.headers?.set === "function") {
+            event.headers.set(k, v);
+          } else if (event.headers) {
+            event.headers[k] = v;
+          }
+          if (event.request?.headers && typeof event.request.headers.set === "function") {
+            event.request.headers.set(k, v);
+          } else if (event.request?.headers && typeof event.request.headers === "object") {
+            event.request.headers[k] = v;
+          }
+        }
+        if (transformed.init.body !== void 0) {
+          event.body = transformed.init.body;
+          if (event.request && typeof event.request === "object" && !(event.request instanceof Request)) {
+            event.request.body = transformed.init.body;
+          }
+        }
+      } else {
+        if (typeof event.url === "string") {
+          event.url = cleanUrl;
+        }
+        if (event.request && typeof event.request === "object") {
+          if (typeof Request !== "undefined" && event.request instanceof Request) {
+            event.request = new Request(cleanUrl, event.request);
+          } else if (typeof event.request.url === "string") {
+            try {
+              event.request.url = cleanUrl;
+            } catch {
+            }
+          }
+        }
+      }
+    }
+    if (authRecord && authRecord.access) {
+      if (typeof event.headers?.set === "function") {
+        event.headers.set("Authorization", `Bearer ${authRecord.access}`);
+      } else if (event.headers) {
+        event.headers["Authorization"] = `Bearer ${authRecord.access}`;
+      }
+      if (event.request?.headers && typeof event.request.headers.set === "function") {
+        event.request.headers.set("Authorization", `Bearer ${authRecord.access}`);
+      } else if (event.request?.headers && typeof event.request.headers === "object") {
+        event.request.headers["Authorization"] = `Bearer ${authRecord.access}`;
+      }
+    }
+    const userAgent = buildAgyCliUserAgent(modelName);
+    if (typeof event.headers?.set === "function") {
+      if (!event.headers.get("User-Agent") && !event.headers.get("user-agent")) {
+        event.headers.set("User-Agent", userAgent);
+      }
+    } else if (event.headers) {
+      if (!event.headers["User-Agent"] && !event.headers["user-agent"]) {
+        event.headers["User-Agent"] = userAgent;
+      }
+    }
+    if (event.request?.headers && typeof event.request.headers.set === "function") {
+      if (!event.request.headers.get("User-Agent") && !event.request.headers.get("user-agent")) {
+        event.request.headers.set("User-Agent", userAgent);
+      }
+    } else if (event.request?.headers && typeof event.request.headers === "object") {
+      if (!event.request.headers["User-Agent"] && !event.request.headers["user-agent"]) {
+        event.request.headers["User-Agent"] = userAgent;
+      }
+    }
+  };
+}
+function createV2HttpResponseHook(state = {}) {
+  return async (event) => {
+    if (!event || !event.response) return;
+    const rawUrl = typeof event.url === "string" ? event.url : event.request?.url || "";
+    const isInternal = rawUrl.includes("cloudcode-pa.googleapis.com");
+    if (isInternal && event.response instanceof Response) {
+      const isStreaming = rawUrl.includes(":streamGenerateCode") || event.response.headers.get("content-type")?.includes("text/event-stream");
+      const parsedModel = parseGenerativeLanguageRequest(rawUrl)?.effectiveModel || state.lastInterceptedModel;
+      const transformed = await transformAgyResponse(
+        event.response,
+        !!isStreaming,
+        null,
+        parsedModel,
+        void 0,
+        void 0
+      );
+      event.response = transformed;
+    }
+  };
+}
+function createV2RetryHook() {
+  return async (event) => {
+    if (!event) return;
+    const response = event.response;
+    if (response instanceof Response) {
+      if (response.status === 429 || response.status === 503) {
+        const quota = await classifyQuotaResponse(response);
+        if (quota?.retryDelayMs) {
+          event.retryDelayMs = quota.retryDelayMs;
+        } else {
+          event.retryDelayMs = await resolveRetryDelayMs(response, event.attempt || 1);
+        }
+      }
+    } else if (event.details && Array.isArray(event.details)) {
+      const retryInfo = event.details.find(
+        (d) => d && d["@type"] === "type.googleapis.com/google.rpc.RetryInfo"
+      );
+      if (retryInfo?.retryDelay) {
+        const delayMs = retryInternals.parseRetryDelayValue(retryInfo.retryDelay);
+        if (delayMs !== null) {
+          event.retryDelayMs = delayMs;
+        }
+      }
+    }
+  };
+}
+function registerV2SessionHooks(ctx) {
+  const state = {};
+  ctx.session.hook("http.request", createV2HttpRequestHook(state), { providerID: AGY_PROVIDER_ID });
+  ctx.session.hook("http.response", createV2HttpResponseHook(state), { providerID: AGY_PROVIDER_ID });
+  ctx.session.hook("retry", createV2RetryHook(), { providerID: AGY_PROVIDER_ID });
+}
+
+// src/plugin/v2.ts
+async function setupOpenCodeV2(ctx) {
+  const resolveVariants = (modelId) => {
+    const mapping = TIER_MAPPING[modelId];
+    if (!mapping) return void 0;
+    const variants = [];
+    if (mapping.minimal !== void 0) variants.push({ id: "minimal" });
+    if (mapping.low !== void 0) variants.push({ id: "low" });
+    if (mapping.medium !== void 0) variants.push({ id: "medium" });
+    if (mapping.high !== void 0) variants.push({ id: "high" });
+    return variants.length > 0 ? variants : void 0;
+  };
+  const updateProviderRecord = (p) => {
+    p.name = "Antigravity CLI";
+    p.activation = "enabled";
+    p.package = "aisdk:@ai-sdk/google";
+    p.description = "Google Gemini Antigravity Code Assist OAuth provider";
+    p.settings = { ...p.settings || {}, apiKey: "dummy" };
+    p.integrationID = AGY_PROVIDER_ID;
+  };
+  const buildModelRecord = (modelId, simple, existingModel) => {
+    const isClaude = modelId.startsWith("claude-");
+    const isGpt = modelId.startsWith("gpt-");
+    const variants = resolveVariants(modelId);
+    return {
+      id: modelId,
+      providerID: AGY_PROVIDER_ID,
+      name: simple.name,
+      description: simple.description,
+      family: modelId.includes("gemini") ? "gemini" : isClaude ? "claude" : isGpt ? "gpt" : "unknown",
+      reasoning: simple.reasoning,
+      attachment: simple.attachment,
+      tool_call: simple.toolCall,
+      limit: {
+        context: simple.maxTokens,
+        output: simple.maxOutputTokens
+      },
+      cost: simple.cost || { input: 0, output: 0 },
+      ...variants ? { variants } : {},
+      ...existingModel || {}
+    };
+  };
+  const updateModelRecord = (m, modelId, simple) => {
+    m.name = simple.name;
+    m.capabilities = {
+      tools: true,
+      input: ["text", "image"],
+      output: ["text"]
+    };
+    m.limit = {
+      context: simple.maxTokens,
+      output: simple.maxOutputTokens
+    };
+    m.family = "gemini";
+    if (simple.cost) {
+      m.cost = simple.cost;
+    }
+    const variants = resolveVariants(modelId);
+    if (variants) {
+      m.variants = variants;
+    }
+  };
+  if (ctx.provider?.transform) {
+    ctx.provider.transform(async (editor) => {
+      if (!editor) return;
+      if (typeof editor.update === "function") {
+        editor.update(AGY_PROVIDER_ID, updateProviderRecord);
+      } else if (typeof editor.set === "function") {
+        const p = { id: AGY_PROVIDER_ID };
+        updateProviderRecord(p);
+        editor.set(AGY_PROVIDER_ID, p);
+      } else if (typeof editor === "object") {
+        const p = editor[AGY_PROVIDER_ID] || { id: AGY_PROVIDER_ID };
+        updateProviderRecord(p);
+        editor[AGY_PROVIDER_ID] = p;
+      }
+    });
+  }
+  if (ctx.model?.transform) {
+    ctx.model.transform(async (editor) => {
+      if (!editor) return;
+      if (typeof editor.update === "function") {
+        for (const [modelId, simple] of Object.entries(STATIC_MODELS_SIMPLE)) {
+          editor.update(AGY_PROVIDER_ID, modelId, (m) => updateModelRecord(m, modelId, simple));
+        }
+      } else if (typeof editor.set === "function") {
+        for (const [modelId, simple] of Object.entries(STATIC_MODELS_SIMPLE)) {
+          const m = buildModelRecord(modelId, simple);
+          editor.set(`${AGY_PROVIDER_ID}:${modelId}`, m);
+        }
+      } else if (typeof editor === "object") {
+        for (const [modelId, simple] of Object.entries(STATIC_MODELS_SIMPLE)) {
+          const key = `${AGY_PROVIDER_ID}:${modelId}`;
+          editor[key] = buildModelRecord(modelId, simple, editor[key]);
+        }
+      }
+    });
+  }
+  if (ctx.catalog?.transform) {
+    ctx.catalog.transform(async (editor) => {
+      if (!editor) return;
+      if (typeof editor?.provider?.update === "function") {
+        editor.provider.update(AGY_PROVIDER_ID, updateProviderRecord);
+        if (typeof editor?.model?.update === "function") {
+          for (const [modelId, simple] of Object.entries(STATIC_MODELS_SIMPLE)) {
+            editor.model.update(AGY_PROVIDER_ID, modelId, (m) => updateModelRecord(m, modelId, simple));
+          }
+        }
+        return;
+      }
+      const catalog = editor;
+      catalog.providers = catalog.providers || {};
+      catalog.providers[AGY_PROVIDER_ID] = {
+        id: AGY_PROVIDER_ID,
+        name: "Antigravity CLI",
+        npm: "aisdk:@ai-sdk/google",
+        settings: { apiKey: "dummy" },
+        integrationID: AGY_PROVIDER_ID,
+        models: { ...catalog.providers[AGY_PROVIDER_ID]?.models || {} },
+        ...catalog.providers[AGY_PROVIDER_ID]
+      };
+      if (catalog.providers[AGY_PROVIDER_ID].settings) {
+        catalog.providers[AGY_PROVIDER_ID].settings = {
+          ...catalog.providers[AGY_PROVIDER_ID].settings,
+          apiKey: "dummy"
+        };
+      } else {
+        catalog.providers[AGY_PROVIDER_ID].settings = { apiKey: "dummy" };
+      }
+      catalog.providers[AGY_PROVIDER_ID].integrationID = AGY_PROVIDER_ID;
+      const targetModels = catalog.providers[AGY_PROVIDER_ID].models;
+      for (const [modelId, simple] of Object.entries(STATIC_MODELS_SIMPLE)) {
+        targetModels[modelId] = buildModelRecord(modelId, simple, targetModels[modelId]);
+      }
+    });
+  }
+  ctx.tool.transform(async (editor) => {
+    if (!editor) return;
+    const quotaTool = createAgyQuotaTool({
+      client: void 0,
+      getAuthResolver: () => void 0,
+      getConfiguredProjectId: () => void 0,
+      getUserAgentModel: () => void 0
+    });
+    const quotaSummaryTool = createAgyQuotaSummaryTool({
+      client: void 0,
+      getAuthResolver: () => void 0,
+      getConfiguredProjectId: () => void 0,
+      getUserAgentModel: () => void 0
+    });
+    if (typeof editor.add === "function") {
+      editor.add({
+        name: AGY_QUOTA_TOOL_NAME,
+        description: quotaTool.description,
+        input: {},
+        execute: async (args, context) => quotaTool.execute(args, context)
+      });
+      editor.add({
+        name: AGY_QUOTA_SUMMARY_TOOL_NAME,
+        description: quotaSummaryTool.description,
+        input: {},
+        execute: async (args, context) => quotaSummaryTool.execute(args, context)
+      });
+    } else if (typeof editor.set === "function") {
+      editor.set(AGY_QUOTA_TOOL_NAME, quotaTool);
+      editor.set(AGY_QUOTA_SUMMARY_TOOL_NAME, quotaSummaryTool);
+    } else if (editor.tools && typeof editor.tools === "object") {
+      editor.tools[AGY_QUOTA_TOOL_NAME] = quotaTool;
+      editor.tools[AGY_QUOTA_SUMMARY_TOOL_NAME] = quotaSummaryTool;
+    } else if (typeof editor === "object") {
+      editor[AGY_QUOTA_TOOL_NAME] = quotaTool;
+      editor[AGY_QUOTA_SUMMARY_TOOL_NAME] = quotaSummaryTool;
+    }
+  });
+  ctx.command.transform(async (editor) => {
+    if (!editor) return;
+    const commands = {
+      [AGY_V2_QUOTA_COMMAND]: {
+        description: "Show Agy Code Assist quota usage",
+        template: AGY_V2_QUOTA_COMMAND_TEMPLATE
+      },
+      [AGY_V2_QUOTA_SUMMARY_COMMAND]: {
+        description: "Show Agy Code Assist quota summary with weekly and 5-hour limits",
+        template: AGY_V2_QUOTA_SUMMARY_COMMAND_TEMPLATE
+      }
+    };
+    if (typeof editor.add === "function") {
+      editor.add({
+        name: AGY_V2_QUOTA_COMMAND,
+        description: "Display current Antigravity quota usage",
+        template: AGY_V2_QUOTA_COMMAND_TEMPLATE
+      });
+      editor.add({
+        name: AGY_V2_QUOTA_SUMMARY_COMMAND,
+        description: "Display Antigravity quota summary grouped by model family",
+        template: AGY_V2_QUOTA_SUMMARY_COMMAND_TEMPLATE
+      });
+    } else if (typeof editor.set === "function") {
+      editor.set(AGY_V2_QUOTA_COMMAND, commands[AGY_V2_QUOTA_COMMAND]);
+      editor.set(AGY_V2_QUOTA_SUMMARY_COMMAND, commands[AGY_V2_QUOTA_SUMMARY_COMMAND]);
+    } else if (editor.commands && typeof editor.commands === "object") {
+      editor.commands[AGY_V2_QUOTA_COMMAND] = commands[AGY_V2_QUOTA_COMMAND];
+      editor.commands[AGY_V2_QUOTA_SUMMARY_COMMAND] = commands[AGY_V2_QUOTA_SUMMARY_COMMAND];
+    } else if (typeof editor === "object") {
+      editor[AGY_V2_QUOTA_COMMAND] = commands[AGY_V2_QUOTA_COMMAND];
+      editor[AGY_V2_QUOTA_SUMMARY_COMMAND] = commands[AGY_V2_QUOTA_SUMMARY_COMMAND];
+    }
+  });
+  ctx.integration?.transform?.((editor) => {
+    if (!editor) return;
+    editor.update?.(AGY_PROVIDER_ID, (integration) => {
+      integration.name = "Antigravity CLI (plugin)";
+    });
+    editor.method?.update?.({
+      integrationID: AGY_PROVIDER_ID,
+      method: {
+        id: "oauth",
+        type: "oauth",
+        label: "Antigravity CLI (OAuth)"
+      },
+      authorize: async () => {
+        const authorization = await authorizeAgy();
+        return {
+          mode: "code",
+          url: authorization.url,
+          instructions: "Please complete Google account authorization in your browser. After authorization, copy the full redirect URL or code and paste it below:",
+          callback: async (code) => {
+            const trimmed = code.trim();
+            const parsed = parseOAuthCallbackInput(trimmed);
+            const authCode = parsed.code || trimmed;
+            if (!authCode) {
+              return { type: "failed", error: "Missing authorization code in callback input" };
+            }
+            if (parsed.state && parsed.state !== authorization.state) {
+              return { type: "failed", error: "State mismatch in callback input (possible CSRF attempt)" };
+            }
+            const exchangeResult = await exchangeAgyWithVerifier(authCode, authorization.verifier);
+            if (exchangeResult.type !== "success") {
+              return exchangeResult;
+            }
+            const initialRefresh = formatRefreshParts({
+              refreshToken: exchangeResult.refresh
+            });
+            let authRecord = {
+              type: "oauth",
+              refresh: initialRefresh,
+              access: exchangeResult.access,
+              expires: exchangeResult.expires
+            };
+            try {
+              const projectContext = await ensureProjectContext(
+                authRecord,
+                { auth: { set: async () => {
+                } } }
+              );
+              authRecord = {
+                ...authRecord,
+                refresh: projectContext.auth.refresh
+              };
+            } catch {
+            }
+            try {
+              saveStoredAuthToJson(authRecord);
+            } catch {
+              return {
+                type: "failed",
+                error: "Google authentication succeeded but AGY credentials could not be stored. Check filesystem access and retry."
+              };
+            }
+            return {
+              type: "oauth",
+              methodID: "oauth",
+              refresh: authRecord.refresh,
+              access: authRecord.access,
+              expires: authRecord.expires
+            };
+          }
+        };
+      }
+    });
+  });
+  ctx.aisdk?.hook("sdk", async (event) => {
+    if (!event) return;
+    const isMatchingProvider = event.providerID === AGY_PROVIDER_ID || event.model?.providerID === AGY_PROVIDER_ID;
+    if (!isMatchingProvider) return;
+    event.options = event.options || {};
+    event.options.apiKey = "dummy";
+    event.options.fetch = createV2FetchInterceptor();
+  });
+  registerV2SessionHooks(ctx);
+}
+var v2PluginDefinition = defineOpenCodeV2Plugin({
+  id: AGY_PROVIDER_ID,
+  setup: setupOpenCodeV2
+});
+
 // index.ts
-var index_default = {
-  id: "@anthonyhaussman/opencode-agy-auth",
+var dualPlugin = {
+  ...v2PluginDefinition,
   server: AgyCLIOAuthPlugin
 };
+var index_default = dualPlugin;
 export {
   AgyCLIOAuthPlugin,
   GoogleOAuthPlugin,
-  index_default as default
+  index_default as default,
+  defineOpenCodeV2Plugin,
+  setupOpenCodeV2,
+  v2PluginDefinition
 };
 //# sourceMappingURL=index.js.map

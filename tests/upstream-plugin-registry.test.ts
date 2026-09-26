@@ -4,62 +4,118 @@ import { normalizeLatestPublishedPluginVersion } from "../scripts/lib/upstream-p
 import { getUpstreamPluginSpec } from "../scripts/lib/upstream-plugin-specs.mjs";
 
 describe("upstream-plugin-registry", () => {
-  it("builds canonical npm metadata for the scoped Cursor package", () => {
-    const spec = getUpstreamPluginSpec("opencode-cursor-oauth");
+  it("builds canonical npm metadata for the Cursor package", () => {
+    const spec = getUpstreamPluginSpec("cursor-opencode-provider");
     expect(spec).toBeTruthy();
     if (!spec) return;
 
     const latest = normalizeLatestPublishedPluginVersion(spec, {
       "dist-tags": {
-        latest: "0.4.3",
+        latest: "0.7.3",
       },
       repository: {
         type: "git",
-        url: "git+https://github.com/PoolPirate/opencode-cursor.git",
+        url: "git+https://github.com/oakimov/cursor-opencode-provider.git",
       },
       time: {
-        "0.4.3": "2026-04-08T14:04:58.057Z",
+        "0.7.3": "2026-09-20T10:00:00.000Z",
       },
       versions: {
-        "0.4.3": {
+        "0.7.3": {
           dist: {
             tarball:
-              "https://example.test/@playwo/opencode-cursor-oauth/-/opencode-cursor-oauth-0.4.3.tgz",
+              "https://registry.npmjs.org/cursor-opencode-provider/-/cursor-opencode-provider-0.7.3.tgz",
           },
           repository: {
             type: "git",
-            url: "git+https://github.com/PoolPirate/opencode-cursor.git",
+            url: "git+https://github.com/oakimov/cursor-opencode-provider.git",
           },
         },
       },
     });
 
-    expect(latest.packageName).toBe("@playwo/opencode-cursor-oauth");
-    expect(latest.repo).toBe("PoolPirate/opencode-cursor");
-    expect(latest.npmUrl).toBe(
-      "https://www.npmjs.com/package/%40playwo/opencode-cursor-oauth/v/0.4.3",
-    );
+    expect(latest.packageName).toBe("cursor-opencode-provider");
+    expect(latest.repo).toBe("oakimov/cursor-opencode-provider");
+    expect(latest.version).toBe("0.7.3");
+    expect(latest.npmUrl).toBe("https://www.npmjs.com/package/cursor-opencode-provider/v/0.7.3");
   });
 
   it("rejects missing repository metadata without an explicit spec exception", () => {
-    const spec = getUpstreamPluginSpec("opencode-cursor-oauth");
+    const spec = getUpstreamPluginSpec("cursor-opencode-provider");
     expect(spec).toBeTruthy();
     if (!spec) return;
 
     expect(() =>
       normalizeLatestPublishedPluginVersion(spec, {
-        "dist-tags": { latest: "0.4.3" },
-        time: { "0.4.3": "2026-04-08T14:04:58.057Z" },
+        "dist-tags": { latest: "0.7.3" },
+        time: { "0.7.3": "2026-09-20T10:00:00.000Z" },
         versions: {
-          "0.4.3": {
+          "0.7.3": {
             dist: {
               tarball:
-                "https://example.test/@playwo/opencode-cursor-oauth/-/opencode-cursor-oauth-0.4.3.tgz",
+                "https://registry.npmjs.org/cursor-opencode-provider/-/cursor-opencode-provider-0.7.3.tgz",
             },
           },
         },
       }),
     ).toThrow("is missing GitHub repository metadata");
+  });
+
+  it("tracks the AGY alpha dist-tag, not latest", () => {
+    const spec = getUpstreamPluginSpec("opencode-agy-auth");
+    expect(spec).toBeTruthy();
+    if (!spec) return;
+
+    const latest = normalizeLatestPublishedPluginVersion(spec, {
+      "dist-tags": { alpha: "1.2.11-alpha.0", latest: "1.2.11" },
+      time: {
+        "1.2.11": "2026-09-25T06:33:34.440Z",
+        "1.2.11-alpha.0": "2026-09-25T06:34:38.610Z",
+      },
+      versions: {
+        "1.2.11": {
+          dist: {
+            tarball:
+              "https://registry.npmjs.org/@anthonyhaussman/opencode-agy-auth/-/opencode-agy-auth-1.2.11.tgz",
+          },
+        },
+        "1.2.11-alpha.0": {
+          dist: {
+            tarball:
+              "https://registry.npmjs.org/@anthonyhaussman/opencode-agy-auth/-/opencode-agy-auth-1.2.11-alpha.0.tgz",
+          },
+        },
+      },
+    });
+
+    expect(latest.version).toBe("1.2.11-alpha.0");
+    expect(latest.tarballUrl).toBe(
+      "https://registry.npmjs.org/@anthonyhaussman/opencode-agy-auth/-/opencode-agy-auth-1.2.11-alpha.0.tgz",
+    );
+    expect(latest.npmUrl).toBe(
+      "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.2.11-alpha.0",
+    );
+  });
+
+  it("rejects a packument without the tracked dist-tag", () => {
+    const spec = getUpstreamPluginSpec("opencode-agy-auth");
+    expect(spec).toBeTruthy();
+    if (!spec) return;
+
+    expect(() =>
+      normalizeLatestPublishedPluginVersion(spec, {
+        "dist-tags": { latest: "1.2.11" },
+        time: { "1.2.11": "2026-09-25T06:33:34.440Z" },
+        versions: {
+          "1.2.11": {
+            dist: {
+              tarball:
+                "https://registry.npmjs.org/@anthonyhaussman/opencode-agy-auth/-/opencode-agy-auth-1.2.11.tgz",
+            },
+          },
+        },
+      }),
+    ).toThrow("is missing the alpha dist-tag");
   });
 
   it("builds canonical npm metadata for scoped AGY when npm omits repository metadata", () => {
@@ -68,7 +124,7 @@ describe("upstream-plugin-registry", () => {
     if (!spec) return;
 
     const latest = normalizeLatestPublishedPluginVersion(spec, {
-      "dist-tags": { latest: "1.1.4" },
+      "dist-tags": { alpha: "1.1.4" },
       time: { "1.1.4": "2026-07-18T08:36:49.202Z" },
       versions: {
         "1.1.4": {
@@ -94,7 +150,7 @@ describe("upstream-plugin-registry", () => {
 
     expect(() =>
       normalizeLatestPublishedPluginVersion(spec, {
-        "dist-tags": { latest: "1.1.4" },
+        "dist-tags": { alpha: "1.1.4" },
         repository: "https://gitlab.com/anthonyhaussman/opencode-agy-auth",
         time: { "1.1.4": "2026-07-18T08:36:49.202Z" },
         versions: {
@@ -116,7 +172,7 @@ describe("upstream-plugin-registry", () => {
 
     expect(() =>
       normalizeLatestPublishedPluginVersion(spec, {
-        "dist-tags": { latest: "1.1.4" },
+        "dist-tags": { alpha: "1.1.4" },
         repository: "github:someone-else/opencode-agy-auth",
         time: { "1.1.4": "2026-07-18T08:36:49.202Z" },
         versions: {

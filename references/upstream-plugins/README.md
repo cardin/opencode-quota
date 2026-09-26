@@ -4,9 +4,11 @@ This directory stores committed local copies of the published npm packages track
 
 Tracked packages:
 
-- `@playwo/opencode-cursor-oauth` (tracked internally under `references/upstream-plugins/opencode-cursor-oauth/`)
-- `opencode-gemini-auth`
-- `@anthonyhaussman/opencode-agy-auth` (tracked internally under `references/upstream-plugins/opencode-agy-auth/`)
+- `cursor-opencode-provider` (npm `latest`)
+- `opencode-gemini-auth` (npm `latest`, the OpenCode 2 line since 2.x)
+- `@anthonyhaussman/opencode-agy-auth` (npm `alpha`, the OpenCode 2 build; tracked internally under `references/upstream-plugins/opencode-agy-auth/`)
+
+Each package follows the npm dist-tag set in `scripts/lib/upstream-plugin-specs.mjs`.
 
 Companion identities are verified against npm package metadata and their canonical GitHub repositories.
 
