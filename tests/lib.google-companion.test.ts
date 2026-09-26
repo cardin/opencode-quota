@@ -355,6 +355,106 @@ describe("google companion credential resolution", () => {
     }
   });
 
+  it("finds each companion in OpenCode 2's npm plugin install layout", async () => {
+    for (const companion of companions) {
+      const cacheDir = join(tempDir, `${companion.id}-opencode2-cache`);
+      const bundlePath = join(
+        cacheDir,
+        "npm",
+        `${companion.packageName}@latest`,
+        "1790000000000",
+        "node_modules",
+        companion.packageName,
+        "dist",
+        "index.js",
+      );
+      writeCredentials(bundlePath, companion, "var");
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
+      await expect(loaded.inspect()).resolves.toEqual({
+        state: "present",
+        importSpecifier: companion.sourceSpecifier,
+        resolvedPath: bundlePath,
+      });
+      await expectConfigured(loaded, bundlePath);
+    }
+  });
+
+  it("picks the OpenCode 2 install that OpenCode 2 loads", async () => {
+    for (const companion of companions) {
+      const cacheDir = join(tempDir, `${companion.id}-opencode2-pick`);
+      const bundle = (spec: string, generation: string) =>
+        join(
+          cacheDir,
+          "npm",
+          `${companion.packageName}@${spec}`,
+          generation,
+          "node_modules",
+          companion.packageName,
+          "dist",
+          "index.js",
+        );
+      writeCredentials(bundle("latest", "999"), companion, "var", "-older-generation");
+      writeCredentials(bundle("latest", "1000"), companion, "var", "-newest");
+      writeCredentials(bundle("alpha", "998"), companion, "var", "-older-spec");
+      mkdirSync(join(cacheDir, "npm", `${companion.packageName}@latest`, ".staging-2000-x"), {
+        recursive: true,
+      });
+      writeCredentials(
+        join(cacheDir, "node_modules", companion.packageName, "dist", "index.js"),
+        companion,
+        "var",
+        "-opencode1",
+      );
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
+      await expectConfigured(loaded, bundle("latest", "1000"), "-newest");
+    }
+  });
+
+  it("reports a missing companion when OpenCode 2 has not installed it", async () => {
+    for (const companion of companions) {
+      const cacheDir = join(tempDir, `${companion.id}-opencode2-missing`);
+      mkdirSync(join(cacheDir, "npm", `${companion.packageName}@latest`), { recursive: true });
+      writeCredentials(
+        join(
+          cacheDir,
+          "npm",
+          "other-plugin@latest",
+          "1",
+          "node_modules",
+          "other-plugin",
+          "dist",
+          "index.js",
+        ),
+        companion,
+        "var",
+      );
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
+      await expect(loaded.inspect()).resolves.toEqual({
+        state: "missing",
+        importSpecifier: companion.sourceSpecifier,
+        error: companion.missingError,
+      });
+    }
+  });
+
   it("supports Gemini root-only bundles and runtime-path package resolution", async () => {
     const companion = companions[1]!;
     const cacheDir = join(tempDir, "gemini-runtime-cache");

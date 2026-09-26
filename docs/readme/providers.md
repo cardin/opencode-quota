@@ -443,13 +443,15 @@ OpenCode Quota's Google integrations use independent community companion plugins
 
 ### Google AGY
 
-Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://github.com/anthonyhaussman/opencode-agy-auth). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
+Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://github.com/anthonyhaussman/opencode-agy-auth). OpenCode 2 needs its OpenCode 2 build, currently the alpha: `@anthonyhaussman/opencode-agy-auth@alpha`. Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once and choose **Antigravity CLI (OAuth)**:
 
 Google AGY reports the companion's grouped weekly and five-hour quota windows for each account.
 
 ```bash
 opencode auth login google-agy
 ```
+
+AGY logins copied from OpenCode 1 keep working.
 
 If you use manual provider selection, include `google-agy` in `enabledProviders`.
 
@@ -479,7 +481,7 @@ If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_I
 
 Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Google ended personal Gemini Code Assist accounts (individual, AI Pro, and AI Ultra) on 2026-06-18; see [Google's notice](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals). Personal Google users should use [Google AGY](#google-agy-quick-setup).
 
-Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
+Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme) 2.x, which supports OpenCode 2. Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once and choose **OAuth with Google (Gemini CLI)**:
 
 ```bash
 opencode auth login google

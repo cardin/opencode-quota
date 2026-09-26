@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { type Dirent, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -133,9 +133,65 @@ function resolveSpecifier(
   }
 }
 
+/**
+ * Package roots in OpenCode 2's plugin install layout:
+ * `<cache>/npm/<package>@<spec>/<generation>/node_modules/<package>`.
+ * OpenCode 2 loads only the highest-numbered generation of a spec directory.
+ * Generation numbers are install timestamps, so across specs (for example
+ * `@latest` and `@alpha`) the most recent install comes first.
+ */
+function getOpencode2NpmPackageRoots(
+  cacheDir: string,
+  descriptor: GoogleCompanionDescriptor,
+): string[] {
+  const [scope, name] =
+    descriptor.packageScan === "scoped"
+      ? descriptor.packageName.split("/")
+      : [undefined, descriptor.packageName];
+  const specsDir = scope ? join(cacheDir, "npm", scope) : join(cacheDir, "npm");
+  const installs: { generation: number; packageRoot: string }[] = [];
+
+  let specEntries: Dirent[];
+  try {
+    specEntries = readdirSync(specsDir, { withFileTypes: true });
+  } catch {
+    // A missing OpenCode 2 npm directory is not an installed companion.
+    return [];
+  }
+
+  for (const entry of specEntries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(`${name}@`)) continue;
+    const specDir = join(specsDir, entry.name);
+    let generation: string | undefined;
+    try {
+      generation = readdirSync(specDir)
+        .filter((candidate) => /^\d+$/.test(candidate))
+        .sort((left, right) => Number(left) - Number(right))
+        .at(-1);
+    } catch {
+      continue;
+    }
+    if (!generation) continue;
+    installs.push({
+      generation: Number(generation),
+      packageRoot: join(specDir, generation, "node_modules", descriptor.packageName),
+    });
+  }
+
+  return installs
+    .sort((left, right) => right.generation - left.generation)
+    .map((install) => install.packageRoot);
+}
+
 function getRuntimePackageRoots(descriptor: GoogleCompanionDescriptor): string[] {
   const { cacheDir } = getOpencodeRuntimeDirs();
-  const packageRoots = [join(cacheDir, "node_modules", descriptor.packageName)];
+  const packageRoots = [
+    ...getOpencode2NpmPackageRoots(cacheDir, descriptor),
+    // OpenCode 1 layouts. OpenCode 2 shares this cache directory and never
+    // removes them, so companions installed before the upgrade still provide
+    // the OAuth client for logins that OpenCode 2 imported from auth.json.
+    join(cacheDir, "node_modules", descriptor.packageName),
+  ];
 
   try {
     const packagesDir = join(cacheDir, "packages");

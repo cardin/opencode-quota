@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resolveAgyAccounts } from "../src/lib/google-agy.js";
+import { resolveGeminiCliAccounts } from "../src/lib/google-gemini-cli.js";
 import {
   clearReadAuthFileCacheForTests,
   formatCredentialDisplayNames,
@@ -261,6 +263,66 @@ describe("selectConnectionCredentialRows", () => {
     expect(selectConnectionCredentialRows(rows, "opencode-go").map((row) => row.id)).toEqual([
       "personal",
       "work",
+    ]);
+  });
+});
+
+describe("Google companion credentials written by OpenCode 2", () => {
+  it("parses the opencode-gemini-auth 2.x and AGY alpha OAuth rows", async () => {
+    const { databasePath } = await createCredentialDatabase();
+    const database = new DatabaseSync(databasePath);
+    const insert = database.prepare(
+      "INSERT INTO credential VALUES (?, ?, ?, ?, NULL, NULL, 1, 5, 5)",
+    );
+    // opencode-gemini-auth 2.0.1: `gemini-cli` method on OpenCode 2's `google` integration.
+    insert.run(
+      "gemini",
+      "google",
+      "user@example.com",
+      JSON.stringify({
+        type: "oauth",
+        methodID: "gemini-cli",
+        refresh: "gemini-refresh|gemini-project|",
+        access: "gemini-access",
+        expires: 50,
+        metadata: { email: "user@example.com" },
+      }),
+    );
+    // @anthonyhaussman/opencode-agy-auth 1.2.11-alpha.0: `oauth` method on `google-agy`.
+    insert.run(
+      "agy",
+      "google-agy",
+      "OAuth",
+      JSON.stringify({
+        type: "oauth",
+        methodID: "oauth",
+        refresh: "agy-refresh|agy-project|agy-managed-project",
+        access: "agy-access",
+        expires: 60,
+      }),
+    );
+    database.close();
+    vi.stubEnv("OPENCODE_DB", databasePath);
+    const auth = await readAuthFile();
+
+    expect(resolveGeminiCliAccounts(auth)).toEqual([
+      {
+        sourceKey: "google",
+        refreshToken: "gemini-refresh",
+        projectId: "gemini-project",
+        email: "user@example.com",
+        accessToken: "gemini-access",
+        expiresAt: 50,
+      },
+    ]);
+    expect(resolveAgyAccounts(auth)).toEqual([
+      {
+        sourceKey: "google-agy",
+        refreshToken: "agy-refresh",
+        projectId: "agy-managed-project",
+        accessToken: "agy-access",
+        expiresAt: 60,
+      },
     ]);
   });
 });
