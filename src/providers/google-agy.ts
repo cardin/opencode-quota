@@ -100,7 +100,7 @@ function formatRemainingAmount(value: string | undefined): string | undefined {
   return `${display} left`;
 }
 
-async function isAgyConfigured(ctx: QuotaProviderContext): Promise<boolean> {
+async function isAgyConfigured(): Promise<boolean> {
   try {
     return await hasAgyQuotaRuntimeAvailable();
   } catch {
@@ -111,8 +111,8 @@ async function isAgyConfigured(ctx: QuotaProviderContext): Promise<boolean> {
 export const googleAgyProvider: QuotaProvider = {
   id: "google-agy",
 
-  async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    return await isAgyConfigured(ctx);
+  async isAvailable(): Promise<boolean> {
+    return await isAgyConfigured();
   },
 
   matchesCurrentModel(model: string): boolean {

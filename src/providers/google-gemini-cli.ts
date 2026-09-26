@@ -37,7 +37,7 @@ function isGeminiCliModel(model: string): boolean {
   );
 }
 
-async function isGeminiCliConfigured(ctx: QuotaProviderContext): Promise<boolean> {
+async function isGeminiCliConfigured(): Promise<boolean> {
   try {
     return await hasGeminiCliQuotaRuntimeAvailable();
   } catch {
@@ -48,8 +48,8 @@ async function isGeminiCliConfigured(ctx: QuotaProviderContext): Promise<boolean
 export const googleGeminiCliProvider: QuotaProvider = {
   id: "google-gemini-cli",
 
-  async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    return await isGeminiCliConfigured(ctx);
+  async isAvailable(): Promise<boolean> {
+    return await isGeminiCliConfigured();
   },
 
   matchesCurrentModel(model: string): boolean {
