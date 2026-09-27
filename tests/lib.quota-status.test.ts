@@ -55,8 +55,17 @@ vi.mock("fs/promises", () => ({
   stat: fsPromiseMocks.stat,
 }));
 
+const credentialSourceMocks = vi.hoisted(() => ({
+  getCredentialSourceDiagnostics: vi.fn(() => ({
+    state: "bound",
+    kind: "opencode-integration-api",
+    failures: [],
+  })),
+}));
+
 vi.mock("../src/lib/opencode-auth.js", () => ({
   getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
+  getCredentialSourceDiagnostics: credentialSourceMocks.getCredentialSourceDiagnostics,
   readAuthFileCached: vi.fn(async () => ({})),
 }));
 
@@ -490,7 +499,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).not.toContain("tui:");
     expect(report).toContain("- workspace_root: /tmp/workspace");
     expect(report).toContain("- config_root: /tmp/project");
-    expect(report).toContain("- opencode.db: path=/tmp/opencode.db present=false");
+    expect(report).toContain(
+      "- opencode.db: path=/tmp/opencode.db present=false (session and token history)",
+    );
     expect(report).toContain(
       "- pricing: source=test active_source=bundled generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",
     );
@@ -1144,6 +1155,30 @@ describe("buildQuotaStatusReport", () => {
     );
   });
 
+  it("reports which source answered OpenCode Go and why the Console failed", async () => {
+    const report = await buildOpenCodeGoStatusReport({
+      providerAvailability: [makeProviderAvailability("opencode-go")],
+      providerLiveProbes: [
+        makeProviderProbe("opencode-go", {
+          statusDetails: makeStatusDetails({
+            auth_state: "none",
+            console_auth_state: "configured",
+            console_server: "https://opencode.ai",
+            console_error: "OpenCode Console API error 500 (/api/go/status)",
+            go_source: "legacy_key",
+            selected_windows: "rolling,weekly,monthly",
+          }),
+        }),
+      ],
+    });
+
+    const section = getReportSection(report, "opencode_go:");
+    expect(section).toContain("- console_auth_state: configured");
+    expect(section).toContain("- console_server: https://opencode.ai");
+    expect(section).toContain("- console_error: OpenCode Console API error 500 (/api/go/status)");
+    expect(section).toContain("- go_source: legacy_key");
+  });
+
   it("reports safe OpenCode Go invalid-auth details without legacy config fields", async () => {
     const report = await buildOpenCodeGoStatusReport({
       providerLiveProbes: [
@@ -1418,6 +1453,54 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("live_error");
   });
 
+  it("reports the login source, its last list error, and each login OpenCode could not return", async () => {
+    credentialSourceMocks.getCredentialSourceDiagnostics.mockReturnValueOnce({
+      state: "bound",
+      kind: "opencode-integration-api",
+      lastListError: { at: 1, detail: "Invalid credential value" },
+      failures: [
+        {
+          integrationId: "openai",
+          connectionId: "cred_1",
+          label: "Work",
+          category: "refresh_failed",
+          detail: "HTTP 401 [redacted]",
+          at: 2,
+        },
+        {
+          integrationId: "xai",
+          connectionId: "xai",
+          label: "",
+          category: "active_failed",
+          detail: "database is locked",
+          at: 3,
+        },
+      ],
+    } as never);
+
+    const report = await buildQuotaStatusReportForTest();
+
+    expect(getReportSection(report, "credential_source:")).toMatchInlineSnapshot(`
+      "credential_source:
+      - source: opencode-integration-api
+      - list_error: Invalid credential value
+      - failures: openai:Work:refresh_failed:HTTP 401 [redacted] | xai::active_failed:database is locked
+      "
+    `);
+  });
+
+  it("reports an unbound login source", async () => {
+    credentialSourceMocks.getCredentialSourceDiagnostics.mockReturnValueOnce({
+      state: "unbound",
+      kind: "opencode-integration-api",
+      failures: [],
+    } as never);
+
+    const report = await buildQuotaStatusReportForTest();
+
+    expect(getReportSection(report, "credential_source:")).toContain("- source: unbound");
+  });
+
   it("locks the early /quota_status section layout after the shared report-document migration", async () => {
     const report = await buildProviderStatusReport("copilot", {
       configSource: "defaults",
@@ -1440,6 +1523,7 @@ describe("buildQuotaStatusReport", () => {
         makeProviderSuccessProbe("anthropic", {
           cli_installed: "true",
           cli_version: "1.2.3",
+          binary_path: "claude (PATH)",
           auth_status: "authenticated",
           quota_supported: "false",
           quota_source: "(none)",
@@ -1461,7 +1545,7 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(blank).toBe("");
 
-    const excerpt = body.slice(0, 47).join("\n");
+    const excerpt = body.slice(0, 53).join("\n");
     expect(excerpt).toMatchInlineSnapshot(`
       "toast:
       - configSource: defaults
@@ -1478,12 +1562,17 @@ describe("buildQuotaStatusReport", () => {
 
       paths:
       - opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state
-      - opencode.db: path=/tmp/opencode.db present=false
+      - opencode.db: path=/tmp/opencode.db present=false (session and token history)
       - alibaba auth configured: false
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
       - alibaba_api_key_credential_database_paths: /tmp/opencode.db
       - alibaba_coding_plan: (none)
+
+      credential_source:
+      - source: opencode-integration-api
+      - list_error: (none)
+      - failures: (none)
 
       openai:
       - auth_configured: false
@@ -1496,6 +1585,7 @@ describe("buildQuotaStatusReport", () => {
       anthropic:
       - cli_installed: true
       - cli_version: 1.2.3
+      - binary_path: claude (PATH)
       - auth_status: authenticated
       - quota_supported: false
       - quota_source: (none)
@@ -1519,6 +1609,7 @@ describe("buildQuotaStatusReport", () => {
     expect(titles).toMatchInlineSnapshot(`
       "toast:
 paths:
+credential_source:
 openai:
 anthropic:
 cursor:

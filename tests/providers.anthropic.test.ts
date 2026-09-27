@@ -136,7 +136,8 @@ describe("anthropic provider", () => {
       quotaSupported: true,
       quotaSource: "opencode-auth-oauth-api",
       oauthCredentialSource: "opencode-auth",
-      checkedCommands: ["claude --version"],
+      binaryPath: "/opt/homebrew/bin/claude",
+      checkedCommands: ["claude --version", "/opt/homebrew/bin/claude --version"],
       quota: {
         success: true,
         five_hour: { percentRemaining: 80 },
@@ -153,6 +154,10 @@ describe("anthropic provider", () => {
     expect(out.statusDetails).toContainEqual({
       key: "oauth_credential_source",
       value: "opencode-auth",
+    });
+    expect(out.statusDetails).toContainEqual({
+      key: "binary_path",
+      value: "/opt/homebrew/bin/claude",
     });
     expect(out.statusDetails).toContainEqual({
       key: "quota_source",
@@ -174,6 +179,7 @@ describe("anthropic provider", () => {
       authStatus: "authenticated",
       quotaSupported: false,
       quotaSource: "none",
+      binaryPath: null,
       checkedCommands: ["claude --version"],
     });
     (queryAnthropicQuota as any).mockResolvedValueOnce(null);
@@ -183,6 +189,7 @@ describe("anthropic provider", () => {
       key: "oauth_credential_source",
       value: "(none)",
     });
+    expect(out.statusDetails).toContainEqual({ key: "binary_path", value: "(none)" });
   });
 
   it("adds the Fable weekly row and diagnostic when the OAuth response reports it", async () => {

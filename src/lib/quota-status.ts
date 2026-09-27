@@ -31,6 +31,7 @@ import {
   readPricingRefreshState,
   hasProvider as snapshotHasProvider,
 } from "./modelsdev-pricing.js";
+import { getCredentialSourceDiagnostics } from "./opencode-auth.js";
 import { getOpenCodeDbPath } from "./opencode-db-path.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { getOpenCodeDbStats } from "./opencode-storage.js";
@@ -90,6 +91,10 @@ const OPENCODE_GO_STATUS_DETAIL_KEYS = new Set([
   "monthly_usage",
   "live_fetch_error",
   "opencode_go_state",
+  "go_source",
+  "console_error",
+  "console_auth_state",
+  "console_server",
 ]);
 type ProviderLiveProbe = {
   providerId: string;
@@ -774,7 +779,7 @@ export async function buildQuotaStatusReport(params: {
   const dbPath = getOpenCodeDbPath();
   pathsRows.push({
     key: "opencode.db",
-    value: `path=${dbPath} present=${(await pathExists(dbPath)) ? "true" : "false"}`,
+    value: `path=${dbPath} present=${(await pathExists(dbPath)) ? "true" : "false"} (session and token history)`,
   });
 
   appendProviderStatusDetailRows(
@@ -791,6 +796,28 @@ export async function buildQuotaStatusReport(params: {
     ]),
   );
   sections.push(createKvSection("paths", "paths:", pathsRows));
+
+  // === credential_source ===
+  const credentialSource = getCredentialSourceDiagnostics();
+  sections.push(
+    createKvSection("credential_source", "credential_source:", [
+      {
+        key: "source",
+        value: credentialSource.state === "bound" ? credentialSource.kind : "unbound",
+      },
+      { key: "list_error", value: credentialSource.lastListError?.detail ?? "(none)" },
+      {
+        key: "failures",
+        value: joinOrNone(
+          credentialSource.failures.map((failure) =>
+            [failure.integrationId, failure.label, failure.category, failure.detail]
+              .map((part) => sanitizeSingleLineDisplayText(part))
+              .join(":"),
+          ),
+        ),
+      },
+    ]),
+  );
 
   for (const [id, providerId] of [
     ["openai", "openai"],

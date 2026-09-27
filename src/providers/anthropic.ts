@@ -83,6 +83,7 @@ export const anthropicProvider: QuotaProvider = {
       statusDetails = statusDetailsFromRecord({
         cli_installed: diagnostics.installed ? "true" : "false",
         cli_version: diagnostics.version ?? "(none)",
+        binary_path: diagnostics.binaryPath ?? "(none)",
         auth_status: diagnostics.authStatus,
         quota_supported: diagnostics.quotaSupported ? "true" : "false",
         quota_source: diagnostics.quotaSource === "none" ? "(none)" : diagnostics.quotaSource,

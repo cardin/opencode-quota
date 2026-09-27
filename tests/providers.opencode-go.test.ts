@@ -243,6 +243,72 @@ describe("opencode-go provider", () => {
     expect(JSON.stringify(out)).not.toContain(jwt);
   });
 
+  it("shows the failed Console sign-in as Go's error when there is no API key", async () => {
+    const jwt = `eyJ${"a".repeat(24)}.${"b".repeat(24)}.${"c".repeat(24)}`;
+    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
+      state: "invalid",
+      error: `refresh_failed: HTTP 401 ${jwt}`,
+    });
+    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
+
+    const out = await runFetch();
+
+    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+    expect(out.attempted).toBe(true);
+    expect(out.entries).toEqual([]);
+    expect(out.errors).toEqual([
+      {
+        label: "OpenCode Go",
+        message:
+          "OpenCode Console sign-in failed: refresh_failed: HTTP 401 [redacted]. Run `opencode auth login opencode`.",
+      },
+    ]);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "console_auth_state", value: "invalid" },
+        { key: "go_source", value: "legacy_key" },
+      ]),
+    );
+    expect(JSON.stringify(out)).not.toContain(jwt);
+  });
+
+  it("shows the failed Console request as Go's error when there is no API key", async () => {
+    consoleConfigured();
+    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
+      success: false,
+      error: "OpenCode Console API error 500 (/api/go/status)",
+      retryable: true,
+    });
+    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
+
+    const out = await runFetch();
+
+    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+    expect(out.errors).toEqual([
+      {
+        label: "OpenCode Go",
+        message: "OpenCode Console request failed: OpenCode Console API error 500 (/api/go/status)",
+        retryable: true,
+      },
+    ]);
+    expect(out.statusDetails).toContainEqual({
+      key: "console_error",
+      value: "OpenCode Console API error 500 (/api/go/status)",
+    });
+  });
+
+  it("stays quiet without a Console sign-in or an API key", async () => {
+    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
+
+    const out = await runFetch();
+
+    expectNotAttempted(out);
+    expect(out.errors).toEqual([]);
+  });
+
   it("keeps the plain key path when the opencode login is an API key", async () => {
     mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({ state: "none", reason: "not_oauth" });
 
@@ -841,6 +907,18 @@ describe("opencode-go availability and model matching", () => {
       expected,
     );
     expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+  });
+
+  it("stays available for a failed Console sign-in without an API key", async () => {
+    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
+      state: "invalid",
+      error: "refresh_failed: HTTP 401",
+    });
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
+
+    await expect(opencodeGoProvider.isAvailable(createProviderAvailabilityContext())).resolves.toBe(
+      true,
+    );
   });
 
   it.each([

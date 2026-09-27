@@ -8,6 +8,10 @@ const authMocks = vi.hoisted(() => ({
   readAuthFileCached: vi.fn(),
 }));
 
+const fsMocks = vi.hoisted(() => ({
+  existsSync: vi.fn((_path: string) => false),
+}));
+
 const identityMocks = vi.hoisted(() => ({
   deriveResolvedAuthIdentity: vi.fn(
     async (params: { providerId: string }) => `identity:${params.providerId}`,
@@ -18,6 +22,7 @@ const identityMocks = vi.hoisted(() => ({
   ),
 }));
 
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "child_process";
 import { readFile } from "fs/promises";
@@ -40,6 +45,11 @@ vi.mock("child_process", () => ({
 
 vi.mock("fs/promises", () => ({
   readFile: vi.fn(),
+}));
+
+vi.mock("fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("fs")>()),
+  existsSync: fsMocks.existsSync,
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
@@ -71,6 +81,12 @@ type ExecSequenceStep = {
 };
 
 const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+const CLAUDE_INSTALL_FOLDER_CANDIDATES = [
+  join(homedir(), ".claude", "local", "claude"),
+  join(homedir(), ".local", "bin", "claude"),
+  "/opt/homebrew/bin/claude",
+  "/usr/local/bin/claude",
+];
 
 const execFileMock = vi.mocked(execFile);
 const readFileMock = vi.mocked(readFile);
@@ -148,6 +164,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   execFileMock.mockReset();
+  fsMocks.existsSync.mockReset();
+  fsMocks.existsSync.mockReturnValue(false);
   readFileMock.mockReset();
   readAuthFileCachedMock.mockReset();
   fetchWithTimeoutMock.mockClear();
@@ -517,6 +535,7 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.version).toBe("2.1.123");
     expect(diagnostics.authStatus).toBe("authenticated");
     expect(diagnostics.quotaSupported).toBe(true);
+    expect(diagnostics.binaryPath).toBe("C:/Users/alice/.local/bin/claude.exe");
     expect(diagnostics.checkedCommands).toEqual([
       "C:/Users/alice/.local/bin/claude.exe --version",
       "C:/Users/alice/.local/bin/claude.exe auth status --json",
@@ -538,6 +557,7 @@ describe("Claude CLI diagnostics", () => {
   });
 
   it("reports missing Claude CLI as unavailable without quota data", async () => {
+    setProcessPlatform("linux");
     mockExecSequence([
       {
         code: "ENOENT",
@@ -547,17 +567,95 @@ describe("Claude CLI diagnostics", () => {
 
     const diagnostics = await getAnthropicDiagnostics();
 
+    expect(fsMocks.existsSync.mock.calls.map(([path]) => path)).toEqual(
+      CLAUDE_INSTALL_FOLDER_CANDIDATES,
+    );
     expect(diagnostics).toEqual({
       installed: false,
       version: null,
       authStatus: "unknown",
       quotaSupported: false,
       quotaSource: "none",
+      binaryPath: null,
       checkedCommands: ["claude --version"],
-      message: "Claude CLI (`claude`) is not installed or not on PATH.",
+      message: `Claude CLI (\`claude\`) is not installed or not on PATH. Also checked: ${CLAUDE_INSTALL_FOLDER_CANDIDATES.join(", ")}.`,
     });
     await expect(hasAnthropicCredentialsConfigured()).resolves.toBe(false);
     await expect(queryAnthropicQuota()).resolves.toBeNull();
+  });
+
+  it("runs claude from PATH without looking in install folders", async () => {
+    mockExecSequence([
+      { stdout: "claude 1.2.3\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+          quota: {
+            five_hour: { used_percentage: 10 },
+            seven_day: { used_percentage: 20 },
+          },
+        }),
+      },
+    ]);
+
+    const diagnostics = await getAnthropicDiagnostics();
+
+    expect(fsMocks.existsSync).not.toHaveBeenCalled();
+    expect(diagnostics.binaryPath).toBe("claude (PATH)");
+    expect(diagnostics.checkedCommands).toEqual(["claude --version", "claude auth status --json"]);
+  });
+
+  it("uses the first install folder that has claude when it is not on PATH", async () => {
+    setProcessPlatform("linux");
+    const [claudeLocal, localBin] = CLAUDE_INSTALL_FOLDER_CANDIDATES;
+    fsMocks.existsSync.mockImplementation(
+      (path) => path === localBin || path === "/usr/local/bin/claude",
+    );
+    mockExecSequence([
+      { code: "ENOENT", errorMessage: "spawn claude ENOENT" },
+      { stdout: "2.1.0 (Claude Code)\n" },
+      {
+        stdout: JSON.stringify({
+          authenticated: true,
+          quota: {
+            five_hour: { used_percentage: 10 },
+            seven_day: { used_percentage: 20 },
+          },
+        }),
+      },
+    ]);
+
+    const diagnostics = await getAnthropicDiagnostics();
+
+    expect(fsMocks.existsSync.mock.calls.map(([path]) => path)).toEqual([claudeLocal, localBin]);
+    expect(diagnostics.installed).toBe(true);
+    expect(diagnostics.version).toBe("2.1.0");
+    expect(diagnostics.quotaSupported).toBe(true);
+    expect(diagnostics.binaryPath).toBe(localBin);
+    expect(diagnostics.checkedCommands).toEqual([
+      "claude --version",
+      buildClaudeCommandInvocation(localBin!, ["--version"]).display,
+      buildClaudeCommandInvocation(localBin!, ["auth", "status", "--json"]).display,
+    ]);
+    expect(execFileMock).toHaveBeenNthCalledWith(
+      3,
+      localBin,
+      ["auth", "status", "--json"],
+      expect.any(Object),
+      expect.any(Function),
+    );
+  });
+
+  it("does not look in install folders on Windows", async () => {
+    setProcessPlatform("win32");
+    mockExecSequence([{ code: "ENOENT", errorMessage: "spawn cmd.exe ENOENT" }]);
+
+    const diagnostics = await getAnthropicDiagnostics();
+
+    expect(fsMocks.existsSync).not.toHaveBeenCalled();
+    expect(diagnostics.installed).toBe(false);
+    expect(diagnostics.binaryPath).toBeNull();
+    expect(diagnostics.message).toBe("Claude CLI (`claude`) is not installed or not on PATH.");
   });
 
   it("uses OpenCode Anthropic OAuth when Claude CLI is unavailable", async () => {
@@ -635,7 +733,11 @@ describe("Claude CLI diagnostics", () => {
     expect(diagnostics.checkedCommands).toEqual([
       '"/Applications/Claude Code.app/Contents/MacOS/claude" --version',
     ]);
-    expect(diagnostics.message).toContain("/Applications/Claude Code.app/Contents/MacOS/claude");
+    expect(fsMocks.existsSync).not.toHaveBeenCalled();
+    expect(diagnostics.binaryPath).toBeNull();
+    expect(diagnostics.message).toBe(
+      "Claude CLI (`/Applications/Claude Code.app/Contents/MacOS/claude`) is not installed or not on PATH.",
+    );
   });
 
   it("reports unauthenticated Claude CLI status", async () => {

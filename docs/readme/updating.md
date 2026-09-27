@@ -49,7 +49,8 @@ The updater builds one plan, prints it in full, and then either stops or applies
 What changed in `5.0.0`:
 
 - **OpenCode 1 is no longer supported.** `init` and `update` detect OpenCode 1 and keep you on 4.x. See [OpenCode 1](#opencode-1).
-- **Logins come only from `opencode.db`.** OpenCode Quota reads logins only from OpenCode 2's database, never from `auth.json`. OpenCode 2 copies your old logins once, the first time it starts. If a provider is missing, log in again in OpenCode 2.
+- **Logins come only from OpenCode 2.** OpenCode Quota asks OpenCode 2 for logins through its plugin API (OpenCode keeps them in `opencode.db`) and never reads `auth.json`. OpenCode 2 copies your old logins once, the first time it starts. If a provider is missing, log in again in OpenCode 2.
+- **Quota is computed in OpenCode's background service.** `PATH`, environment variables, and the working folder (your home folder) come from the service, not from your terminal. See [Service environment](troubleshooting.md#service-environment).
 - **Web and Desktop have slash commands but no toasts or panels,** because OpenCode 2 gives plugins no Web UI hooks. On Web and Desktop, `/quota` posts the report in the chat as your message. The AI never answers it, and the plugin filters it out of every AI request. If you uninstall the plugin, old reports in past chats are no longer filtered. See [Web and Desktop notes](manual-install.md#web-and-desktop-notes).
 - **One plugin entry.** One `"plugin"` entry in `opencode.json` loads both the server and the TUI; no `tui.json` entry is needed.
 - **TUI reports open in a popup.** TUI slash commands and the command palette open the report in a popup and leave no chat message. `tuiCommandDisplay` now defaults to `"dialog"`; set `"inline"` to keep TUI slash reports in the chat instead.
@@ -106,10 +107,10 @@ OpenCode Go now uses an official API key. Configure one supported source in this
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
 3. Trusted user/global fallback: `provider.opencode.options.apiKey`
-4. A strict `opencode-go` API-key entry in OpenCode `opencode.db`
-5. A strict legacy `opencode` API-key entry in `opencode.db` as the final fallback
+4. An `opencode-go` API-key login saved in OpenCode 2 (`opencode.db`)
+5. A legacy `opencode` API-key login as the final fallback
 
-You can create the canonical `opencode.db` entry with:
+You can create the `opencode-go` API-key login with:
 
 ```bash
 opencode auth login opencode-go

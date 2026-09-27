@@ -66,7 +66,8 @@ The updater always shows a preview first. `--yes` applies only the safe edits it
 
 > [!WARNING]
 > - OpenCode 1 is no longer supported. `init` and `update` detect OpenCode 1 and keep you on 4.x (`@slkiser/opencode-quota@4`).
-> - Logins come only from OpenCode 2's `opencode.db`, never `auth.json`. If a provider is missing, log in again.
+> - Logins are read through OpenCode 2's plugin API (OpenCode keeps them in `opencode.db`), never from `auth.json`. If a provider is missing, log in again.
+> - Quota is computed in OpenCode's background service, so `PATH` and environment variables come from the service, not your terminal. See [Service environment](docs/readme/troubleshooting.md#service-environment).
 > - Web and Desktop get the slash commands (report posts in the chat) but no toasts or panels.
 > - One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
 > - TUI slash reports now open in a popup. Set `tuiCommandDisplay: "inline"` to keep them in the chat.
@@ -248,7 +249,7 @@ The guided setup previews the change before saving. See the [custom-provider gui
 If quota or token data looks wrong:
 
 1. Run `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal for the same diagnostics (OpenCode must be running). Use `opencode-quota show` for a quick quota glance.
-2. Confirm the expected provider appears in the detected provider list. If it is missing, log in to it again in OpenCode 2.
+2. Confirm the expected provider appears in the detected provider list. If it is missing, log in to it again in OpenCode 2. `credential_source` lists logins OpenCode could not return.
 3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
 5. Check [Troubleshooting](docs/readme/troubleshooting.md) for common symptoms and provider-specific fixes.

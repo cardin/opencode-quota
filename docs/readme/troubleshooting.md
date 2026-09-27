@@ -13,7 +13,15 @@ Start with `/quota_status` inside OpenCode, or `opencode-quota status` from a te
 
 If every provider is missing, confirm OpenCode Quota is listed in `opencode.jsonc` or `.json`. That one entry also loads the TUI; no `tui.json` entry is needed.
 
-OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.json`. OpenCode 2 copies `auth.json` once, the first time it starts. If a provider is missing, log in to it again in OpenCode 2. `/quota_status` shows the `opencode.db` path in use; `OPENCODE_DB` and `XDG_DATA_HOME` change it. Custom or source builds of OpenCode may use `opencode-<channel>.db` instead; set `OPENCODE_DB` to that file's path.
+OpenCode Quota asks OpenCode 2 for logins through its plugin API (OpenCode keeps them in `opencode.db`) and never reads `auth.json`. OpenCode 2 copies `auth.json` once, the first time it starts. If a provider is missing, log in to it again in OpenCode 2. In `/quota_status`, the `credential_source` section shows the login `source`, a `list_error` when OpenCode could not list logins, and `failures`: each login OpenCode could not return (for example a failed token refresh) as `provider:label:reason:detail`. Such a login also shows as an error row; log in to that provider again. `/quota_status` also shows the `opencode.db` path used for session and token history; `OPENCODE_DB` and `XDG_DATA_HOME` change it. Custom or source builds of OpenCode may use `opencode-<channel>.db` instead; set `OPENCODE_DB` to that file's path.
+
+## Service environment
+
+Every surface (TUI, Web, Desktop, and the terminal command) gets its numbers from OpenCode's background service. The service takes `PATH` and environment variables from whatever started it first, not from the terminal you use now, and it runs in your home folder.
+
+- **`claude` or `bl` not found, or an API-key variable ignored:** in a terminal where they work, run `opencode service restart`. To keep that `PATH` for every later start, run `opencode service set env PATH "$PATH"` (it stops the service; open OpenCode again). For Claude you can instead set `anthropicBinaryPath`.
+- A relative `export.path` is relative to your home folder.
+- Cursor's plugin-entry check reads `opencode.json` in your global config folder and your home folder, not in the project folder.
 
 ## Common problems
 
@@ -70,7 +78,7 @@ Run `/quota_status` and inspect `quota_providers`. Each definition shows its sta
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Config is rejected                         | Run `opencode-quota provider add` and keep `quotaProviders` in global OpenCode JSONC/JSON. Remove `customSources`, unknown fields, duplicate IDs/request identities, or overlapping model coverage.  |
 | Definition is `unavailable`                | Confirm OpenCode reports the exact configured `providerId`. With `onlyCurrentModel`, confirm the model id without provider prefix matches `modelIds`, or omit `modelIds` for provider-wide coverage. |
-| `missing_credential`                       | Set the explicit `apiKeyEnv`, or configure trusted global `provider.<providerId>.options.apiKey`, or a strict `{ "type": "api", "key": "..." }` auth entry.                                          |
+| `missing_credential`                       | Set the explicit `apiKeyEnv`, or configure trusted global `provider.<providerId>.options.apiKey`, or an API-key login saved in OpenCode 2 for that provider id.                                     |
 | `http_error`, `timeout`, or response error | Check the endpoint service and response format. `/quota_status` intentionally hides URLs, request/response contents, raw errors, and secret material.                                                |
 | One definition fails but others render     | This is expected partial-aggregate behavior. Successful definitions remain visible and the failed definition stays an error/status row.                                                              |
 | Single-window output shows fewer rows      | Each source keeps only its lowest remaining percentage, or first value row. Use `"formatStyle": "allWindows"` for every row.                                                                         |
@@ -85,7 +93,7 @@ Run `/quota_status` and check the Anthropic section.
 
 | Symptom                              | Fix                                                                                                                                 |
 | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `claude` not found                   | Install Claude Code and make sure `claude` is on your `PATH`.                                                                       |
+| `claude` not found                   | Install Claude Code. OpenCode Quota tries `claude` on the [service `PATH`](#service-environment), then `~/.claude/local/claude`, `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, and `/usr/local/bin/claude` (not on Windows). `binary_path` shows which one ran. |
 | Claude is installed at a custom path | Set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`.                                                                     |
 | Not authenticated                    | Run `claude auth login`, then confirm `claude auth status` works.                                                                   |
 | Auth works but no quota rows appear  | Check `quota_source` and `message` in `/quota_status`; re-authenticate Claude if the OAuth credential fallback is missing or stale. |
@@ -119,8 +127,8 @@ Run `/quota_status` and check the OpenAI auth source and token status.
 
 | Symptom               | Fix                                                                                        |
 | --------------------- | ------------------------------------------------------------------------------------------ |
-| OpenAI quota missing  | Confirm OpenCode native OpenAI OAuth is present in `opencode.db`.                            |
-| Token expired         | Re-run OpenCode's OpenAI auth flow.                                                        |
+| OpenAI quota missing  | Sign in to OpenAI in OpenCode 2: `opencode auth login openai`.                             |
+| `OpenAI sign-in could not be refreshed` | OpenCode could not refresh the token. Run `opencode auth login openai`. For xAI, the row says `xAI sign-in could not be refreshed`; run `opencode auth login xai`. |
 | Provider not detected | Confirm your OpenCode config uses the `openai` provider or a compatible OpenAI auth entry. |
 
 </details>
@@ -161,7 +169,7 @@ Run `/quota_status` and check the `alibaba_token_plan` live probe. This source i
 
 | Symptom                 | Fix                                                                                                                                                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CLI not detected        | Install official `bailian-cli` so `bl` is on an absolute PATH directory outside the workspace. On Windows, run this from WSL. Native `bl.exe` and `.cmd` shims are not supported. |
+| CLI not detected        | Install official `bailian-cli` so `bl` is in an absolute directory on the [service `PATH`](#service-environment) outside the service's working folder, your home folder (for example `/opt/homebrew/bin`, not `~/.local/bin` or an nvm folder). On Windows, run this from WSL. Native `bl.exe` and `.cmd` shims are not supported. |
 | Console session expired | Run `bl auth login --console`. A Coding Plan API key cannot authenticate this provider.                                                                             |
 | Weekly row only         | The official CLI may omit the five-hour window. OpenCode Quota does not invent a missing window.                                                                    |
 | JSON export empty       | `show --json` is cache-only. This provider is uncached, so a separate CLI process reports it unavailable instead of running `bl`.                                   |
@@ -189,7 +197,7 @@ These providers use trusted env vars, trusted user/global OpenCode config, or na
 
 If Synthetic is authenticated and the quota endpoint returns HTTP 200 `{}`, `/quota` and `/quota_status` report `Synthetic returned no quota data for this account.` That is not an invalid API key or a Clerk/browser requirement. The plugin does not invent 5h or Weekly rows. `/quota_status` shows it on `live_error_*`.
 
-For security, repo-local `opencode.json` / `opencode.jsonc` is ignored for provider secrets in these integrations. Put secrets in environment variables or trusted user/global config. OpenCode auth fallbacks for API-key providers require `{ "type": "api", "key": "..." }` entries.
+For security, repo-local `opencode.json` / `opencode.jsonc` is ignored for provider secrets in these integrations. Put secrets in environment variables or trusted user/global config. OpenCode auth fallbacks for API-key providers must be API-key logins, not OAuth sign-ins.
 
 </details>
 
@@ -244,12 +252,13 @@ Run `/quota_status` and check the `xiaomi` section. Diagnostics show state, sour
 <details>
 <summary><strong>OpenCode Go</strong></summary>
 
-Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*` diagnostics, the selected display windows, normalized API usage, and `live_fetch_error` without exposing the API key. When you are signed in to the OpenCode Console, `go_source` shows whether the Console (`console`) or the API key (`legacy_key`) answered, and `console_error` shows why the Console failed. `opencode_go_state: not_subscribed` means the Console reports no Go subscription.
+Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*` diagnostics, the selected display windows, normalized API usage, and `live_fetch_error` without exposing the API key. When you are signed in to the OpenCode Console, `console_auth_state` and `console_server` describe that sign-in, `go_source` shows whether the Console (`console`) or the API key (`legacy_key`) answered, and `console_error` shows why the Console failed. `opencode_go_state: not_subscribed` means the Console reports no Go subscription.
 
 | Symptom                             | Fix                                                                                                                                                                                                                  |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Provider not detected               | Set `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, a strict `opencode-go` API-key entry in OpenCode `opencode.db`, or a strict legacy `opencode` auth entry as the final fallback. Then check `auth_state`, `auth_source`, and `auth_checked_paths`. |
-| `auth_state` is `invalid`           | Fix the primary `opencode-go` record in `opencode.db` so it is `{ "type": "api", "key": "..." }`. A malformed primary record blocks the legacy `opencode` fallback and is reported in `auth_error`.                    |
+| Provider not detected               | Sign in with `opencode auth login opencode`, or set `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, an `opencode-go` API-key login (`opencode auth login opencode-go`), or a legacy `opencode` API-key login as the final fallback. Then check `auth_state`, `auth_source`, and `auth_checked_paths`. |
+| `auth_state` is `invalid`           | Log in again with `opencode auth login opencode-go`. A broken `opencode-go` login blocks the legacy `opencode` fallback and is reported in `auth_error`.                    |
+| `OpenCode Console sign-in failed` or `OpenCode Console request failed` | Shown only when no API key is set. Run `opencode auth login opencode`, or set an API key. `console_error` has the reason. |
 | API returns 401 or 403              | The usage API rejected the key. Update the winning source shown by `auth_source`, wait briefly for credential caching to expire, and rerun `/quota_status`.                                                           |
 | Invalid API response                | Check `live_fetch_error`. OpenCode Quota requires valid 5h, Weekly, and Monthly results, so one missing or malformed API window rejects the full response instead of showing partial quota.                            |
 | API request times out or fails      | Check `live_fetch_error`, confirm `https://opencode.ai/zen/go/v1/usage` is reachable, and retry. Increase `requestTimeoutMs` only when the error is a timeout.                                                          |

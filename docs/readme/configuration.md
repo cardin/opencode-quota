@@ -237,7 +237,7 @@ The command writes the `experimental.quotaToast.quotaProviders` section. Configu
 - Local estimates support 1–16 UTC-day or rolling request windows.
 - Automatic models.dev matching runs first. `pricingModelMap` cannot override a successful automatic match.
 - If any request cannot be priced, request counts stay visible and the budget percentage is reported unavailable.
-- Credentials resolve from `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then API-key entries in OpenCode `opencode.db`.
+- Credentials resolve from `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then API-key logins saved in OpenCode 2 (`opencode.db`).
 - Definitions run automatically with `enabledProviders: "auto"`. A manual list must include `quota-providers` and every built-in provider you still want.
 - To tune maintained estimates, use the reserved `alibaba-coding-plan` ID and its maintained window shape. Do not add a duplicate normal provider block. Alibaba Personal Token Plan uses the reserved `alibaba-token-plan` ID and is not a local-estimate tuning target.
 - Project secrets, scripts, custom headers, executable mappings, regular expressions, and JSONPath are not accepted.
@@ -449,7 +449,7 @@ Existing `experimental.quotaToast` settings remain supported.
 
 | Option                       | Default                            | Meaning                                                                                              |
 | ---------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `anthropicBinaryPath`        | `"claude"`                         | Command/path used for local Claude CLI probing.                                                      |
+| `anthropicBinaryPath`        | `"claude"`                         | Command/path used for local Claude CLI probing. With `"claude"`, OpenCode's `PATH` is tried first, then the usual install folders (not on Windows). |
 | `opencodeGoWindows`          | `["rolling", "weekly", "monthly"]` | Choose which validated OpenCode Go API results are available across surfaces and in the expanded sidebar: Five-hour, Weekly, and Monthly. |
 | `opencodeMonthlyLimit`       | unset                              | Override the OpenCode Zen monthly budget in USD.                                                     |
 | `cursorPlan`                 | `"none"`                           | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`.                               |
@@ -460,16 +460,16 @@ Every `provider.<id>.options.apiKey` below can also be written in OpenCode 2's n
 
 Kimi has no `quota-toast.json` credential setting. Each regional plan resolves its own key:
 
-- **Kimi Code (Global):** `KIMI_GLOBAL_API_KEY` → trusted user/global `provider.kimi-code-plan-global.options.apiKey` → strict `kimi-code-plan-global` API-key entry in OpenCode `opencode.db`.
-- **Kimi Code (CN):** `KIMI_CN_API_KEY` → `KIMI_API_KEY` → `KIMI_CODE_API_KEY` → trusted user/global config under `kimi-code-plan-cn`, `kimi-for-coding`, `kimi-code`, or `kimi` → strict API-key entry in `opencode.db` under those same ids.
+- **Kimi Code (Global):** `KIMI_GLOBAL_API_KEY` → trusted user/global `provider.kimi-code-plan-global.options.apiKey` → `kimi-code-plan-global` API-key login saved in OpenCode 2.
+- **Kimi Code (CN):** `KIMI_CN_API_KEY` → `KIMI_API_KEY` → `KIMI_CODE_API_KEY` → trusted user/global config under `kimi-code-plan-cn`, `kimi-for-coding`, `kimi-code`, or `kimi` → API-key login saved in OpenCode 2 under those same ids.
 
 Project-local `opencode.json` and `opencode.jsonc` are never read for these secrets. Global credentials are sent only to `api.kimi.ai`; CN and legacy credentials are sent only to `api.kimi.com`. A failed request is not retried against the other host.
 
-Kilo Gateway has no `quota-toast.json` credential setting. Use `KILO_API_KEY`, trusted user/global `provider.kilo.options.apiKey`, or a strict `kilo` API-key entry in OpenCode `opencode.db`; project-local OpenCode config is not read for this secret. See [Kilo Gateway setup](providers.md#kilo-gateway).
+Kilo Gateway has no `quota-toast.json` credential setting. Use `KILO_API_KEY`, trusted user/global `provider.kilo.options.apiKey`, or a `kilo` API-key login saved in OpenCode 2; project-local OpenCode config is not read for this secret. See [Kilo Gateway setup](providers.md#kilo-gateway).
 
-Ollama Cloud has no `quota-toast.json` credential setting. Use `OLLAMA_API_KEY`, trusted user/global `provider.ollama-cloud.options.apiKey`, or a strict `ollama-cloud` API-key entry in OpenCode `opencode.db`; project-local OpenCode config is not read for this secret. See [Ollama Cloud setup](providers.md#ollama-cloud).
+Ollama Cloud has no `quota-toast.json` credential setting. Use `OLLAMA_API_KEY`, trusted user/global `provider.ollama-cloud.options.apiKey`, or an `ollama-cloud` API-key login saved in OpenCode 2; project-local OpenCode config is not read for this secret. See [Ollama Cloud setup](providers.md#ollama-cloud).
 
-OpenCode Go has no `quota-toast.json` workspace ID, cookie, endpoint, credential, or token setting. It automatically uses `OPENCODE_API_KEY`, trusted user/global `provider.opencode-go.options.apiKey`, trusted user/global fallback `provider.opencode.options.apiKey`, a strict `opencode-go` API-key entry in OpenCode `opencode.db`, or a strict legacy `opencode` auth entry as the final fallback. `opencodeGoWindows` filters the Five-hour, Weekly, and Monthly rows returned by the official usage API, including the expanded sidebar. Use `tuiSidebarPanel.opencodeGoPreferredWindow` to prefer one available row only while the sidebar is collapsed. See [OpenCode Go setup](providers.md#opencode-go).
+OpenCode Go has no `quota-toast.json` workspace ID, cookie, endpoint, credential, or token setting. It automatically uses `OPENCODE_API_KEY`, trusted user/global `provider.opencode-go.options.apiKey`, trusted user/global fallback `provider.opencode.options.apiKey`, an `opencode-go` API-key login saved in OpenCode 2, or a legacy `opencode` API-key login as the final fallback. A Console sign-in (`opencode auth login opencode`) is tried before any key. `opencodeGoWindows` filters the Five-hour, Weekly, and Monthly rows returned by the official usage API, including the expanded sidebar. Use `tuiSidebarPanel.opencodeGoPreferredWindow` to prefer one available row only while the sidebar is collapsed. See [OpenCode Go setup](providers.md#opencode-go).
 
 Xiaomi MiMo has no `quota-toast.json` credential or endpoint setting. Use `MIMO_USAGE_COOKIE` or trusted user/global `opencode-quota/mimo.json`; see [Xiaomi MiMo setup](providers.md#xiaomi-mimo).
 
@@ -480,13 +480,13 @@ Xiaomi MiMo has no `quota-toast.json` credential or endpoint setting. Use `MIMO_
 | Option           | Default | Meaning                                                                                                                     |
 | ---------------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `export.enabled` | `false` | Write a JSON export file each time the TUI Home screen quota footer refreshes.                                              |
-| `export.path`    | `""`    | Export file path. Empty string uses the XDG default: `$XDG_CACHE_HOME/opencode/quota-export.json`. Supports `~/` expansion. |
+| `export.path`    | `""`    | Export file path. Empty string uses the XDG default: `$XDG_CACHE_HOME/opencode/quota-export.json`. Supports `~/` expansion. A relative path is relative to your home folder, where OpenCode's service runs. |
 
 ### Telemetry settings
 
 | Option              | Default | Meaning                                                                                                                         |
 | ------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `telemetry.enabled` | `false` | Publish quota consumption and cache-age gauges through the host's global OpenTelemetry `MeterProvider`; adds no provider calls. |
+| `telemetry.enabled` | `false` | Publish quota consumption and cache-age gauges through the global OpenTelemetry `MeterProvider` of OpenCode's server process; adds no provider calls. |
 
 See [External integration](external-integration.md#3-send-opentelemetry-metrics) for metric names, attributes, setup, and privacy behavior.
 

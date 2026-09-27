@@ -12,11 +12,11 @@ This template is intentionally outside `src/` and is not published to npm. `pack
 
 Use this template for API-key/token providers that support all three trusted sources:
 
-1. existing OpenCode API-key/token auth (`opencode.db`)
+1. existing OpenCode API-key/token login, read through the plugin API
 2. trusted user/global OpenCode config
 3. environment variables
 
-Do not use it for OAuth-only providers such as OpenAI.
+Do not use it for OAuth-only providers such as OpenAI. `readAuth` must pass the provider's integration ids, as `config.ts` does: `readAuthFile({ integrationIds: PROVIDER_KEYS })`.
 
 ## Copy targets
 

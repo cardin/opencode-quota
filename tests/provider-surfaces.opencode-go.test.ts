@@ -262,6 +262,48 @@ describe("OpenCode Go shared projections", () => {
     );
     // The failed sign-in is resolved once, then not again within the minute.
     expect(integration.connection.resolve).toHaveBeenCalledOnce();
+    expect(status).toContain("- console_error: refresh_failed: HTTP 401");
+    expect(status).toContain("- go_source: legacy_key");
+  });
+
+  it("shows the failed console sign-in on every surface when there is no Go key", async () => {
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({ state: "none" });
+    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValue({
+      state: "none",
+      source: null,
+      checkedPaths: ["env:OPENCODE_API_KEY"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
+    });
+    const integration = createFakeIntegration([
+      {
+        integrationId: "opencode",
+        id: "cred_console",
+        label: "default",
+        registered: true,
+        method: "oauth",
+        value: {
+          type: "oauth",
+          methodID: "device",
+          access: "distinctive-console-access",
+          refresh: "distinctive-console-refresh",
+          expires: 0,
+        },
+        resolveError: "HTTP 401",
+      },
+    ]);
+
+    const status = await runQuotaStatus("opencode-go-console-invalid-no-key", integration);
+    const output = await collectQuotaProjection();
+    const message =
+      "OpenCode Console sign-in failed: refresh_failed: HTTP 401. Run `opencode auth login opencode`.";
+
+    expect(status).toContain(`- live_error_1: ${message}`);
+    expect(output).toContain(message);
+    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+    for (const secret of ["distinctive-console-access", "distinctive-console-refresh"]) {
+      expect(status).not.toContain(secret);
+      expect(output).not.toContain(secret);
+    }
   });
 
   it("hides a not-subscribed result on every display and keeps it visible in safe diagnostics", async () => {

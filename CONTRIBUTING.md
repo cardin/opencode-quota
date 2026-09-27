@@ -79,10 +79,10 @@ Recommended settings for `main`:
 - Never invoke an LLM/model API to compute toast/report output. Everything must remain local and deterministic.
 - Rich accounting currency quantities must preserve the provider's uppercase ISO code and render through the shared formatter (for example, `USD 12.50`), never a provider-formatted currency string, bare symbol, decorative glyph, conversion, or cross-currency sum.
 - OpenCode Quota supports only OpenCode 2. Do not add OpenCode 1 code paths, plugin APIs, or database tables.
-- The TUI plugin (`src/tui-v2.tsx`) owns every visible surface: slash commands as local TUI dialogs, toasts, the Sidebar panel, the compact line and prompt bar below the prompt, and the Home footer line. Commands never write to the session transcript or call a model.
-- The server plugin (`src/plugin.ts`) only registers the `quota_status` tool, a diagnostics tool the assistant can call. OpenCode 2 gives plugins no Web or Desktop UI hooks, so there are no Web slash commands or toasts.
-- Slash commands (`/quota`, `/quota_status`, `/quota_announcements`, `/pricing_refresh`, `/tokens_*`) and the `quota_status` tool must route through `buildQuotaDialogCommandOutput()`; do not duplicate command-output logic in `src/plugin.ts` or `src/tui-v2.tsx`.
-- Read OpenCode credentials only from the `credential` table in OpenCode 2's `opencode.db`, never from `auth.json`.
+- The server plugin (`src/plugin.ts`) registers the `quota_status` tool, the slash commands, and the `slkiser.opencode-quota` RPC, and computes the text of every surface. OpenCode 2 gives plugins no Web or Desktop UI hooks, so Web and Desktop get slash commands but no toasts or panels. Commands never call a model.
+- The TUI plugin (`src/tui-v2.tsx`) only renders: toasts, the Sidebar panel, the compact line and prompt bar below the prompt, the Home footer line, and report popups. It gets every text through the RPC and imports no provider or credential module (`tests/tui-dist-import-graph.test.ts`, `tests/plugin.command-handled-boundary.test.ts`).
+- Slash commands (`/quota`, `/quota_status`, `/quota_announcements`, `/pricing_refresh`, `/tokens_*`), the `quota_status` tool, and the RPC `command` method must route through `buildQuotaDialogCommandOutput()`; do not duplicate command-output logic in `src/plugin.ts` or `src/tui-v2.tsx`.
+- Read OpenCode credentials only through `ctx.integration`, inside `src/lib/opencode-auth.ts`, never from `auth.json` or the `credential` table. Every reader call names its integration ids.
 - Keep `tests/plugin.command-handled-boundary.test.ts` aligned with these invariants.
 
 Additional boundary tests to keep healthy when touching plugin/provider logic:

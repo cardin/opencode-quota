@@ -106,7 +106,7 @@ interval = 60
 
 ## 3. Send OpenTelemetry metrics
 
-Use this only when your OpenCode host already has an OpenTelemetry metrics provider and exporter. OpenCode Quota does not create or configure them.
+Use this only when OpenCode's server process (normally the background service) already has an OpenTelemetry metrics provider and exporter; the metrics come from that process. OpenCode Quota does not create or configure them.
 
 Add this to `opencode-quota/quota-toast.json`:
 

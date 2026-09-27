@@ -12,7 +12,7 @@
 
 ## Pre-configured providers
 
-Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`, read from OpenCode 2's `opencode.db`. If you have several logins for one provider, each one gets its own rows and `*` marks the active one. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
+Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`, read through OpenCode 2's plugin API. If you have several logins for one provider, each one gets its own rows and `*` marks the active one. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
 
 ### American providers
 
@@ -273,7 +273,7 @@ Credentials are checked in this order:
 
 1. The environment variable named by `apiKeyEnv`.
 2. Trusted global `provider.<providerId>.options.apiKey`.
-3. An API-key entry in OpenCode `opencode.db`.
+3. An API-key login saved in OpenCode 2 (`opencode.db`) for that provider id.
 
 Project secrets are never read. Custom definitions cannot add scripts, methods, headers, templates, executable mappings, regular expressions, JSONPath, or automatic endpoint discovery.
 
@@ -391,16 +391,16 @@ Official references: [AI Credit billing reports](https://docs.github.com/en/rest
 
 ### Anthropic (Claude)
 
-OpenCode's existing Anthropic OAuth credential is sufficient; a separate Claude Code installation is not required. To use Claude Code as the local quota source and credential fallback, install it, authenticate it, and make sure `claude` is on your `PATH`:
+OpenCode's existing Anthropic OAuth credential is sufficient; a separate Claude Code installation is not required. To use Claude Code as the local quota source and credential fallback, install it and authenticate it. OpenCode Quota runs `claude` from OpenCode's `PATH`, or else from the first of `~/.claude/local/claude`, `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, and `/usr/local/bin/claude` that works (not on Windows):
 
 ```bash
 claude auth login
 claude auth status
 ```
 
-If Claude lives at a custom path, set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`.
+If Claude lives elsewhere, or on Windows when `claude` is not on OpenCode's `PATH`, set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`. `/quota_status` shows the one it ran as `binary_path`.
 
-When Claude Code does not expose quota windows itself, quota is read from Anthropic's OAuth usage endpoint using the first usable access token: OpenCode's own `anthropic` OAuth credential from `opencode.db`, then Claude Code's credentials. `/quota_status` reports which store answered as `oauth_credential_source`.
+When Claude Code does not expose quota windows itself, quota is read from Anthropic's OAuth usage endpoint using the first usable access token: OpenCode's own `anthropic` OAuth login, then Claude Code's credentials. `/quota_status` reports which store answered as `oauth_credential_source`.
 
 When that OAuth response includes enabled Usage Credits with numeric utilization, quota displays show a separate monthly **Claude Usage Credits** group; missing or invalid credit data leaves the regular 5-hour and weekly rows unchanged.
 
@@ -435,7 +435,7 @@ npm install -g bailian-cli
 bl auth login --console
 ```
 
-OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute PATH directories outside the workspace. On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
+OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute directories on OpenCode's `PATH` that are outside its working folder. OpenCode's background service works in your home folder, so `bl` must live outside it (for example `/opt/homebrew/bin`, not `~/.local/bin` or an nvm folder). On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
 
 Team plans, China-only `alibaba-token-plan-cn` runtimes, and cookie-based console scraping are out of scope. After you change the CLI's active console account, restart OpenCode or wait for the next live probe. `/quota_status` has an `alibaba_token_plan` live probe that stays separate from Alibaba Coding Plan diagnostics.
 
@@ -543,7 +543,7 @@ Credentials resolve in this order:
 
 1. `KILO_API_KEY`
 2. Trusted user/global OpenCode config: `provider.kilo.options.apiKey`
-3. A strict `kilo` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`
+3. A `kilo` API-key login saved in OpenCode 2 (`opencode.db`)
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. The canonical OpenCode provider ID is `kilo`; if you use manual provider selection, include `kilo` in `enabledProviders`.
 
@@ -598,7 +598,7 @@ Credentials resolve in this order:
 
 1. `OLLAMA_API_KEY`
 2. Trusted user/global OpenCode config: `provider.ollama-cloud.options.apiKey`
-3. A strict `ollama-cloud` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`
+3. An `ollama-cloud` API-key login saved in OpenCode 2 (`opencode.db`)
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. The old `OLLAMA_USAGE_COOKIE`, `ollama-cloud.json`, and `ollama-usage/config.yaml` cookie setup is no longer supported.
 
@@ -606,13 +606,13 @@ Project-local `opencode.json` and `opencode.jsonc` files are not read for this s
 
 ### OpenCode Go
 
-If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. If the Console reports no Go subscription, no Go rows appear. OpenCode Quota automatically resolves the API key in this order:
+If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired or cannot be read, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. Without an API key, a failed sign-in or Console call shows as an OpenCode Go error. If the Console reports no Go subscription, no Go rows appear. OpenCode Quota automatically resolves the API key in this order:
 
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
 3. Trusted user/global fallback: `provider.opencode.options.apiKey`
-4. A strict `opencode-go` API-key entry in OpenCode `opencode.db`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login opencode-go`.
-5. A strict legacy `opencode` API-key entry in `opencode.db` as the final fallback.
+4. An `opencode-go` API-key login saved in OpenCode 2 (`opencode.db`). `opencode auth login opencode-go` creates it.
+5. A legacy `opencode` API-key login as the final fallback.
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. Use `opencodeGoWindows` to choose which validated API results appear across surfaces and in the expanded sidebar: **Five-hour**, **Weekly**, and/or **Monthly**. To keep those rows expanded but prefer one while the sidebar is collapsed, set `tuiSidebarPanel.opencodeGoPreferredWindow` to `rolling`, `weekly`, or `monthly`; an unset or unavailable preference keeps the lowest-remaining selection. These settings do not change authentication or the API request.
 
