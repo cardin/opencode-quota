@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { getAmbientAbortSignal, runWithAbortSignal } from "../src/lib/abort-context.js";
 import { fetchWithTimeout } from "../src/lib/http.js";
 import { REQUEST_TIMEOUT_MS } from "../src/lib/types.js";
 
@@ -262,5 +262,42 @@ describe("fetchWithTimeout", () => {
     await vi.advanceTimersByTimeAsync(1000);
     await assertion;
     await expect(request).rejects.not.toThrow("secret-canary");
+  });
+
+  it("aborts an in-flight request when the ambient tool signal aborts", async () => {
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string | URL | Request, options?: RequestInit) => {
+        requestSignal = options?.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(new Error("fetch aborted")));
+        });
+      }),
+    );
+
+    const controller = new AbortController();
+    const request = runWithAbortSignal(controller.signal, () =>
+      fetchWithTimeout("https://example.test/quota", {
+        request: {},
+        consume: (response) => response.json(),
+      }),
+    );
+    expect(requestSignal?.aborted).toBe(false);
+
+    const assertion = expect(request).rejects.toThrow("fetch aborted");
+    controller.abort();
+    await assertion;
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("scopes the ambient signal to runWithAbortSignal", () => {
+    const controller = new AbortController();
+    expect(getAmbientAbortSignal()).toBeUndefined();
+    runWithAbortSignal(controller.signal, () => {
+      expect(getAmbientAbortSignal()).toBe(controller.signal);
+    });
+    expect(getAmbientAbortSignal()).toBeUndefined();
+    expect(() => runWithAbortSignal(undefined, () => {})).not.toThrow();
   });
 });

@@ -77,7 +77,17 @@ export function normalizeStoredCredential(raw: unknown): OpenCodeCredentialEntry
     if (!access) return null;
     const refresh = typeof record.refresh === "string" ? record.refresh : "";
     const expires = typeof record.expires === "number" ? record.expires : 0;
-    return { type: "oauth", access, refresh, expires };
+    const entry: OpenCodeCredentialEntry = { type: "oauth", access, refresh, expires };
+    // v2 stores the account id under `metadata.accountID`; legacy auth.json
+    // consumers read it as `accountId`, so map it when present.
+    const metadata = asRecord(record.metadata);
+    const accountId =
+      (typeof record.accountId === "string" && record.accountId) ||
+      (typeof metadata?.accountID === "string" && metadata.accountID) ||
+      (typeof metadata?.accountId === "string" && metadata.accountId) ||
+      "";
+    if (accountId) entry.accountId = accountId;
+    return entry;
   }
 
   return null;

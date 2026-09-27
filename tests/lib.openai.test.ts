@@ -4,11 +4,13 @@ import businessTeamMonthlyUsage from "./fixtures/openai/business-team-monthly.sa
 
 const mocks = vi.hoisted(() => ({
   readAuthFileCached: vi.fn(),
+  readOpenCodeCredentialsCached: vi.fn(),
   deriveResolvedAuthIdentity: vi.fn(async () => "rai1_test-opaque-identity"),
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
   readAuthFileCached: mocks.readAuthFileCached,
+  readOpenCodeCredentialsCached: mocks.readOpenCodeCredentialsCached,
 }));
 
 vi.mock("../src/lib/resolved-auth-identity.js", () => ({
@@ -21,6 +23,7 @@ import {
   queryOpenAIQuota,
   resolveOpenAIAuthIdentity,
   resolveOpenAIOAuth,
+  resolveOpenAIOAuthCached,
 } from "../src/lib/openai.js";
 
 function mockOpenAIUsageResponse(usage: unknown): void {
@@ -33,6 +36,8 @@ function mockOpenAIUsageResponse(usage: unknown): void {
 describe("openai auth resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps implementations; drop any v2 credential store stubs.
+    mocks.readOpenCodeCredentialsCached.mockReset();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
   });
@@ -92,6 +97,103 @@ describe("openai auth resolution", () => {
       providerId: "openai",
       principal: { kind: "credential", value: "refresh-secret-two" },
     });
+  });
+
+  it("resolves OAuth from the OpenCode 2 v2 credential store when auth.json is missing the entry", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({});
+    mocks.readOpenCodeCredentialsCached.mockResolvedValue({
+      openai: { type: "oauth", access: "db-access", refresh: "db-refresh", expires: 0 },
+    });
+
+    const resolved = await resolveOpenAIOAuthCached();
+    expect(resolved).toMatchObject({
+      state: "configured",
+      sourceKey: "openai",
+      store: "opencode.credentials",
+      accessToken: "db-access",
+    });
+    await expect(hasOpenAIOAuthCached()).resolves.toBe(true);
+  });
+
+  it("prefers the v2 credential store over a stale auth.json entry", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({
+      openai: { type: "oauth", access: "stale-auth-json", refresh: "stale-refresh" },
+    });
+    mocks.readOpenCodeCredentialsCached.mockResolvedValue({
+      openai: { type: "oauth", access: "fresh-db", refresh: "fresh-refresh" },
+    });
+
+    const resolved = await resolveOpenAIOAuthCached();
+    expect(resolved).toMatchObject({
+      state: "configured",
+      store: "opencode.credentials",
+      accessToken: "fresh-db",
+      refreshToken: "fresh-refresh",
+    });
+  });
+
+  it("ignores non-OAuth v2 credentials and keeps legacy auth.json resolution", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({
+      openai: { type: "oauth", access: "auth-json-token" },
+    });
+    mocks.readOpenCodeCredentialsCached.mockResolvedValue({
+      openai: { type: "api", key: "sk-not-oauth" },
+    });
+
+    const resolved = await resolveOpenAIOAuthCached();
+    expect(resolved).toMatchObject({
+      state: "configured",
+      store: "auth.json",
+      accessToken: "auth-json-token",
+    });
+  });
+
+  it("falls back to auth.json when the v2 credential store is unavailable", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({
+      openai: { type: "oauth", access: "auth-json-token" },
+    });
+    mocks.readOpenCodeCredentialsCached.mockResolvedValue(null);
+
+    const resolved = await resolveOpenAIOAuthCached();
+    expect(resolved).toMatchObject({
+      state: "configured",
+      store: "auth.json",
+      accessToken: "auth-json-token",
+    });
+  });
+
+  it("queries quota using the v2 credential store token", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({});
+    mocks.readOpenCodeCredentialsCached.mockResolvedValue({
+      openai: {
+        type: "oauth",
+        access: "db-access-token",
+        expires: Date.now() + 60_000,
+      },
+    });
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        plan_type: "plus",
+        rate_limit: {
+          limit_reached: false,
+          primary_window: {
+            used_percent: 25,
+            limit_window_seconds: 18_000,
+            reset_after_seconds: 3_600,
+          },
+        },
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const out = await queryOpenAIQuota();
+    expect(out && out.success ? out.label : null).toBe("OpenAI (Plus)");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const headers = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+      .headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer db-access-token");
+    vi.unstubAllGlobals();
   });
 
   it("returns none when no supported native OpenCode auth entry exists", () => {

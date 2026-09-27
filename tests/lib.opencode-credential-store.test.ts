@@ -49,6 +49,17 @@ describe("opencode-credential-store", () => {
       ).toEqual({ type: "oauth", access: "a", refresh: "r", expires: 123 });
     });
 
+    it("maps v2 oauth metadata account ids to the legacy accountId field", () => {
+      expect(
+        normalizeStoredCredential(
+          '{"type":"oauth","access":"a","metadata":{"accountID":"acct-1"}}',
+        ),
+      ).toEqual({ type: "oauth", access: "a", refresh: "", expires: 0, accountId: "acct-1" });
+      expect(
+        normalizeStoredCredential('{"type":"oauth","access":"a","accountId":"acct-top"}'),
+      ).toEqual({ type: "oauth", access: "a", refresh: "", expires: 0, accountId: "acct-top" });
+    });
+
     it("rejects malformed, empty, and unknown entries", () => {
       expect(normalizeStoredCredential("not json")).toBeNull();
       expect(normalizeStoredCredential('{"type":"key","key":"  "}')).toBeNull();

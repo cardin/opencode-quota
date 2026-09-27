@@ -86,6 +86,8 @@ type QuotaToastBody = {
   variant: "info" | "success" | "warning" | "error";
   duration?: number;
   title?: string;
+  /** Session the toast is about, so a client can offer to open it when unfocused. */
+  sessionID?: string;
 };
 
 export interface QuotaToastRuntime {
@@ -626,6 +628,7 @@ export function createQuotaToastRuntime(
         message: sanitizeDisplayText(message),
         variant: "info",
         duration: runtimeConfig.toastDurationMs,
+        sessionID: params.sessionID,
       });
       triggerMaintainerAnnouncementToastFallback(
         params.trigger,
@@ -639,6 +642,7 @@ export function createQuotaToastRuntime(
           message: sanitizeDisplayText(resetNotification),
           variant: "success",
           duration: runtimeConfig.toastDurationMs,
+          sessionID: params.sessionID,
         });
         await dependencies.log("Displayed quota reset notification", {
           message: resetNotification,

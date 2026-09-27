@@ -1,3 +1,4 @@
+import { getAmbientAbortSignal } from "./abort-context.js";
 import {
   createProviderApiKeyResolver,
   getApiKeyCheckedPaths,
@@ -743,7 +744,20 @@ export async function fetchRemoteQuotaProvider(
 ): Promise<RemoteQuotaProviderResult> {
   const timeoutMs = requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const ambientSignal = getAmbientAbortSignal();
+  const abortFromAmbient = () => controller.abort(ambientSignal?.reason);
+  if (ambientSignal) {
+    if (ambientSignal.aborted) {
+      controller.abort(ambientSignal.reason);
+    } else {
+      ambientSignal.addEventListener("abort", abortFromAmbient, { once: true });
+    }
+  }
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
   try {
     const response = await fetch(source.url, {
@@ -776,7 +790,9 @@ export async function fetchRemoteQuotaProvider(
     if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
       return {
         success: false,
-        error: `Request timeout after ${Math.round(timeoutMs / 1000)}s`,
+        error: timedOut
+          ? `Request timeout after ${Math.round(timeoutMs / 1000)}s`
+          : "Request cancelled",
       };
     }
     if (
