@@ -96,9 +96,14 @@ Workspace/cookie material cannot be converted into the official API key. Do not 
 
 ### OpenCode Zen findings
 
-`OPENCODE_WORKSPACE_ID` and `OPENCODE_AUTH_COOKIE` are ambiguous names: they may come from an older Zen setup, but they may instead belong to OpenCode's workspace feature. Current quota code ignores them. The updater reports them only when it finds no supported global `opencode-quota/opencode.json` path, and it does not read or move their values.
+OpenCode Zen now uses the OpenCode Console session: run `opencode console login` (and `opencode console switch` to pick an organization), then verify with `/quota_status` or terminal `opencode-quota status`. OpenCode Quota reads that session read-only from OpenCode's local database; it never refreshes or writes tokens.
 
-Current OpenCode Zen versions authenticate with the active OpenCode Console CLI session instead: run `opencode console login` (and `opencode console switch` when you belong to multiple organizations), then verify with `/quota_status` or terminal `opencode-quota status`. OpenCode Quota reads that session strictly read-only from OpenCode's local state database; it never refreshes or writes tokens. It no longer reads the `workspaceId` + `consoleSessionCookie` plugin config file, so remove any leftover `opencode-quota/opencode.json` credential file after verifying the CLI session works. Use placeholders while documenting or sharing the setup; never share the real values. If the variables belong to OpenCode's workspace feature, leave them with that feature instead of treating them as Zen credentials.
+The updater reports two leftovers from the old workspace/cookie setup without reading or moving their values:
+
+- A global `opencode-quota/opencode.json` file: it is no longer read. Remove it manually after Zen works.
+- `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE`: current quota code ignores them. They may come from an older Zen setup or belong to OpenCode's workspace feature. Remove them only if they held Zen credentials.
+
+Never share the real values.
 
 ## Cancellation, failures, and reruns
 

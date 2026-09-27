@@ -52,7 +52,7 @@ The updater preserves unrelated settings, comments, and plugins where targeted e
 | Update result | What to do |
 | --- | --- |
 | Obsolete OpenCode Go source | Configure `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, or `opencode auth login -p opencode-go`. Verify it, then manually remove the reported old variable/file. Workspace/cookie material cannot become an API key. |
-| Ambiguous OpenCode Zen environment names | Decide whether the names belong to Zen or OpenCode's workspace feature. If they are Zen credentials, create and protect the supported global `opencode-quota/opencode.json` manually. Never paste the values into output or reports. |
+| Old OpenCode Zen file or environment names | Run `opencode console login` and verify Zen works. Then remove the reported old `opencode-quota/opencode.json` file manually. Remove `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` only if they held Zen credentials; they may belong to OpenCode's workspace feature. Never paste the values into output or reports. |
 | Unsupported display migration | Fix the reported invalid, duplicate, or ambiguous config manually. Use root `accountingDetail: "summary"` or `"detailed"`; do not share the rejected value. |
 | Update race or partial-write failure | No package cache was deleted. Read the error's exact changed-path list, inspect those files, fix the cause, and rerun `update --dry-run` for a fresh plan. Do not restore over concurrent edits blindly. |
 
