@@ -611,6 +611,37 @@ describe("readAuthFile and readAuthFileCached", () => {
     ).resolves.toMatchObject({ openai: { access: "rotated-access" } });
   });
 
+  it("leaves out an active login of another method without resolving it", async () => {
+    const integration = bindFakeIntegration([
+      keyCredential("opencode-go", "cred_go"),
+      oauthCredential("opencode", "cred_console"),
+    ]);
+
+    await expect(
+      readAuthFile({ integrationIds: ["opencode-go", "opencode"], methods: ["key"] }),
+    ).resolves.toEqual({ "opencode-go": { type: "api", key: "cred_go-key" } });
+    // The Go key lookup never resolves (and so never refreshes) the Console sign-in.
+    expect(resolvedIds(integration)).toEqual(["cred_go"]);
+    expect(integration.list).not.toHaveBeenCalled();
+  });
+
+  it("caches auth maps per method filter as well as per id list", async () => {
+    const integration = bindFakeIntegration([oauthCredential("opencode", "cred_console")]);
+
+    await expect(
+      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["opencode"], methods: ["key"] }),
+    ).resolves.toBeNull();
+    // Same ids without a filter have their own entry, so the sign-in is read.
+    await expect(
+      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["opencode"] }),
+    ).resolves.toMatchObject({ opencode: { access: "cred_console-access" } });
+    // The key-only entry stays cached and empty.
+    await expect(
+      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["opencode"], methods: ["key"] }),
+    ).resolves.toBeNull();
+    expect(resolvedIds(integration)).toEqual(["cred_console"]);
+  });
+
   it("drops cached auth maps when OpenCode reports a credential change", async () => {
     const openai = oauthCredential("openai", "cred_openai");
     bindFakeIntegration([openai]);

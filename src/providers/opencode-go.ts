@@ -11,12 +11,10 @@ import {
   credentialRowAuthEntry,
   formatCredentialDisplayNames,
   readCredentialRows,
+  scrubCredentialErrorText,
   selectConnectionCredentialRows,
 } from "../lib/opencode-auth.js";
-import {
-  OPENCODE_CONSOLE_BASE_URL,
-  resolveOpenCodeConsoleAuth,
-} from "../lib/opencode-console-auth.js";
+import { consoleBaseUrl, resolveOpenCodeConsoleAuth } from "../lib/opencode-console-auth.js";
 import { queryOpenCodeGoConsoleStatus, queryOpenCodeGoQuota } from "../lib/opencode-go.js";
 import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
@@ -148,7 +146,7 @@ export const opencodeGoProvider: QuotaProvider = {
             { key: "console_auth_state", value: "configured" },
             {
               key: "console_server",
-              value: consoleAuth.credential.server ?? OPENCODE_CONSOLE_BASE_URL,
+              value: consoleBaseUrl(consoleAuth.credential),
             },
             { key: "go_source", value: "console" },
             { key: "selected_windows", value: windows.join(",") },
@@ -178,14 +176,30 @@ export const opencodeGoProvider: QuotaProvider = {
     }
 
     if (consoleAuth.state === "expired") {
-      // An expired console token cannot be refreshed by the plugin; fall back
-      // to the legacy path, which also still accepts workspace API keys.
+      // OpenCode refreshes the console token when it is read, so this is rare;
+      // fall back to the legacy path, which also still accepts workspace API keys.
       const diagnostics = await getOpenCodeGoAuthDiagnostics({
         maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
       });
       return await fetchOpenCodeGoLegacy(ctx, diagnostics, [
         { key: "console_auth_state", value: "expired" },
         { key: "go_source", value: "legacy_key" },
+      ]);
+    }
+
+    if (consoleAuth.state === "invalid") {
+      // OpenCode could not return the console sign-in (for example its refresh
+      // failed); fall back to the legacy API-key path and surface the console
+      // error in diagnostics.
+      const diagnostics = await getOpenCodeGoAuthDiagnostics({
+        maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
+      });
+      return await fetchOpenCodeGoLegacy(ctx, diagnostics, [
+        ...authStatusDetails(diagnostics),
+        { key: "console_auth_state", value: "invalid" },
+        { key: "console_error", value: scrubCredentialErrorText(consoleAuth.error) },
+        { key: "go_source", value: "legacy_key" },
+        { key: "selected_windows", value: windows.join(",") },
       ]);
     }
 

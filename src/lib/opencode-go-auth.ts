@@ -43,7 +43,10 @@ const openCodeGoAuthResolver = createProviderApiKeyResolver<OpenCodeGoKeySource,
     displayName: "OpenCode Go",
     defaultMaxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
     unsupportedTypeError: "OpenCode Go auth entry has unsupported type",
-    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs, integrationIds: OPENCODE_GO_AUTH_KEYS }),
+    // Key logins only: the active `opencode` login is usually the OpenCode Console
+    // sign-in, and resolving it here could refresh its token for nothing.
+    readAuth: (maxAgeMs) =>
+      readAuthFileCached({ maxAgeMs, integrationIds: OPENCODE_GO_AUTH_KEYS, methods: ["key"] }),
     getCredentialDatabasePaths,
   },
 });

@@ -110,7 +110,10 @@ function successfulResult() {
   };
 }
 
-async function runQuotaStatus(sessionID: string): Promise<string> {
+async function runQuotaStatus(
+  sessionID: string,
+  integration = createFakeIntegration([]),
+): Promise<string> {
   let quotaTool:
     | { execute: (input: unknown, context: { sessionID: string }) => Promise<{ content: string }> }
     | undefined;
@@ -124,7 +127,7 @@ async function runQuotaStatus(sessionID: string): Promise<string> {
     },
     command: { transform: vi.fn() },
     rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
-    integration: createFakeIntegration([]),
+    integration,
     event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
     tool: {
       transform: async (callback: (editor: { add: (tool: typeof quotaTool) => void }) => void) =>
@@ -215,6 +218,50 @@ describe("OpenCode Go shared projections", () => {
     expect(output).not.toContain(TEST_TOKEN);
     expect(status).toContain("live_entry_1: 5h: percent_remaining=88");
     expect(status).not.toContain(TEST_TOKEN);
+  });
+
+  it("uses the Go key and keeps the console error when the console sign-in cannot be refreshed", async () => {
+    const integration = createFakeIntegration([
+      {
+        integrationId: "opencode",
+        id: "cred_console",
+        label: "default",
+        registered: true,
+        method: "oauth",
+        value: {
+          type: "oauth",
+          methodID: "device",
+          access: "distinctive-console-access",
+          refresh: "distinctive-console-refresh",
+          expires: 0,
+        },
+        resolveError: "HTTP 401",
+      },
+    ]);
+
+    const status = await runQuotaStatus("opencode-go-console-invalid", integration);
+    const output = await collectQuotaProjection();
+    expectCanonicalPercentOrder(output);
+    expect(status).toContain("live_entry_1: 5h: percent_remaining=88");
+    for (const secret of [
+      TEST_TOKEN,
+      "distinctive-console-access",
+      "distinctive-console-refresh",
+    ]) {
+      expect(status).not.toContain(secret);
+      expect(output).not.toContain(secret);
+    }
+
+    const result = await provider.fetch(createProviderAvailabilityContext());
+    expect(result.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "console_auth_state", value: "invalid" },
+        { key: "console_error", value: "refresh_failed: HTTP 401" },
+        { key: "go_source", value: "legacy_key" },
+      ]),
+    );
+    // The failed sign-in is resolved once, then not again within the minute.
+    expect(integration.connection.resolve).toHaveBeenCalledOnce();
   });
 
   it("hides a not-subscribed result on every display and keeps it visible in safe diagnostics", async () => {

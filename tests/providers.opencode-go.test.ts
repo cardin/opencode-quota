@@ -34,8 +34,8 @@ vi.mock("../src/lib/opencode-go.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/lib/opencode-console-auth.js", () => ({
-  OPENCODE_CONSOLE_BASE_URL: "https://opencode.ai/console",
+vi.mock("../src/lib/opencode-console-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-console-auth.js")>()),
   resolveOpenCodeConsoleAuth: mocks.resolveOpenCodeConsoleAuth,
 }));
 
@@ -202,6 +202,55 @@ describe("opencode-go provider", () => {
         { key: "console_error", value: "OpenCode Console API error 500 (/api/go/status)" },
       ]),
     );
+  });
+
+  it("reports the console server the sign-in belongs to", async () => {
+    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
+      state: "configured",
+      credential: { accessToken: "console-access", server: "https://console.example.test" },
+    });
+    consoleSuccess();
+
+    const out = await runFetch();
+
+    expect(out.statusDetails).toContainEqual({
+      key: "console_server",
+      value: "https://console.example.test",
+    });
+  });
+
+  it("uses the legacy key path with the console error when the sign-in cannot be read", async () => {
+    const jwt = `eyJ${"a".repeat(24)}.${"b".repeat(24)}.${"c".repeat(24)}`;
+    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({
+      state: "invalid",
+      error: `refresh_failed: HTTP 401 ${jwt}`,
+    });
+
+    const out = await runFetch();
+
+    expect(mocks.queryOpenCodeGoConsoleStatus).not.toHaveBeenCalled();
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
+    expectAttemptedWithNoErrors(out);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "auth_state", value: "configured" },
+        { key: "console_auth_state", value: "invalid" },
+        { key: "console_error", value: "refresh_failed: HTTP 401 [redacted]" },
+        { key: "go_source", value: "legacy_key" },
+        { key: "selected_windows", value: "rolling,weekly,monthly" },
+      ]),
+    );
+    expect(JSON.stringify(out)).not.toContain(jwt);
+  });
+
+  it("keeps the plain key path when the opencode login is an API key", async () => {
+    mocks.resolveOpenCodeConsoleAuth.mockResolvedValueOnce({ state: "none", reason: "not_oauth" });
+
+    const out = await runFetch();
+
+    expect(mocks.queryOpenCodeGoConsoleStatus).not.toHaveBeenCalled();
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
+    expect(out.statusDetails?.map((detail) => detail.key)).not.toContain("console_auth_state");
   });
 
   it("returns not attempted for absent auth without calling the API", async () => {

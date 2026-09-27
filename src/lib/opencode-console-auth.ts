@@ -1,15 +1,16 @@
 /**
  * OpenCode Console credential reader
  *
- * OpenCode 2 stores its OpenCode Console account in the credential database
- * under the `opencode` integration as an OAuth entry created by the device
- * flow (`client_id: opencode-cli`, base `https://opencode.ai/console`).
- * Consumers use the access token as `Authorization: Bearer` against console
- * APIs and `metadata.orgID` for org-scoped routes.
+ * OpenCode 2 keeps its OpenCode Console sign-in (`opencode auth login opencode`)
+ * under the `opencode` integration as an OAuth connection created by the device
+ * flow (`client_id: opencode-cli`, default server `https://opencode.ai/console`,
+ * stored as `metadata.server`). Consumers call the console APIs with
+ * `consoleBaseUrl` and `consoleHeaders`: the access token as
+ * `Authorization: Bearer`, plus `metadata.orgID` as `x-org-id` when present.
  *
- * The reader is intentionally read-only: the CLI refreshes the token via
- * `/console/auth/device/token` on its own; an expired token is reported as
- * `expired` so callers can tell the user to re-run `opencode auth login`.
+ * The login is read through OpenCode's plugin API, which refreshes a token that
+ * is about to expire (and saves the new one) before returning it. A failed
+ * refresh is reported as `invalid`.
  */
 
 import { readCredentialRows } from "./opencode-auth.js";
@@ -21,6 +22,7 @@ export interface OpenCodeConsoleCredential {
   accessToken: string;
   refreshToken?: string;
   expiresAt?: number;
+  accountId?: string;
   orgId?: string;
   orgName?: string;
   email?: string;
@@ -28,7 +30,7 @@ export interface OpenCodeConsoleCredential {
 }
 
 export type OpenCodeConsoleAuthState =
-  | { state: "none" }
+  | { state: "none"; reason?: "not_oauth" }
   | { state: "configured"; credential: OpenCodeConsoleCredential }
   | { state: "expired"; credential: OpenCodeConsoleCredential }
   | { state: "invalid"; error: string };
@@ -38,12 +40,13 @@ export async function resolveOpenCodeConsoleAuth(params?: {
 }): Promise<OpenCodeConsoleAuthState> {
   // Only the active Console login counts, the way OpenCode itself picks it.
   const rows = await readCredentialRows([OPENCODE_CONSOLE_INTEGRATION_ID], { firstOnly: true });
-  const row = rows.find((row) => row.integrationId === OPENCODE_CONSOLE_INTEGRATION_ID);
+  const row = rows[0];
   if (!row) return { state: "none" };
   if (row.resolveError !== undefined) return { state: "invalid", error: row.resolveError };
 
   const value = row.value;
-  if (value.type !== "oauth") return { state: "none" };
+  // An API key under `opencode` (service account or workspace key) is not a sign-in.
+  if (value.type !== "oauth") return { state: "none", reason: "not_oauth" };
 
   const accessToken = typeof value.access === "string" ? value.access.trim() : "";
   if (!accessToken) {
@@ -56,6 +59,7 @@ export async function resolveOpenCodeConsoleAuth(params?: {
     refreshToken:
       typeof value.refresh === "string" && value.refresh.trim() ? value.refresh : undefined,
     expiresAt: typeof value.expires === "number" ? value.expires : undefined,
+    accountId: typeof metadata?.accountID === "string" ? metadata.accountID : undefined,
     orgId: typeof metadata?.orgID === "string" ? metadata.orgID : undefined,
     orgName: typeof metadata?.orgName === "string" ? metadata.orgName : undefined,
     email: typeof metadata?.email === "string" ? metadata.email : undefined,
@@ -68,4 +72,18 @@ export async function resolveOpenCodeConsoleAuth(params?: {
   }
 
   return { state: "configured", credential };
+}
+
+/** The Console server the login belongs to. */
+export function consoleBaseUrl(credential: OpenCodeConsoleCredential): string {
+  return credential.server ?? OPENCODE_CONSOLE_BASE_URL;
+}
+
+/** Console API request headers; `x-org-id` only when the login has an org. */
+export function consoleHeaders(credential: OpenCodeConsoleCredential): Record<string, string> {
+  return {
+    Authorization: `Bearer ${credential.accessToken}`,
+    Accept: "application/json",
+    ...(typeof credential.orgId === "string" ? { "x-org-id": credential.orgId } : {}),
+  };
 }

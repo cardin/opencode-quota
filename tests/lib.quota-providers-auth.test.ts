@@ -14,8 +14,14 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
 vi.mock("fs", () => ({ existsSync: vi.fn() }));
 vi.mock("fs/promises", () => ({ readFile: vi.fn() }));
 
+import {
+  bindCredentialSource,
+  createIntegrationCredentialSource,
+  notifyCredentialsChanged,
+} from "../src/lib/opencode-auth.js";
 import type { RemoteApiQuotaProviderDefinition } from "../src/lib/quota-providers.js";
 import { resolveQuotaProviderApiKey } from "../src/lib/quota-providers-remote.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 
 function source(
   overrides: Partial<RemoteApiQuotaProviderDefinition> = {},
@@ -159,5 +165,40 @@ describe("quota provider trusted auth binding", () => {
     expect(result.key).toBeUndefined();
     expect(result.checkedPaths).not.toContain(workspaceJson);
     expect(JSON.stringify(result)).not.toMatch(/workspace-secret|derived-secret/);
+  });
+
+  it("reads only a key login for the providerId and never resolves an OAuth sign-in", async () => {
+    const integration = createFakeIntegration([
+      {
+        integrationId: "opencode",
+        id: "cred_console",
+        label: "default",
+        registered: true,
+        method: "oauth",
+        value: { type: "oauth", methodID: "device", access: "console-access", expires: 0 },
+      },
+      {
+        integrationId: "provider-one",
+        id: "cred_provider_one",
+        label: "default",
+        registered: true,
+        method: "key",
+        value: { type: "key", key: "db-secret" },
+      },
+    ]);
+    const unbind = bindCredentialSource(createIntegrationCredentialSource(integration as never));
+    try {
+      const signIn = await resolveQuotaProviderApiKey(
+        source({ providerId: "opencode", apiKeyEnv: undefined }),
+      );
+      expect(signIn.key).toBeUndefined();
+      expect(integration.connection.resolve).not.toHaveBeenCalled();
+
+      const keyLogin = await resolveQuotaProviderApiKey(source({ apiKeyEnv: undefined }));
+      expect(keyLogin).toMatchObject({ key: "db-secret", source: "opencode.db" });
+    } finally {
+      unbind();
+      notifyCredentialsChanged();
+    }
   });
 });

@@ -140,7 +140,7 @@ export function formatCredentialDisplayNames(
   });
 }
 
-/** Cached auth maps keyed by the sorted, joined integration id list. */
+/** Cached auth maps keyed by the sorted integration id list and the method filter. */
 const authCache = new Map<string, AuthCacheEntry>();
 
 /**
@@ -402,11 +402,18 @@ export function credentialRowAuthEntry(row: CredentialRow): Record<string, unkno
     : { ...row.value, resolveError: row.resolveError };
 }
 
-/** Map of the first (active) login per requested integration id. */
+/**
+ * Map of the first (active) login per requested integration id. With `methods`,
+ * an active login using another method is left out without OpenCode resolving it.
+ */
 export async function readAuthFile(params: {
   integrationIds: readonly string[];
+  methods?: readonly CredentialMethod[];
 }): Promise<AuthData | null> {
-  const rows = await readCredentialRows(params.integrationIds, { firstOnly: true });
+  const rows = await readCredentialRows(params.integrationIds, {
+    methods: params.methods,
+    firstOnly: true,
+  });
   const auth: Record<string, unknown> = {};
   for (const row of rows) {
     if (!(row.integrationId in auth)) auth[row.integrationId] = credentialRowAuthEntry(row);
@@ -487,9 +494,12 @@ export function selectConnectionCredentialRows(
 export async function readAuthFileCached(params: {
   maxAgeMs: number;
   integrationIds: readonly string[];
+  methods?: readonly CredentialMethod[];
 }): Promise<AuthData | null> {
   const maxAgeMs = Math.max(0, params.maxAgeMs);
-  const cacheKey = [...params.integrationIds].sort().join(",");
+  const cacheKey = `${[...params.integrationIds].sort().join(",")}|${
+    params.methods ? [...params.methods].sort().join(",") : "any"
+  }`;
   const cached = authCache.get(cacheKey);
   const now = Date.now();
 
@@ -502,7 +512,10 @@ export async function readAuthFileCached(params: {
   }
 
   const inFlight = (async () => {
-    const value = await readAuthFile({ integrationIds: params.integrationIds });
+    const value = await readAuthFile({
+      integrationIds: params.integrationIds,
+      methods: params.methods,
+    });
     authCache.set(cacheKey, { timestamp: Date.now(), value });
     return value;
   })();

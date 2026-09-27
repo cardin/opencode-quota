@@ -103,7 +103,9 @@ export async function resolveQuotaProviderApiKey(
     configJsoncSource: "opencode.jsonc",
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     auth: {
-      readAuth: () => readAuthFile({ integrationIds: [source.providerId] }),
+      // Key logins only: `providerId` can name an integration with OAuth sign-ins
+      // (for example `opencode`), and resolving one could refresh its token for nothing.
+      readAuth: () => readAuthFile({ integrationIds: [source.providerId], methods: ["key"] }),
       authKeys: [source.providerId],
       authSource: "opencode.db",
     },

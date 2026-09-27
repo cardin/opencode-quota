@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import {
   createRuntimePathsMockModule,
@@ -288,7 +289,67 @@ describe("OpenCode Go auth resolution", () => {
     expect(authMocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
       integrationIds: ["opencode-go", "opencode"],
+      methods: ["key"],
     });
+  });
+
+  it("never resolves the OpenCode Console sign-in while looking for a Go key", async () => {
+    const actual = await vi.importActual<typeof import("../src/lib/opencode-auth.js")>(
+      "../src/lib/opencode-auth.js",
+    );
+    const consoleSignIn = {
+      integrationId: "opencode",
+      id: "cred_console",
+      label: "default",
+      registered: true,
+      method: "oauth" as const,
+      value: {
+        type: "oauth",
+        methodID: "device",
+        access: "console-access",
+        refresh: "console-refresh",
+        expires: 0,
+      },
+    };
+    const workspaceKey = {
+      integrationId: "opencode",
+      id: "cred_workspace",
+      label: "default",
+      registered: true,
+      method: "key" as const,
+      value: { type: "key", key: "workspace-key" },
+    };
+    authMocks.readAuthFileCached.mockImplementation(actual.readAuthFileCached);
+
+    const signedIn = createFakeIntegration([consoleSignIn, workspaceKey]);
+    const unbindSignedIn = actual.bindCredentialSource(
+      actual.createIntegrationCredentialSource(signedIn as never),
+    );
+    try {
+      await expect(resolveOpenCodeGoAuthCached({ maxAgeMs: 0 })).resolves.toEqual({
+        state: "none",
+      });
+      expect(signedIn.connection.active.mock.calls).toEqual([["opencode-go"], ["opencode"]]);
+      expect(signedIn.connection.resolve).not.toHaveBeenCalled();
+    } finally {
+      unbindSignedIn();
+      actual.notifyCredentialsChanged();
+    }
+
+    // A key login that is active under `opencode` is still read.
+    const keyOnly = createFakeIntegration([workspaceKey]);
+    const unbindKeyOnly = actual.bindCredentialSource(
+      actual.createIntegrationCredentialSource(keyOnly as never),
+    );
+    try {
+      await expect(resolveOpenCodeGoAuthCached({ maxAgeMs: 0 })).resolves.toEqual({
+        state: "configured",
+        apiKey: "workspace-key",
+      });
+    } finally {
+      unbindKeyOnly();
+      actual.notifyCredentialsChanged();
+    }
   });
 
   it("uses a fixed unsupported-type error without leaking type or key secrets", async () => {
@@ -316,6 +377,7 @@ describe("OpenCode Go auth resolution", () => {
     expect(authMocks.readAuthFileCached).toHaveBeenLastCalledWith({
       maxAgeMs: 0,
       integrationIds: ["opencode-go", "opencode"],
+      methods: ["key"],
     });
 
     const { opencodeGoProvider } = await import("../src/providers/opencode-go.js");

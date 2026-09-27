@@ -1,6 +1,10 @@
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
-import { OPENCODE_CONSOLE_BASE_URL } from "./opencode-console-auth.js";
+import {
+  consoleBaseUrl,
+  consoleHeaders,
+  type OpenCodeConsoleCredential,
+} from "./opencode-console-auth.js";
 import type { OpenCodeGoResult, OpenCodeGoWindow, OpenCodeGoWindowKey } from "./types.js";
 
 const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
@@ -201,8 +205,6 @@ export async function queryOpenCodeGoQuota(
   }
 }
 
-const OPENCODE_CONSOLE_GO_STATUS_URL = `${OPENCODE_CONSOLE_BASE_URL}/api/go/status`;
-
 function asMicroCents(value: unknown): number | null {
   const parsed =
     typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
@@ -245,20 +247,18 @@ function normalizeConsoleMeter(
  *
  * The Console tracks Go plan access (five-hour, weekly, and monthly meters)
  * for the member that owns the OAuth credential, so this works for fresh
- * accounts without any pre-2.0 workspace API key.
+ * accounts without any pre-2.0 workspace API key. The request goes to the
+ * login's Console server, scoped to the login's org when it has one.
  */
 export async function queryOpenCodeGoConsoleStatus(
-  credential: { accessToken: string },
+  credential: OpenCodeConsoleCredential,
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OpenCodeGoResult> {
   try {
-    return await fetchWithTimeout(OPENCODE_CONSOLE_GO_STATUS_URL, {
+    return await fetchWithTimeout(`${consoleBaseUrl(credential)}/api/go/status`, {
       request: {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${credential.accessToken}`,
-          Accept: "application/json",
-        },
+        headers: consoleHeaders(credential),
       },
       timeoutMs: options.requestTimeoutMs,
       consume: async (response) => {
