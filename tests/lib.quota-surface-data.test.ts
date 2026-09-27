@@ -179,6 +179,63 @@ describe("quota surface data", () => {
     expect(collect).toHaveBeenCalledWith(expect.objectContaining({ formatStyle: "allWindows" }));
   });
 
+  it("spaces reset countdowns the same way on the toast, sidebar and footers", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    try {
+      const copilot = makeCopilotProvider();
+      copilot.fetch.mockResolvedValue({
+        attempted: true,
+        entries: [
+          {
+            accounting: TEST_ACCOUNTING,
+            name: "Copilot",
+            percentRemaining: 81,
+            resetTimeIso: "2026-01-04T00:35:00.000Z",
+          },
+        ],
+        errors: [],
+      });
+      mocks.getProviders.mockReturnValue([copilot]);
+      const { getQuotaFooter, getQuotaMessage } = await import("../src/lib/quota-surface-data.js");
+      const configBase = {
+        enabled: true,
+        enabledProviders: ["copilot"],
+        minIntervalMs: 0,
+        maintainerAnnouncements: { enabled: false, home: false },
+        tuiSidebarPanel: { enabled: true },
+        tuiPromptBar: { enabled: true },
+        tuiCompactStatus: { enabled: true, homeBottom: true, sessionPrompt: true, maxWidth: 96 },
+      } as const;
+
+      mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig(configBase));
+      const spacedToast = await getQuotaMessage(createHost(), "session-1", "idle");
+      const spacedSidebar = await getQuotaMessage(createHost(), "session-1", "sidebar");
+      const spacedHome = await getQuotaFooter(createHost(), undefined, "home");
+      const spacedPrompt = await getQuotaFooter(createHost(), "session-1", "prompt");
+      for (const text of [
+        spacedToast?.message,
+        spacedSidebar?.message,
+        spacedHome.join("\n"),
+        spacedPrompt.join("\n"),
+      ]) {
+        expect(text).toContain("3d 0h 35m");
+      }
+
+      mocks.loadConfig.mockResolvedValue(
+        makeQuotaToastTestConfig({ ...configBase, resetTimeSpaced: false }),
+      );
+      const denseToast = await getQuotaMessage(createHost(), "session-1", "idle");
+      const denseSidebar = await getQuotaMessage(createHost(), "session-1", "sidebar");
+      const denseHome = await getQuotaFooter(createHost(), undefined, "home");
+      for (const text of [denseToast?.message, denseSidebar?.message, denseHome.join("\n")]) {
+        expect(text).toContain("3d0h35m");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("computes no prompt footer for the Home prompt, which has no session", async () => {
     const runtimeModule = await import("../src/lib/quota-runtime-context.js");
     const resolve = vi.spyOn(runtimeModule, "resolveQuotaRuntimeContext");

@@ -186,7 +186,10 @@ function getToastMessage(params: {
       errors: data?.errors ?? [],
       style: params.style,
       percentDisplayMode: config.percentDisplayMode,
+      percentLabelStyle: config.percentLabelStyle,
+      accountingDetail: config.accountingDetail,
       resetTimeDecimals: config.resetTimeDecimals,
+      resetTimeSpaced: config.resetTimeSpaced,
       sessionTokens: data?.sessionTokens,
     });
     if (!config.debug) return formatted;
