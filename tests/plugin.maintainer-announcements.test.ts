@@ -221,7 +221,7 @@ describe("maintainer announcement plugin integration", () => {
     };
     mocks.getProviders.mockReturnValue([provider]);
 
-    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
+    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-command-specs.js");
     const announcementCommand = QUOTA_DIALOG_COMMANDS.find(
       (command) => command.id === "quota_announcements",
     );

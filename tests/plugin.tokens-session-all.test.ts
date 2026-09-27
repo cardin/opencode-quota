@@ -113,7 +113,7 @@ describe("/tokens_session_all command", () => {
 
   it("registers /tokens_session_all in the V2 TUI command palette", async () => {
     const { default: plugin } = await import("../src/tui-v2.js");
-    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
+    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-command-specs.js");
     const tokensSessionAllCommand = QUOTA_DIALOG_COMMANDS.find(
       (command) => command.id === "tokens_session_all",
     );

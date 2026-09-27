@@ -1,13 +1,16 @@
-/** OpenCode V2 server plugin: quota slash commands for every client, plus a diagnostics tool. */
+/**
+ * OpenCode V2 server plugin: quota slash commands for every client, a diagnostics tool, and
+ * the quota RPC that computes the TUI surfaces.
+ */
 import { Plugin } from "@opencode/plugin";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import {
-  buildQuotaDialogCommandOutput,
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
-} from "./lib/quota-dialog-commands.js";
+} from "./lib/quota-dialog-command-specs.js";
+import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
 import {
   containsQuotaReport,
   formatQuotaReportMessage,
@@ -15,6 +18,14 @@ import {
   type QuotaReportMetadata,
   removeQuotaReports,
 } from "./lib/quota-report-message.js";
+import type { QuotaSessionModelContext } from "./lib/quota-runtime-context.js";
+import {
+  getQuotaFooter,
+  getQuotaMessage,
+  type QuotaSurfaceHost,
+  writeQuotaExportIfEnabled,
+} from "./lib/quota-surface-data.js";
+import { QuotaRpc, type QuotaRpcCommandOutput } from "./rpc.js";
 
 type ModelMessage = {
   readonly role: string;
@@ -63,10 +74,13 @@ export const QuotaToastPlugin = Plugin.define({
       },
     };
 
+    // In auto mode, /quota_status reports the providers it detected. The slash commands and
+    // the tool add them to the global OpenCode config; the TUI palette (via RPC) never writes it.
     const buildOutput = (
       command: QuotaDialogCommandId,
-      sessionID: string,
-      argumentsText?: string,
+      sessionID: string | undefined,
+      argumentsText: string | undefined,
+      options: { reconcileDetectedProviders: boolean },
     ) =>
       buildQuotaDialogCommandOutput({
         command,
@@ -78,18 +92,61 @@ export const QuotaToastPlugin = Plugin.define({
           const session = await ctx.session.get({ sessionID: id });
           return { modelID: session.model?.id, providerID: session.model?.providerID };
         },
-        onDetectedProviderIds: async (providerIds) => {
-          if (providerIds.length === 0) return;
-          try {
-            await reconcileDetectedProvidersInGlobalConfig({
-              configRootDir: roots.configRoot,
-              detectedProviderIds: providerIds,
-            });
-          } catch (error) {
-            console.warn("Failed to add detected providers to global OpenCode config", error);
-          }
-        },
+        onDetectedProviderIds: options.reconcileDetectedProviders
+          ? async (providerIds) => {
+              if (providerIds.length === 0) return;
+              try {
+                await reconcileDetectedProvidersInGlobalConfig({
+                  configRootDir: roots.configRoot,
+                  detectedProviderIds: providerIds,
+                });
+              } catch (error) {
+                console.warn("Failed to add detected providers to global OpenCode config", error);
+              }
+            }
+          : undefined,
       });
+
+    // The TUI reads the session model from its local store, which has nothing for an
+    // unknown session. The RPC handlers match that: a failed lookup means no model.
+    const resolveSessionMeta = async (id: string): Promise<QuotaSessionModelContext> => {
+      try {
+        const session = await ctx.session.get({ sessionID: id });
+        return { modelID: session.model?.id, providerID: session.model?.providerID };
+      } catch {
+        return {};
+      }
+    };
+    const surfaceHost: QuotaSurfaceHost = { client, roots, resolveSessionMeta };
+
+    // Awaited so the plugin is active only once the RPC is registered: OpenCode waits for
+    // activation before it routes an RPC call, so the first TUI call cannot miss it.
+    await ctx.rpc.register(QuotaRpc, {
+      surface: async (input) => ({
+        quota: (await getQuotaMessage(surfaceHost, input.sessionID, input.surface)) ?? null,
+      }),
+      footer: async (input) => ({
+        lines: await getQuotaFooter(surfaceHost, input.sessionID, input.surface),
+      }),
+      writeExport: async () => ({ written: await writeQuotaExportIfEnabled(surfaceHost) }),
+      command: async (input): Promise<QuotaRpcCommandOutput> => {
+        try {
+          return await buildOutput(input.command, input.sessionID, input.arguments, {
+            reconcileDetectedProviders: false,
+          });
+        } catch (error) {
+          // Return the reason as output so the TUI shows it instead of OpenCode's rpc.internal.
+          const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === input.command)!;
+          return {
+            state: "output",
+            command: input.command,
+            title: spec.title,
+            output: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+            dialogSize: spec.dialogSize,
+          };
+        }
+      },
+    });
 
     await ctx.tool.transform((editor) => {
       editor.add({
@@ -101,7 +158,9 @@ export const QuotaToastPlugin = Plugin.define({
           additionalProperties: false,
         },
         async execute(_input, context) {
-          const result = await buildOutput("quota_status", context.sessionID);
+          const result = await buildOutput("quota_status", context.sessionID, undefined, {
+            reconcileDetectedProviders: true,
+          });
           return { content: result.state === "output" ? sanitizeDisplayText(result.output) : "" };
         },
       });
@@ -120,6 +179,7 @@ export const QuotaToastPlugin = Plugin.define({
               spec.id,
               invocation.sessionID,
               invocation.prompt.text.trim() || undefined,
+              { reconcileDetectedProviders: true },
             );
             if (result.state === "noop") return;
             // A message admitted while the AI works is delivered into that turn at its next

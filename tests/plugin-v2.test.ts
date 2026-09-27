@@ -6,7 +6,7 @@ vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
   buildQuotaDialogCommandOutput: buildOutput,
 }));
 
-import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-commands.js";
+import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-command-specs.js";
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/plugin.js";
 
@@ -59,6 +59,7 @@ function createContext() {
         callback({ add: (command: RegisteredCommand) => commands.push(command) });
       }),
     },
+    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
   };
   return { ctx, tools, commands, hooks, calls };
 }

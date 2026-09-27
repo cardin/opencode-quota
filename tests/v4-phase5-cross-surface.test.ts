@@ -164,6 +164,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       hook: vi.fn(),
     },
     command: { transform: vi.fn() },
+    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
     tool: {
       transform: vi.fn(async (callback: (editor: { add(value: RegisteredTool): void }) => void) => {
         callback({

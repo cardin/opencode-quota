@@ -3,7 +3,7 @@
  * that never starts a model turn. These helpers mark such messages so the server plugin
  * can keep them out of every model request, and the TUI can show them in its dialog.
  */
-import type { QuotaDialogCommandId } from "./quota-dialog-commands.js";
+import type { QuotaDialogCommandId } from "./quota-dialog-command-specs.js";
 
 /** Metadata key on every quota report message. OpenCode stores message metadata with the message. */
 export const QUOTA_REPORT_METADATA_KEY = "opencodeQuota";

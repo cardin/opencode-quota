@@ -70,6 +70,7 @@ async function createV2StatusTool(directory: string) {
     provider: { list: vi.fn().mockResolvedValue({ data: [] }) },
     session: { get: vi.fn().mockResolvedValue({}), hook: vi.fn() },
     command: { transform: vi.fn() },
+    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
     tool: {
       transform: async (
         register: (editor: { add: (tool: { execute: typeof execute }) => void }) => void,
@@ -202,6 +203,9 @@ describe("/quota command behavior", () => {
         hook: vi.fn(),
       },
       command: { transform: vi.fn() },
+      rpc: {
+        register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })),
+      },
     };
     await server.setup(ctx as never);
     expect(tool?.name).toBe("quota_status");

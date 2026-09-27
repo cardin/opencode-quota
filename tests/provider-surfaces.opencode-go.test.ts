@@ -122,6 +122,7 @@ async function runQuotaStatus(sessionID: string): Promise<string> {
       hook: vi.fn(),
     },
     command: { transform: vi.fn() },
+    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
     tool: {
       transform: async (callback: (editor: { add: (tool: typeof quotaTool) => void }) => void) =>
         callback({

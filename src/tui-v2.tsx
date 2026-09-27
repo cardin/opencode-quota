@@ -8,51 +8,19 @@ import { createSignal, onCleanup, Show } from "solid-js";
 import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
-import { formatQuotaRows } from "./lib/format.js";
 import {
-  BUNDLED_MAINTAINER_ANNOUNCEMENTS,
-  formatMaintainerAnnouncementHomeCountLine,
-  getMaintainerAnnouncementsSummary,
-  getMaintainerAnnouncementTargetProviderIds,
-} from "./lib/maintainer-announcements.js";
-import { getQuotaProviderShape, normalizeQuotaProviderId } from "./lib/provider-metadata.js";
-import {
-  buildQuotaDialogCommandOutput,
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
-} from "./lib/quota-dialog-commands.js";
-import {
-  buildQuotaExport,
-  createExportProviderContext,
-  resolveExportPath,
-  writeQuotaExport,
-} from "./lib/quota-export.js";
-import { resolveQuotaFormatStyle } from "./lib/quota-format-style.js";
-import {
-  type CollectQuotaRenderDataResult,
-  collectConcreteEnabledProviderIds,
-  collectQuotaRenderData,
-} from "./lib/quota-render-data.js";
+} from "./lib/quota-dialog-command-specs.js";
+import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
 import { readQuotaReport, readQuotaReportMetadata } from "./lib/quota-report-message.js";
+import type { QuotaSessionModelContext } from "./lib/quota-runtime-context.js";
 import {
-  formatQuotaResetNotification,
-  observeQuotaResetNotifications,
-} from "./lib/quota-reset-notifications.js";
-import {
-  createQuotaProviderRuntimeContext,
-  createQuotaRuntimeRequestContext,
-  type QuotaRuntimeContext,
-  type QuotaSessionModelContext,
-  resolveQuotaRuntimeContext,
-} from "./lib/quota-runtime-context.js";
-import { buildCompactQuotaStatusLine } from "./lib/tui-compact-format.js";
-import {
-  formatPromptBarPercentMeta,
-  pickPromptBarEntry,
-  resolvePromptBarLabel,
-} from "./lib/tui-prompt-bar-format.js";
-import { buildSidebarQuotaPanelLines } from "./lib/tui-sidebar-format.js";
-import type { QuotaToastConfig } from "./lib/types.js";
+  getQuotaFooter,
+  getQuotaMessage,
+  type QuotaSurfaceHost,
+  writeQuotaExportIfEnabled,
+} from "./lib/quota-surface-data.js";
 
 const terminalForeground = RGBA.defaultForeground();
 const REFRESH_INTERVAL_MS = 60_000;
@@ -154,305 +122,12 @@ async function getSessionModelMeta(
   return model ? { modelID: model.id, providerID: model.providerID } : {};
 }
 
-async function getQuotaMessage(
-  context: TuiContext,
-  sessionID: string,
-  surface: "sidebar" | "idle" | "compacted" | "question",
-): Promise<
-  | { message: string; duration: number; activeProviderCount: number; resetNotification?: string }
-  | undefined
-> {
-  const runtime = await resolveQuotaRuntimeContext({
+function quotaSurfaceHost(context: TuiContext): QuotaSurfaceHost {
+  return {
     client: quotaClient(context),
     roots: quotaRoots(context),
-    sessionID,
     resolveSessionMeta: (id) => getSessionModelMeta(context, id),
-    includeSessionMeta: (config) => config.onlyCurrentModel,
-  });
-  const config = runtime.config;
-  if (!config.enabled) return;
-  if (surface === "sidebar") {
-    if (!config.tuiSidebarPanel.enabled) return;
-  } else if (!config.enableToast) {
-    return;
-  }
-  if (
-    (surface === "idle" && !config.showOnIdle) ||
-    (surface === "compacted" && !config.showOnCompact) ||
-    (surface === "question" && !config.showOnQuestion)
-  ) {
-    return;
-  }
-
-  if (
-    surface !== "sidebar" &&
-    config.debug &&
-    config.enabledProviders !== "auto" &&
-    config.enabledProviders.length === 0
-  ) {
-    return {
-      message: sanitizeDisplayText(
-        formatQuotaToastDebugInfo({
-          trigger: surface,
-          reason: "enabledProviders empty",
-          config,
-          configMeta: runtime.configMeta,
-        }),
-      ),
-      duration: config.toastDurationMs,
-      activeProviderCount: 0,
-    };
-  }
-
-  const rootFormatStyle = resolveQuotaFormatStyle(config.formatStyle);
-  const formatStyle =
-    surface === "sidebar" && config.tuiSidebarPanel.formatStyle
-      ? resolveQuotaFormatStyle(config.tuiSidebarPanel.formatStyle)
-      : rootFormatStyle;
-  const result = await collectQuotaRenderData({
-    client: runtime.client,
-    resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
-    config,
-    configMeta: runtime.configMeta,
-    request: createQuotaRuntimeRequestContext(runtime),
-    surfaceExplicitProviderIssues: true,
-    formatStyle,
-    providers: runtime.providers,
-  });
-  let resetNotification: string | undefined;
-  if (
-    surface !== "sidebar" &&
-    config.resetNotifications.enabled &&
-    result.providerResults.length > 0
-  ) {
-    try {
-      const notices = await observeQuotaResetNotifications({
-        providers: result.providerResults,
-        windows: config.resetNotifications.windows,
-      });
-      resetNotification = formatQuotaResetNotification(notices) ?? undefined;
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`[opencode-quota] failed to observe quota reset transitions: ${reason}`);
-    }
-  }
-  const data = result.data;
-  const message =
-    surface === "sidebar"
-      ? data
-        ? buildSidebarQuotaPanelLines({
-            data,
-            config: {
-              ...config,
-              formatStyle,
-            },
-          }).join("\n")
-        : undefined
-      : getToastMessage({ trigger: surface, runtime, result, style: rootFormatStyle });
-  return message
-    ? {
-        message: sanitizeDisplayText(message),
-        duration: config.toastDurationMs,
-        activeProviderCount: result.active.length,
-        resetNotification,
-      }
-    : undefined;
-}
-
-function getToastMessage(params: {
-  trigger: string;
-  runtime: QuotaRuntimeContext;
-  result: CollectQuotaRenderDataResult;
-  style: ReturnType<typeof resolveQuotaFormatStyle>;
-}): string | undefined {
-  const config = params.runtime.config;
-  const { availability, active, hasExplicitProviderIssues, data } = params.result;
-  const debugInfo = (reason: string) =>
-    formatQuotaToastDebugInfo({
-      trigger: params.trigger,
-      reason,
-      config,
-      configMeta: params.runtime.configMeta,
-      currentModel: params.result.selection?.currentModel,
-      availability: availability.map((item) => ({ id: item.provider.id, ok: item.ok })),
-    });
-
-  if (data?.entries.length || data?.sessionTokens) {
-    const formatted = formatQuotaRows({
-      version: "2.0.0",
-      layout: config.layout,
-      entries: data?.entries ?? [],
-      errors: data?.errors ?? [],
-      style: params.style,
-      percentDisplayMode: config.percentDisplayMode,
-      resetTimeDecimals: config.resetTimeDecimals,
-      sessionTokens: data?.sessionTokens,
-    });
-    if (!config.debug) return formatted;
-    const debugFooter = `\n\n[debug] src=${params.runtime.configMeta.source} providers=${config.enabledProviders === "auto" ? "(auto)" : config.enabledProviders.join(",") || "(none)"} avail=${availability
-      .map((item) => `${item.provider.id}:${item.ok ? "ok" : "no"}`)
-      .join(" ")}`;
-    return formatted + debugFooter;
-  }
-
-  if (config.showOnBothFail && data?.errors.length) {
-    const errorLines = data.errors.map((error) => `${error.label}: ${error.message}`).join("\n");
-    if (!config.debug) return errorLines;
-    return `${errorLines}\n\n${debugInfo(
-      hasExplicitProviderIssues ? "providers missing/unavailable" : "all providers failed",
-    )}`;
-  }
-
-  if (!config.debug) return undefined;
-  return debugInfo(active.length === 0 ? "no enabled providers available" : "no entries");
-}
-
-function formatQuotaToastDebugInfo(params: {
-  trigger: string;
-  reason: string;
-  config: QuotaToastConfig;
-  configMeta: Pick<QuotaRuntimeContext["configMeta"], "source" | "paths">;
-  currentModel?: string;
-  availability?: Array<{ id: string; ok: boolean }>;
-}): string {
-  const availability = params.availability
-    ? params.availability.map((item) => `${item.id}=${item.ok ? "ok" : "no"}`).join(" ")
-    : "unknown";
-
-  const providers =
-    params.config.enabledProviders === "auto"
-      ? "(auto)"
-      : params.config.enabledProviders.length > 0
-        ? params.config.enabledProviders.join(",")
-        : "(none)";
-
-  const modelPart = params.currentModel ? ` model=${params.currentModel}` : "";
-  const paths = params.configMeta.paths.length > 0 ? params.configMeta.paths.join(" | ") : "(none)";
-
-  return [
-    "Quota Toast Debug (opencode-quota)",
-    `trigger=${params.trigger} reason=${params.reason}`,
-    `configSource=${params.configMeta.source} paths=${paths}`,
-    `enabled=${params.config.enabled} providers=${providers}${modelPart}`,
-    `available=${availability}`,
-  ].join("\n");
-}
-
-async function getHomeAnnouncementText(runtime: QuotaRuntimeContext): Promise<string> {
-  const announcements = BUNDLED_MAINTAINER_ANNOUNCEMENTS;
-  const targetProviderIds = new Set(getMaintainerAnnouncementTargetProviderIds({ announcements }));
-  const announcementProviders = runtime.providers.filter((provider) => {
-    const shape = getQuotaProviderShape(normalizeQuotaProviderId(provider.id));
-    return shape ? targetProviderIds.has(shape.id) : false;
-  });
-  const providerIds = await collectConcreteEnabledProviderIds({
-    providers: announcementProviders,
-    ctx: createQuotaProviderRuntimeContext(runtime),
-    enabledProviders: runtime.config.enabledProviders,
-  });
-  const summary = getMaintainerAnnouncementsSummary({
-    enabledProviders: providerIds,
-    announcements,
-  });
-  return formatMaintainerAnnouncementHomeCountLine(summary.activeCount);
-}
-
-async function getQuotaFooter(
-  context: TuiContext,
-  sessionID: string | undefined,
-  surface: "prompt" | "home",
-): Promise<string[]> {
-  // OpenCode 2 also mounts the prompt footer under the Home prompt, without a
-  // session. As in v4, the prompt line belongs to session prompts only.
-  if (surface === "prompt" && !sessionID) return [];
-  const resolvedRuntime = await resolveQuotaRuntimeContext({
-    client: quotaClient(context),
-    roots: quotaRoots(context),
-    sessionID,
-    resolveSessionMeta: (id) => getSessionModelMeta(context, id),
-    includeSessionMeta: (config) => config.onlyCurrentModel && surface === "prompt",
-  });
-  // Home has no session: as in v4, it shows every enabled provider and no session
-  // tokens, and shares its cache keys with the export (createExportProviderContext).
-  const runtime: QuotaRuntimeContext =
-    surface === "home"
-      ? {
-          ...resolvedRuntime,
-          config: { ...resolvedRuntime.config, onlyCurrentModel: false, showSessionTokens: false },
-          session: {},
-        }
-      : resolvedRuntime;
-  const config = runtime.config;
-  if (!config.enabled) return [];
-  if (
-    surface === "prompt" &&
-    !config.tuiPromptBar.enabled &&
-    !(config.tuiCompactStatus.enabled && config.tuiCompactStatus.sessionPrompt)
-  )
-    return [];
-  const announcementEnabled =
-    surface === "home" &&
-    config.maintainerAnnouncements.enabled &&
-    config.maintainerAnnouncements.home;
-  const homeCompactEnabled = config.tuiCompactStatus.enabled && config.tuiCompactStatus.homeBottom;
-  if (surface === "home" && !announcementEnabled && !homeCompactEnabled) return [];
-  const announcement = announcementEnabled ? await getHomeAnnouncementText(runtime) : "";
-  if (surface === "home" && !homeCompactEnabled) return announcement ? [announcement] : [];
-  const rootFormatStyle = resolveQuotaFormatStyle(config.formatStyle);
-  const compactFormatStyle = config.tuiCompactStatus.formatStyle
-    ? resolveQuotaFormatStyle(config.tuiCompactStatus.formatStyle)
-    : rootFormatStyle;
-  const result = await collectQuotaRenderData({
-    client: runtime.client,
-    resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
-    config,
-    configMeta: runtime.configMeta,
-    request: createQuotaRuntimeRequestContext(runtime),
-    surfaceExplicitProviderIssues: true,
-    formatStyle: rootFormatStyle,
-    providers: runtime.providers,
-    includeAllWindowsData: true,
-  });
-  const data = result.data;
-  if (!data) return announcement ? [announcement] : [];
-  if (surface === "prompt" && config.tuiPromptBar.enabled) {
-    const entry = pickPromptBarEntry(data);
-    if (!entry) return [];
-    const promptBar = sanitizeDisplayText(
-      [
-        resolvePromptBarLabel(entry),
-        entry.percentRemaining === undefined
-          ? ""
-          : formatPromptBarPercentMeta({
-              percentRemaining: entry.percentRemaining,
-              percentDisplayMode: config.percentDisplayMode,
-              resetTimeIso: entry.resetTimeIso,
-              resetTimeDecimals: config.resetTimeDecimals,
-              resetTimeSpaced: config.resetTimeSpaced,
-              runway: entry.runway,
-            }),
-      ]
-        .filter(Boolean)
-        .join(" | "),
-    );
-    return promptBar ? [promptBar] : [];
-  }
-  const compactData =
-    compactFormatStyle === "allWindows" && result.allWindowsData
-      ? result.allWindowsData
-      : compactFormatStyle === "singleWindow" && result.singleWindowData !== undefined
-        ? result.singleWindowData
-        : data;
-  const compact = compactData
-    ? buildCompactQuotaStatusLine({
-        data: compactData,
-        maxWidth: config.tuiCompactStatus.maxWidth,
-        percentDisplayMode: config.percentDisplayMode,
-        accountingDetail: config.accountingDetail,
-        resetTimeSpaced: config.resetTimeSpaced,
-      })
-    : "";
-  return [announcement, compact].filter(Boolean);
+  };
 }
 
 /**
@@ -506,13 +181,13 @@ function QuotaFooter(props: {
 }): JSX.Element {
   const [lines, setLines] = createSignal<string[]>([]);
   const view = createViewRefresh(
-    () => getQuotaFooter(props.context, props.sessionID, props.surface),
+    () => getQuotaFooter(quotaSurfaceHost(props.context), props.sessionID, props.surface),
     (next) => {
       setLines(next);
       if (props.surface !== "home") return;
       // Fire-and-forget: write the export file if enabled. A failed write
       // must never affect rendering, so log a warning and continue.
-      void writeQuotaExportIfEnabled(props.context).catch((error) => {
+      void writeQuotaExportIfEnabled(quotaSurfaceHost(props.context)).catch((error) => {
         console.warn(`[opencode-quota] quota export write failed: ${String(error)}`);
       });
     },
@@ -536,23 +211,6 @@ function QuotaFooter(props: {
       </box>
     </Show>
   );
-}
-
-/** Writes the quota export file if `config.export.enabled` is true. Errors propagate. */
-async function writeQuotaExportIfEnabled(context: TuiContext): Promise<void> {
-  const runtime = await resolveQuotaRuntimeContext({
-    client: quotaClient(context),
-    roots: quotaRoots(context),
-  });
-  if (!runtime.config.enabled || !runtime.config.export.enabled) return;
-
-  const exportData = await buildQuotaExport({
-    providers: runtime.providers,
-    ctx: createExportProviderContext(runtime),
-    ttlMs: runtime.config.minIntervalMs,
-    fromCache: true,
-  });
-  await writeQuotaExport(exportData, resolveExportPath(runtime.config.export.path));
 }
 
 function reportFailure(error: unknown): void {
@@ -761,7 +419,7 @@ function SidebarQuotaView(props: { context: TuiContext; sessionID: string }): JS
   const lines = () => quota()?.message.split("\n") ?? [];
   const expandable = () => lines().length > 2;
   const view = createViewRefresh(
-    () => getQuotaMessage(props.context, props.sessionID, "sidebar"),
+    () => getQuotaMessage(quotaSurfaceHost(props.context), props.sessionID, "sidebar"),
     setQuota,
   );
   view.refresh();
@@ -821,7 +479,7 @@ const plugin = Plugin.define({
           if (!sessionID) return;
           // As in v4, subagent (child) sessions never show quota toasts.
           if (api.data.session.get(sessionID)?.parentID) return;
-          void getQuotaMessage(api, sessionID, reason)
+          void getQuotaMessage(quotaSurfaceHost(api), sessionID, reason)
             .then((quota) => {
               if (!quota) return;
               api.ui.toast.show({

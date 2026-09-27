@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveOpenCodeLocationRoots } from "../src/lib/config-file-utils.js";
-import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-commands.js";
+import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-command-specs.js";
 import tuiPlugin from "../src/tui-v2.js";
 
 const mocks = vi.hoisted(() => ({ build: vi.fn() }));
@@ -151,6 +151,9 @@ describe("V2 CLI command boundary", () => {
       command: { transform: commandTransform },
       session: { hook: vi.fn() },
       provider: { list: vi.fn() },
+      rpc: {
+        register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })),
+      },
     } as never);
     expect(transform).toHaveBeenCalledOnce();
     expect(commandTransform).toHaveBeenCalledOnce();
