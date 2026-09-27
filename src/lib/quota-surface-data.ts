@@ -153,7 +153,8 @@ export async function getQuotaMessage(
         message: sanitizeDisplayText(message),
         duration: config.toastDurationMs,
         activeProviderCount: result.active.length,
-        resetNotification,
+        // The RPC route accepts only JSON values, so an unset notice leaves the key out.
+        ...(resetNotification === undefined ? {} : { resetNotification }),
       }
     : undefined;
 }

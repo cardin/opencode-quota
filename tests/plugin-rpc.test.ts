@@ -105,6 +105,9 @@ async function setupServer(sessionGet = vi.fn().mockResolvedValue({})) {
     const output = await handlers[method](input, callContext);
     // Outputs travel over HTTP to every client; they must never carry login secrets.
     expect(JSON.stringify(output)).not.toMatch(/"(access|refresh|apiKey)"/);
+    // OpenCode's RPC route rejects any output that is not a JSON value (HTTP 400), so an
+    // undefined field or a non-finite number must never reach it.
+    expect(output).toStrictEqual(JSON.parse(JSON.stringify(output)));
     return output;
   };
   return { ctx, definition, handlers, commands, call };
