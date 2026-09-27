@@ -178,6 +178,48 @@ describe("quota surface data", () => {
     expect(collect).toHaveBeenCalledWith(expect.objectContaining({ formatStyle: "allWindows" }));
   });
 
+  it("computes no prompt footer for the Home prompt, which has no session", async () => {
+    const runtimeModule = await import("../src/lib/quota-runtime-context.js");
+    const resolve = vi.spyOn(runtimeModule, "resolveQuotaRuntimeContext");
+    const { getQuotaFooter } = await import("../src/lib/quota-surface-data.js");
+
+    await expect(getQuotaFooter(createHost(), undefined, "prompt")).resolves.toEqual([]);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("loads Home for every enabled provider without a session, even with onlyCurrentModel", async () => {
+    const runtimeModule = await import("../src/lib/quota-runtime-context.js");
+    const renderDataModule = await import("../src/lib/quota-render-data.js");
+    vi.spyOn(runtimeModule, "resolveQuotaRuntimeContext").mockResolvedValue({
+      client: {},
+      config: {
+        enabled: true,
+        onlyCurrentModel: true,
+        showSessionTokens: true,
+        formatStyle: "singleWindow",
+        percentDisplayMode: "remaining",
+        maintainerAnnouncements: { enabled: false, home: false },
+        tuiPromptBar: { enabled: false },
+        tuiCompactStatus: { enabled: true, homeBottom: true, sessionPrompt: true, maxWidth: 80 },
+      },
+      configMeta: {},
+      providers: [],
+      resolveRuntimeProviderIds: vi.fn(),
+      session: { sessionID: "ses_1", sessionMeta: { modelID: "m", providerID: "p" } },
+    } as never);
+    const collect = vi.spyOn(renderDataModule, "collectQuotaRenderData").mockResolvedValue({
+      active: [],
+      data: { entries: [{ name: "Copilot", percentRemaining: 50 }], errors: [] },
+    } as never);
+    const { getQuotaFooter } = await import("../src/lib/quota-surface-data.js");
+
+    await getQuotaFooter(createHost(), undefined, "home");
+
+    const params = collect.mock.calls[0][0];
+    expect(params.config).toMatchObject({ onlyCurrentModel: false, showSessionTokens: false });
+    expect(params.request).toEqual({ sessionID: undefined, sessionMeta: undefined });
+  });
+
   it("computes the count-only Home announcement from the enabled providers", async () => {
     mocks.loadConfig.mockResolvedValue(
       makeQuotaToastTestConfig({

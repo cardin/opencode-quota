@@ -1,79 +1,30 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { buildSidebarQuotaPanelLines, collectQuotaRenderData, resolveQuotaRuntimeContext } =
-  vi.hoisted(() => ({
-    buildSidebarQuotaPanelLines: vi.fn(),
-    collectQuotaRenderData: vi.fn(),
-    resolveQuotaRuntimeContext: vi.fn(),
-  }));
-
-vi.mock("../src/lib/quota-render-data.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/quota-render-data.js")>(
-    "../src/lib/quota-render-data.js",
-  );
-  return { ...actual, collectQuotaRenderData };
-});
-
-vi.mock("../src/lib/quota-runtime-context.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/quota-runtime-context.js")>(
-    "../src/lib/quota-runtime-context.js",
-  );
-  return { ...actual, resolveQuotaRuntimeContext };
-});
-
-vi.mock("../src/lib/tui-sidebar-format.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/tui-sidebar-format.js")>(
-    "../src/lib/tui-sidebar-format.js",
-  );
-  return { ...actual, buildSidebarQuotaPanelLines };
-});
-
 import plugin from "../src/tui-v2.tsx";
 
 describe("V2 sidebar format style", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("projects all sidebar windows before formatting when it overrides singleWindow", async () => {
+  // The server applies tuiSidebarPanel.formatStyle (tests/lib.quota-surface-data.test.ts).
+  it("asks the server for the sidebar surface of its session and formats nothing itself", async () => {
     vi.stubGlobal("React", {
       createElement: (type: unknown, props: Record<string, unknown>) =>
         typeof type === "function" ? type(props) : { type, props },
     });
-    resolveQuotaRuntimeContext.mockResolvedValue({
-      client: {},
-      config: {
-        enabled: true,
-        enableToast: true,
-        formatStyle: "singleWindow",
-        percentDisplayMode: "remaining",
-        resetTimeDecimals: undefined,
-        toastDurationMs: 5000,
-        tuiSidebarPanel: { enabled: true, formatStyle: "allWindows" },
-      },
-      configMeta: {},
-      providers: [],
-      resolveRuntimeProviderIds: vi.fn(),
-      session: { sessionID: "session-1" },
-    });
-    collectQuotaRenderData.mockImplementation(async ({ formatStyle }) => ({
-      active: [{ id: "copilot" }],
-      data: {
-        entries:
-          formatStyle === "allWindows"
-            ? [
-                { name: "Copilot 5h", percentRemaining: 50 },
-                { name: "Copilot Weekly", percentRemaining: 80 },
-              ]
-            : [{ name: "Copilot 5h", percentRemaining: 50 }],
-        errors: [],
-      },
-    }));
-    buildSidebarQuotaPanelLines.mockImplementation(({ data }) =>
-      data.entries.map((entry: { name: string }) => entry.name),
-    );
+    const rpc = {
+      surface: vi.fn().mockResolvedValue({
+        quota: {
+          message: "Copilot 5h\nCopilot Weekly",
+          duration: 5000,
+          activeProviderCount: 1,
+        },
+      }),
+    };
 
     let sidebarRender: ((props: { sessionID: string }) => unknown) | undefined;
     plugin.setup({
-      client: {},
+      client: { rpc: () => rpc },
+      location: { directory: "/work/project" },
       data: { on: vi.fn(() => vi.fn()) },
       keymap: { layer: vi.fn() },
       ui: {
@@ -89,21 +40,10 @@ describe("V2 sidebar format style", () => {
 
     sidebarRender?.({ sessionID: "session-1" });
 
-    await vi.waitFor(() => {
-      expect(buildSidebarQuotaPanelLines).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            entries: [
-              expect.objectContaining({ name: "Copilot 5h" }),
-              expect.objectContaining({ name: "Copilot Weekly" }),
-            ],
-          }),
-          config: expect.objectContaining({ formatStyle: "allWindows" }),
-        }),
-      );
-    });
-    expect(collectQuotaRenderData).toHaveBeenCalledWith(
-      expect.objectContaining({ formatStyle: "allWindows" }),
+    await vi.waitFor(() => expect(rpc.surface).toHaveBeenCalledOnce());
+    expect(rpc.surface).toHaveBeenCalledWith(
+      { surface: "sidebar", sessionID: "session-1" },
+      { location: { directory: "/work/project" }, signal: expect.any(AbortSignal) },
     );
   });
 });

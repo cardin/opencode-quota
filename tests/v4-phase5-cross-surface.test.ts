@@ -23,6 +23,7 @@ import {
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
+import { createQuotaRpcBridge } from "./helpers/quota-rpc-bridge.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-v4-phase5-cross-surface";
 const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
@@ -156,6 +157,7 @@ type RegisteredTool = {
 async function setupV2Surfaces(client: ReturnType<typeof createClient>, providerIds: string[]) {
   let tool: RegisteredTool | undefined;
   const { default: serverPlugin } = await import("../src/plugin.js");
+  const register = vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } }));
   await serverPlugin.setup({
     location: { directory: process.cwd() },
     provider: { list: vi.fn(async () => ({ data: providerIds.map((id) => ({ id })) })) },
@@ -164,7 +166,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       hook: vi.fn(),
     },
     command: { transform: vi.fn() },
-    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
+    rpc: { register },
     tool: {
       transform: vi.fn(async (callback: (editor: { add(value: RegisteredTool): void }) => void) => {
         callback({
@@ -176,6 +178,11 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     },
   } as never);
   expect(tool?.name).toBe("quota_status");
+  // The TUI computes nothing itself: every surface reaches the server's RPC handlers.
+  const [, handlers] = register.mock.calls[0] as unknown as [
+    unknown,
+    Parameters<typeof createQuotaRpcBridge>[0],
+  ];
 
   const events = new Map<string, Set<(event: { data: { sessionID: string } }) => void>>();
   const emit = (event: string, sessionID: string) => {
@@ -215,7 +222,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   });
   const { default: tuiPlugin } = await import("../src/tui-v2.js");
   const dispose = tuiPlugin.setup({
-    client,
+    client: { ...client, rpc: createQuotaRpcBridge(handlers) },
     location: { directory: process.cwd() },
     theme: {
       surface: () => ({
@@ -597,8 +604,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     );
     const exportContext = createExportProviderContext(runtime);
     const { collectQuotaRenderData } = await import("../src/lib/quota-render-data.js");
-    // The aggregate's process-local cache is scoped to the client object; V2 CLI
-    // constructs its own client adapter, so prime the export reader's context.
+    // The aggregate's process-local cache is scoped to the client object; the server
+    // plugin builds its own client adapter, so prime the export reader's context.
     await collectQuotaRenderData({
       client: runtime.client,
       resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,

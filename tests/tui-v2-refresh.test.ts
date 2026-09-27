@@ -1,35 +1,6 @@
 import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { buildQuotaExport, collectQuotaRenderData, resolveQuotaRuntimeContext, writeQuotaExport } =
-  vi.hoisted(() => ({
-    buildQuotaExport: vi.fn(),
-    collectQuotaRenderData: vi.fn(),
-    resolveQuotaRuntimeContext: vi.fn(),
-    writeQuotaExport: vi.fn(),
-  }));
-
-vi.mock("../src/lib/quota-render-data.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/quota-render-data.js")>(
-    "../src/lib/quota-render-data.js",
-  );
-  return { ...actual, collectQuotaRenderData };
-});
-
-vi.mock("../src/lib/quota-runtime-context.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/quota-runtime-context.js")>(
-    "../src/lib/quota-runtime-context.js",
-  );
-  return { ...actual, resolveQuotaRuntimeContext };
-});
-
-vi.mock("../src/lib/quota-export.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/quota-export.js")>(
-    "../src/lib/quota-export.js",
-  );
-  return { ...actual, buildQuotaExport, createExportProviderContext: vi.fn(), writeQuotaExport };
-});
-
 import plugin from "../src/tui-v2.tsx";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -38,12 +9,23 @@ async function flushPromises(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await Promise.resolve();
 }
 
+// Canned answers of the server plugin's quota RPC.
+const rpc = {
+  surface: vi.fn(),
+  footer: vi.fn(),
+  writeExport: vi.fn(),
+  command: vi.fn(),
+};
+const client = { rpc: vi.fn(() => rpc) };
+
 function setupFooterSlots(
   handlers = new Map<string, (event: unknown) => void>(),
 ): Map<string, (props?: any) => unknown> {
   const renderers = new Map<string, (props?: any) => unknown>();
   plugin.setup({
+    client,
     data: {
+      location: { default: () => ({ directory: "/work/default" }) },
       on: vi.fn((event: string, handler: (event: unknown) => void) => {
         handlers.set(event, handler);
         return vi.fn();
@@ -88,33 +70,9 @@ describe("V2 footer refresh timer", () => {
       createElement: (type: unknown, props: Record<string, unknown> | null) =>
         typeof type === "function" ? type(props ?? {}) : { type, props },
     });
-    resolveQuotaRuntimeContext.mockReset();
-    collectQuotaRenderData.mockReset();
-    buildQuotaExport.mockReset();
-    writeQuotaExport.mockReset();
-    resolveQuotaRuntimeContext.mockResolvedValue({
-      client: {},
-      config: {
-        enabled: true,
-        formatStyle: "singleWindow",
-        percentDisplayMode: "remaining",
-        minIntervalMs: 60_000,
-        maintainerAnnouncements: { enabled: false, home: false },
-        tuiPromptBar: { enabled: false },
-        tuiCompactStatus: { enabled: true, homeBottom: true, sessionPrompt: true, maxWidth: 80 },
-        export: { enabled: true, path: "/tmp/opencode-quota-refresh-test.json" },
-      },
-      configMeta: {},
-      providers: [],
-      resolveRuntimeProviderIds: vi.fn(),
-      session: {},
-    });
-    collectQuotaRenderData.mockResolvedValue({
-      active: [],
-      data: { entries: [{ name: "Copilot", percentRemaining: 50 }], errors: [] },
-    });
-    buildQuotaExport.mockResolvedValue({ version: 2 });
-    writeQuotaExport.mockResolvedValue(undefined);
+    rpc.surface.mockReset().mockResolvedValue({ quota: null });
+    rpc.footer.mockReset().mockResolvedValue({ lines: ["Copilot 50%"] });
+    rpc.writeExport.mockReset().mockResolvedValue({ written: true });
   });
 
   afterEach(() => {
@@ -126,39 +84,40 @@ describe("V2 footer refresh timer", () => {
     const renderers = setupFooterSlots();
     const dispose = mountSlot(renderers.get("home.footer.status"));
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
-    expect(writeQuotaExport).toHaveBeenCalledTimes(1);
+    expect(rpc.footer).toHaveBeenCalledTimes(1);
+    expect(rpc.writeExport).toHaveBeenCalledTimes(1);
+    expect(rpc.writeExport).toHaveBeenCalledWith({}, expect.anything());
 
     await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS - 1);
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+    expect(rpc.footer).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(1);
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
-    expect(writeQuotaExport).toHaveBeenCalledTimes(2);
+    expect(rpc.footer).toHaveBeenCalledTimes(2);
+    expect(rpc.writeExport).toHaveBeenCalledTimes(2);
 
     dispose();
     await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS * 3);
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
-    expect(writeQuotaExport).toHaveBeenCalledTimes(2);
+    expect(rpc.footer).toHaveBeenCalledTimes(2);
+    expect(rpc.writeExport).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes the prompt footer every minute without writing the export", async () => {
     const renderers = setupFooterSlots();
     const dispose = mountSlot(renderers.get("prompt.footer"), { sessionID: "ses_1" });
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+    expect(rpc.footer).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS);
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
+    expect(rpc.footer).toHaveBeenCalledTimes(2);
 
     dispose();
     await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS * 3);
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
-    expect(writeQuotaExport).not.toHaveBeenCalled();
+    expect(rpc.footer).toHaveBeenCalledTimes(2);
+    expect(rpc.writeExport).not.toHaveBeenCalled();
   });
 
   it("loads the prompt footer for the session its composer passes in", async () => {
@@ -166,21 +125,21 @@ describe("V2 footer refresh timer", () => {
     const renderers = setupFooterSlots(handlers);
     const dispose = mountSlot(renderers.get("prompt.footer"), { sessionID: "ses_2" });
     await flushPromises();
-    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1);
-    expect(resolveQuotaRuntimeContext.mock.calls[0][0].sessionID).toBe("ses_2");
+    expect(rpc.footer).toHaveBeenCalledTimes(1);
+    expect(rpc.footer.mock.calls[0][0]).toEqual({ surface: "prompt", sessionID: "ses_2" });
 
     handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
     await flushPromises();
-    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1);
+    expect(rpc.footer).toHaveBeenCalledTimes(1);
 
     handlers.get("session.step.ended")?.({ data: { sessionID: "ses_2" } });
     await flushPromises();
-    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(2);
-    expect(resolveQuotaRuntimeContext.mock.calls[1][0].sessionID).toBe("ses_2");
+    expect(rpc.footer).toHaveBeenCalledTimes(2);
+    expect(rpc.footer.mock.calls[1][0]).toEqual({ surface: "prompt", sessionID: "ses_2" });
     dispose();
   });
 
-  it("renders nothing under the Home prompt, which has no session", async () => {
+  it("asks the server for the Home prompt footer without a session", async () => {
     const renderers = setupFooterSlots();
     const dispose = mountSlot(renderers.get("prompt.footer"), {
       sessionID: undefined,
@@ -188,11 +147,13 @@ describe("V2 footer refresh timer", () => {
       showDetails: true,
     });
     await flushPromises();
-    await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS);
-    await flushPromises();
 
-    expect(resolveQuotaRuntimeContext).not.toHaveBeenCalled();
-    expect(collectQuotaRenderData).not.toHaveBeenCalled();
+    // The server answers a prompt footer without a session with no lines.
+    expect(rpc.footer).toHaveBeenCalledExactlyOnceWith(
+      { surface: "prompt", sessionID: undefined },
+      expect.anything(),
+    );
+    expect(rpc.writeExport).not.toHaveBeenCalled();
     dispose();
   });
 
@@ -207,48 +168,92 @@ describe("V2 footer refresh timer", () => {
     });
     handlers.get("session.tool.success")?.({ data: { sessionID: "ses_child", id: "call_1" } });
     await flushPromises();
-    expect(resolveQuotaRuntimeContext).not.toHaveBeenCalled();
+    expect(rpc.surface).not.toHaveBeenCalled();
 
     handlers.get("session.execution.succeeded")?.({ data: { sessionID: "ses_parent" } });
     await flushPromises();
-    expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1);
-    expect(resolveQuotaRuntimeContext.mock.calls[0][0].sessionID).toBe("ses_parent");
+    expect(rpc.surface).toHaveBeenCalledExactlyOnceWith(
+      { surface: "idle", sessionID: "ses_parent" },
+      expect.anything(),
+    );
   });
 
-  it("loads Home for every enabled provider without a session, even with onlyCurrentModel", async () => {
-    const runtime = await resolveQuotaRuntimeContext();
-    resolveQuotaRuntimeContext.mockResolvedValue({
-      ...runtime,
-      config: { ...runtime.config, onlyCurrentModel: true, showSessionTokens: true },
-      session: { sessionID: "ses_1", sessionMeta: { modelID: "m", providerID: "p" } },
-    });
+  it("asks the server for Home without a session", async () => {
     const renderers = setupFooterSlots();
     const dispose = mountSlot(renderers.get("home.footer.status"));
     await flushPromises();
 
-    const params = collectQuotaRenderData.mock.calls[0][0];
-    expect(params.config).toMatchObject({ onlyCurrentModel: false, showSessionTokens: false });
-    expect(params.request).toEqual({ sessionID: undefined, sessionMeta: undefined });
+    expect(rpc.footer).toHaveBeenCalledExactlyOnceWith(
+      { surface: "home", sessionID: undefined },
+      expect.anything(),
+    );
     dispose();
+  });
+
+  it("calls the RPC at the TUI location with a one-minute timeout", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const handlers = new Map<string, (event: unknown) => void>();
+    const renderers = setupFooterSlots(handlers);
+    expect(client.rpc).not.toHaveBeenCalled();
+    mountSlot(renderers.get("app"));
+    const dispose = mountSlot(renderers.get("home.footer.status"));
+    handlers.get("session.execution.succeeded")?.({ data: { sessionID: "ses_parent" } });
+    await flushPromises();
+
+    const { QuotaRpc } = await import("../src/rpc.js");
+    expect(client.rpc).toHaveBeenCalledWith(QuotaRpc);
+    const calls = [
+      ...rpc.footer.mock.calls,
+      ...rpc.writeExport.mock.calls,
+      ...rpc.surface.mock.calls,
+    ];
+    expect(calls).toHaveLength(3);
+    for (const [, options] of calls) {
+      expect(options).toEqual({
+        location: { directory: "/work/default" },
+        signal: expect.any(AbortSignal),
+      });
+    }
+    expect(timeout).toHaveBeenCalledTimes(3);
+    expect(timeout).toHaveBeenCalledWith(60_000);
+    dispose();
+  });
+
+  it("logs a failed load with the RPC error message", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    rpc.footer.mockRejectedValueOnce({ type: "rpc.internal", message: "server broke" });
+    rpc.footer.mockRejectedValueOnce({ type: "rpc.unavailable", message: "no rpc" });
+    const renderers = setupFooterSlots();
+    mountSlot(renderers.get("home.footer.status"))();
+    mountSlot(renderers.get("home.footer.status"))();
+    await flushPromises();
+
+    expect(warn.mock.calls).toEqual([
+      ["[opencode-quota] failed to load quota: server broke"],
+      [
+        "[opencode-quota] failed to load quota: no rpc (OpenCode Quota's server plugin is not loaded for this folder)",
+      ],
+    ]);
+    expect(rpc.writeExport).not.toHaveBeenCalled();
   });
 
   it("drops a Home result and skips the export when the view unmounts mid-load", async () => {
     const load = deferred<unknown>();
-    collectQuotaRenderData.mockReturnValueOnce(load.promise);
+    rpc.footer.mockReturnValueOnce(load.promise);
     const renderers = setupFooterSlots();
     const dispose = mountSlot(renderers.get("home.footer.status"));
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+    expect(rpc.footer).toHaveBeenCalledTimes(1);
 
     dispose();
-    load.resolve({ active: [], data: { entries: [], errors: [] } });
+    load.resolve({ lines: [] });
     await flushPromises();
-    expect(writeQuotaExport).not.toHaveBeenCalled();
+    expect(rpc.writeExport).not.toHaveBeenCalled();
   });
 
   it("coalesces refreshes that arrive while a footer load is running into one follow-up load", async () => {
     const load = deferred<unknown>();
-    collectQuotaRenderData.mockReturnValueOnce(load.promise);
+    rpc.footer.mockReturnValueOnce(load.promise);
     const handlers = new Map<string, (event: unknown) => void>();
     const renderers = setupFooterSlots(handlers);
     const dispose = mountSlot(renderers.get("home.footer.status"));
@@ -257,34 +262,32 @@ describe("V2 footer refresh timer", () => {
     handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
     handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+    expect(rpc.footer).toHaveBeenCalledTimes(1);
 
-    load.resolve({ active: [], data: { entries: [], errors: [] } });
+    load.resolve({ lines: [] });
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(2);
-    expect(writeQuotaExport).toHaveBeenCalledTimes(2);
+    expect(rpc.footer).toHaveBeenCalledTimes(2);
+    expect(rpc.writeExport).toHaveBeenCalledTimes(2);
     dispose();
   });
 
   it("stops sidebar refreshes and drops their results after unmount", async () => {
-    const runtime = await resolveQuotaRuntimeContext();
-    resolveQuotaRuntimeContext.mockResolvedValue({
-      ...runtime,
-      config: { ...runtime.config, tuiSidebarPanel: { enabled: true } },
-    });
     const load = deferred<unknown>();
-    collectQuotaRenderData.mockReturnValueOnce(load.promise);
+    rpc.surface.mockReturnValueOnce(load.promise);
     const handlers = new Map<string, (event: unknown) => void>();
     const renderers = setupFooterSlots(handlers);
     const dispose = mountSlot(renderers.get("sidebar.content"), { sessionID: "ses_1" });
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+    expect(rpc.surface).toHaveBeenCalledExactlyOnceWith(
+      { surface: "sidebar", sessionID: "ses_1" },
+      expect.anything(),
+    );
 
     handlers.get("session.step.ended")?.({ data: { sessionID: "ses_1" } });
     dispose();
-    load.resolve({ active: [], data: undefined });
+    load.resolve({ quota: null });
     await vi.advanceTimersByTimeAsync(REFRESH_INTERVAL_MS * 2);
     await flushPromises();
-    expect(collectQuotaRenderData).toHaveBeenCalledTimes(1);
+    expect(rpc.surface).toHaveBeenCalledTimes(1);
   });
 });

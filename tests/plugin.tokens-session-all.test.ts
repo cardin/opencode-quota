@@ -118,7 +118,9 @@ describe("/tokens_session_all command", () => {
       (command) => command.id === "tokens_session_all",
     );
     let commands: Array<{ id: string; title: string }> = [];
+    const rpc = vi.fn();
     plugin.setup({
+      client: { rpc },
       keymap: {
         layer: (build: () => { commands: typeof commands }) => {
           commands = build().commands;
@@ -136,6 +138,8 @@ describe("/tokens_session_all command", () => {
     expect(commands.find((command) => command.id === "quota.tokens_session_all")).toEqual(
       expect.objectContaining({ title: tokensSessionAllCommand?.title }),
     );
+    // Registering the palette makes no RPC call; each command makes its RPC client when run.
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("aggregates the current session tree for /tokens_session_all", async () => {

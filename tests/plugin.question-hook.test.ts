@@ -1,26 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const resolveQuotaRuntimeContext = vi.hoisted(() => vi.fn());
-vi.mock("../src/lib/quota-runtime-context.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/quota-runtime-context.js")>()),
-  resolveQuotaRuntimeContext,
-}));
-
 import plugin from "../src/tui-v2.tsx";
 
 describe("V2 CLI question-tool accounting boundary", () => {
   const handlers = new Map<string, (event: { data: Record<string, unknown> }) => void>();
   const session = { get: vi.fn() };
   const toast = vi.fn();
+  // With showOnQuestion off, the server answers the question surface with no quota.
+  const rpc = { surface: vi.fn() };
 
   beforeEach(() => {
     handlers.clear();
     session.get.mockReset();
     toast.mockReset();
-    resolveQuotaRuntimeContext.mockReset().mockResolvedValue({
-      config: { enabled: true, enableToast: true, showOnQuestion: false },
-    });
+    rpc.surface.mockReset().mockResolvedValue({ quota: null });
     plugin.setup({
+      client: { rpc: () => rpc },
+      location: { directory: process.cwd() },
       data: {
         session,
         on: (name: string, handler: (event: { data: Record<string, unknown> }) => void) => {
@@ -42,8 +38,12 @@ describe("V2 CLI question-tool accounting boundary", () => {
   it("does not treat a successful question-tool execution as a completed model request", async () => {
     handlers.get("session.tool.input.started")?.({ data: { name: "question", id: "call-1" } });
     handlers.get("session.tool.success")?.({ data: { sessionID: "session-1", id: "call-1" } });
-    await vi.waitFor(() => expect(resolveQuotaRuntimeContext).toHaveBeenCalledTimes(1));
-    // Only the subagent check reads the session; no model lookup follows.
+    await vi.waitFor(() => expect(rpc.surface).toHaveBeenCalledTimes(1));
+    expect(rpc.surface).toHaveBeenCalledWith(
+      { surface: "question", sessionID: "session-1" },
+      expect.anything(),
+    );
+    // Only the subagent check reads the session; the server looks up the model.
     expect(session.get).toHaveBeenCalledExactlyOnceWith("session-1");
     expect(toast).not.toHaveBeenCalled();
   });
@@ -51,7 +51,7 @@ describe("V2 CLI question-tool accounting boundary", () => {
   it("does not use question-tool failure metadata as accounting authority", () => {
     handlers.get("session.tool.input.started")?.({ data: { name: "question", id: "call-2" } });
     handlers.get("session.tool.failed")?.({ data: { sessionID: "session-1", id: "call-2" } });
-    expect(resolveQuotaRuntimeContext).not.toHaveBeenCalled();
+    expect(rpc.surface).not.toHaveBeenCalled();
     expect(session.get).not.toHaveBeenCalled();
     expect(toast).not.toHaveBeenCalled();
   });

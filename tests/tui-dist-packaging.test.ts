@@ -57,8 +57,9 @@ describe("tui dist packaging", () => {
     expect(source).toContain("sidebar.content");
     expect(source).toContain("prompt.footer");
     expect(source).toContain("home.footer.status");
-    expect(source).toContain("./lib/quota-surface-data.js");
-    expect(source).toContain("buildQuotaDialogCommandOutput");
+    expect(source).toContain("./rpc.js");
+    expect(source).toContain("client.rpc(");
+    expect(source).toContain("writeExport");
     expect(source).toContain("registerQuotaCommands");
     expect(source).not.toContain("jsx-dev-runtime");
   });

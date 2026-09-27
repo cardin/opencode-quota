@@ -3,11 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const build = vi.hoisted(() => vi.fn());
-vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/quota-dialog-commands.js")>()),
-  buildQuotaDialogCommandOutput: build,
-}));
 vi.mock("@opentui/solid", () => ({
   useTerminalDimensions: () => () => ({ width: 120, height: 40 }),
 }));
@@ -20,6 +15,9 @@ vi.mock("../src/lib/config.js", async (importOriginal) => {
 
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/tui-v2.tsx";
+
+// The server plugin's quota RPC runs palette commands; the TUI shows their output.
+const rpc = vi.hoisted(() => ({ command: vi.fn() }));
 
 type Node = { type: string; props: Record<string, any> };
 
@@ -53,7 +51,10 @@ function startTui(
   const listeners = new Map<string, Listener>();
   const context = {
     location,
-    client: { session: { inbox: { cancel: vi.fn().mockResolvedValue(undefined) } } },
+    client: {
+      rpc: vi.fn(() => rpc),
+      session: { inbox: { cancel: vi.fn().mockResolvedValue(undefined) } },
+    },
     theme: {
       surface: vi.fn(() => ({
         text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
@@ -65,13 +66,8 @@ function startTui(
         listeners.set(name, listener);
         return vi.fn();
       }),
-      session: {
-        get: vi.fn((sessionID: string) =>
-          sessionID === "ses_known"
-            ? { model: { id: "claude-sonnet-4-5", providerID: "anthropic" } }
-            : undefined,
-        ),
-      },
+      session: { get: vi.fn() },
+      location: { default: vi.fn(() => ({ directory: "/work/default" })) },
     },
     keymap: {
       layer: vi.fn((next) => {
@@ -102,8 +98,9 @@ function startTui(
 
 describe("V2 quota TUI commands", () => {
   beforeEach(() => {
-    build.mockReset().mockResolvedValue({
+    rpc.command.mockReset().mockResolvedValue({
       state: "output",
+      command: "tokens_today",
       title: "Tokens",
       output: "ok",
       dialogSize: "large",
@@ -113,6 +110,8 @@ describe("V2 quota TUI commands", () => {
   it("registers every quota command in the palette and leaves slash commands to the server", () => {
     const { context, commands } = startTui();
 
+    // The RPC client is made per call, never during setup.
+    expect(context.client.rpc).not.toHaveBeenCalled();
     expect(commands.map((command) => command.id)).toEqual([
       "quota.quota",
       "quota.quota_status",
@@ -154,12 +153,13 @@ describe("V2 quota TUI commands", () => {
 
     await command("tokens_between").run();
     expect(context.ui.dialog.prompt).toHaveBeenCalledOnce();
-    expect(build).not.toHaveBeenCalled();
+    expect(rpc.command).not.toHaveBeenCalled();
 
     context.ui.dialog.prompt.mockResolvedValue(" 2026-09-01 2026-09-25 ");
     await command("tokens_between").run();
-    expect(build).toHaveBeenCalledWith(
-      expect.objectContaining({ command: "tokens_between", arguments: "2026-09-01 2026-09-25" }),
+    expect(rpc.command).toHaveBeenCalledWith(
+      { command: "tokens_between", arguments: "2026-09-01 2026-09-25", sessionID: undefined },
+      expect.anything(),
     );
   });
 
@@ -170,7 +170,7 @@ describe("V2 quota TUI commands", () => {
     await command("pricing_refresh").run();
 
     expect(context.ui.dialog.prompt).not.toHaveBeenCalled();
-    expect(build.mock.calls.map(([params]) => [params.command, params.arguments])).toEqual([
+    expect(rpc.command.mock.calls.map(([input]) => [input.command, input.arguments])).toEqual([
       ["quota_announcements", undefined],
       ["pricing_refresh", undefined],
     ]);
@@ -271,7 +271,7 @@ describe("V2 quota TUI commands", () => {
         props: Record<string, unknown>;
       };
       expect(render().props).toMatchObject({ title: "OpenCode Quota", message: "openai 42%" });
-      expect(build).not.toHaveBeenCalled();
+      expect(rpc.command).not.toHaveBeenCalled();
     });
 
     it("inline mode leaves the report in the chat and opens no dialog", async () => {
@@ -297,20 +297,30 @@ describe("V2 quota TUI commands", () => {
     });
   });
 
-  it("reads project config from the location's Git worktree root, like the server plugin", async () => {
+  it("reads tuiCommandDisplay from the location's Git worktree root, like the server plugin", async () => {
     const repo = realpathSync(mkdtempSync(join(tmpdir(), "opencode-quota-tui-roots-")));
     try {
       mkdirSync(join(repo, ".git"));
       mkdirSync(join(repo, "packages", "app"), { recursive: true });
-      const { command } = startTui({ directory: join(repo, "packages", "app") });
+      const { emit } = startTui(
+        { directory: join(repo, "packages", "app") },
+        { type: "session", sessionID: "ses_open" },
+      );
 
-      await command("quota").run();
-
-      expect(build.mock.calls[0][0].roots).toEqual({
-        workspaceRoot: repo,
-        configRoot: repo,
-        fallbackDirectory: join(repo, "packages", "app"),
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_report",
+        item: {
+          type: "user",
+          payload: {
+            text: formatQuotaReportMessage("openai 42%"),
+            metadata: { opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1 } },
+          },
+        },
       });
+      await vi.waitFor(() => expect(loadConfig).toHaveBeenCalledOnce());
+
+      expect(loadConfig.mock.calls[0][2]).toEqual({ configRootDir: repo });
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
@@ -322,21 +332,37 @@ describe("V2 quota TUI commands", () => {
       .run();
     await startTui(undefined, { type: "home" }).command("tokens_session").run();
 
-    expect(build.mock.calls.map(([params]) => params.sessionID)).toEqual(["ses_open", undefined]);
+    expect(rpc.command.mock.calls.map(([input]) => input.sessionID)).toEqual([
+      "ses_open",
+      undefined,
+    ]);
   });
 
-  it("reads the session model from the OpenCode 2 session store", async () => {
+  it("runs commands at the TUI location, else the default location, with a timeout", async () => {
+    await startTui({ directory: "/work/project" }).command("quota").run();
+    const { context, command } = startTui();
+    await command("quota_status").run();
+
+    expect(rpc.command.mock.calls.map(([, options]) => options)).toEqual([
+      { location: { directory: "/work/project" }, signal: expect.any(AbortSignal) },
+      { location: { directory: "/work/default" }, signal: expect.any(AbortSignal) },
+    ]);
+    // The server looks up the session model; the palette never reads it.
+    expect(context.data.session.get).not.toHaveBeenCalled();
+  });
+
+  it("shows the message of a failed RPC call in the error toast", async () => {
+    rpc.command.mockRejectedValue({ type: "rpc.internal", message: "server \u001b[31mbroke" });
     const { context, command } = startTui();
 
-    await command("quota_status").run();
-    const { resolveSessionMeta } = build.mock.calls[0][0];
+    await command("quota").run();
 
-    await expect(resolveSessionMeta("ses_known")).resolves.toEqual({
-      modelID: "claude-sonnet-4-5",
-      providerID: "anthropic",
+    expect(context.ui.toast.show).toHaveBeenCalledExactlyOnceWith({
+      variant: "error",
+      title: "OpenCode Quota",
+      message: "server broke",
     });
-    await expect(resolveSessionMeta("ses_unknown")).resolves.toEqual({});
-    expect(context.data.session.get).toHaveBeenCalledWith("ses_known");
+    expect(context.ui.dialog.show).not.toHaveBeenCalled();
   });
 
   it("shows command output in a scrollable dialog that fits the terminal", async () => {
@@ -351,8 +377,9 @@ describe("V2 quota TUI commands", () => {
       },
     });
     const output = Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n");
-    build.mockResolvedValue({
+    rpc.command.mockResolvedValue({
       state: "output",
+      command: "quota_status",
       title: "Quota Status",
       output,
       dialogSize: "xlarge",

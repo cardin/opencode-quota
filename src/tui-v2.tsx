@@ -12,18 +12,22 @@ import {
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-command-specs.js";
-import { buildQuotaDialogCommandOutput } from "./lib/quota-dialog-commands.js";
 import { readQuotaReport, readQuotaReportMetadata } from "./lib/quota-report-message.js";
-import type { QuotaSessionModelContext } from "./lib/quota-runtime-context.js";
 import {
-  getQuotaFooter,
-  getQuotaMessage,
-  type QuotaSurfaceHost,
-  writeQuotaExportIfEnabled,
-} from "./lib/quota-surface-data.js";
+  QuotaRpc,
+  type QuotaRpcCommandInput,
+  type QuotaRpcCommandOutput,
+  type QuotaRpcFooterInput,
+  type QuotaRpcFooterOutput,
+  type QuotaRpcSurfaceInput,
+  type QuotaRpcSurfaceOutput,
+  type QuotaRpcWriteExportInput,
+  type QuotaRpcWriteExportOutput,
+} from "./rpc.js";
 
 const terminalForeground = RGBA.defaultForeground();
 const REFRESH_INTERVAL_MS = 60_000;
+const RPC_TIMEOUT_MS = 60_000;
 
 type TuiEvent = { data?: Record<string, unknown> };
 type Toast = {
@@ -44,9 +48,29 @@ type DialogTheme = {
   text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA } } };
   background: { action: { primary: { focused: RGBA } } };
 };
+type QuotaRpcCallOptions = { location: { directory: string }; signal: AbortSignal };
+type QuotaRpcClient = {
+  surface: (
+    input: QuotaRpcSurfaceInput,
+    options: QuotaRpcCallOptions,
+  ) => Promise<QuotaRpcSurfaceOutput>;
+  footer: (
+    input: QuotaRpcFooterInput,
+    options: QuotaRpcCallOptions,
+  ) => Promise<QuotaRpcFooterOutput>;
+  writeExport: (
+    input: QuotaRpcWriteExportInput,
+    options: QuotaRpcCallOptions,
+  ) => Promise<QuotaRpcWriteExportOutput>;
+  command: (
+    input: QuotaRpcCommandInput,
+    options: QuotaRpcCallOptions,
+  ) => Promise<QuotaRpcCommandOutput>;
+};
 type TuiContext = {
   location?: { directory: string };
   client: {
+    rpc: (definition: typeof QuotaRpc) => QuotaRpcClient;
     session: {
       inbox: { cancel: (input: { sessionID: string; inboxID: string }) => Promise<void> };
     };
@@ -55,9 +79,7 @@ type TuiContext = {
   data: {
     on: (event: string, handler: (event: TuiEvent) => void) => () => void;
     session: {
-      get: (
-        sessionID: string,
-      ) => { parentID?: string; model?: { id: string; providerID: string } } | undefined;
+      get: (sessionID: string) => { parentID?: string } | undefined;
     };
     location?: {
       default: () => { directory: string };
@@ -114,20 +136,43 @@ function quotaRoots(context: TuiContext) {
   return resolveOpenCodeLocationRoots(context.location?.directory ?? process.cwd());
 }
 
-async function getSessionModelMeta(
-  context: TuiContext,
-  sessionID: string,
-): Promise<QuotaSessionModelContext> {
-  const model = context.data.session.get(sessionID)?.model;
-  return model ? { modelID: model.id, providerID: model.providerID } : {};
+/**
+ * The server plugin computes every quota surface; the TUI asks it over the quota RPC. The
+ * RPC client is made per call, never during setup. Each call names the TUI's location, so
+ * the server uses that folder's settings, and gives up after a minute.
+ */
+function quotaRpc(context: TuiContext): QuotaRpcClient {
+  return context.client.rpc(QuotaRpc);
 }
 
-function quotaSurfaceHost(context: TuiContext): QuotaSurfaceHost {
+function quotaRpcOptions(context: TuiContext): QuotaRpcCallOptions {
   return {
-    client: quotaClient(context),
-    roots: quotaRoots(context),
-    resolveSessionMeta: (id) => getSessionModelMeta(context, id),
+    location: context.location ?? context.data.location!.default(),
+    signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
   };
+}
+
+async function getQuotaMessage(
+  context: TuiContext,
+  sessionID: string,
+  surface: QuotaRpcSurfaceInput["surface"],
+) {
+  const output = await quotaRpc(context).surface({ surface, sessionID }, quotaRpcOptions(context));
+  return output.quota ?? undefined;
+}
+
+/** RPC calls reject with a plain `{ type, message }` object, not an Error. */
+function rpcErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
 }
 
 /**
@@ -181,15 +226,23 @@ function QuotaFooter(props: {
 }): JSX.Element {
   const [lines, setLines] = createSignal<string[]>([]);
   const view = createViewRefresh(
-    () => getQuotaFooter(quotaSurfaceHost(props.context), props.sessionID, props.surface),
+    async () => {
+      const output = await quotaRpc(props.context).footer(
+        { surface: props.surface, sessionID: props.sessionID },
+        quotaRpcOptions(props.context),
+      );
+      return output.lines;
+    },
     (next) => {
       setLines(next);
       if (props.surface !== "home") return;
-      // Fire-and-forget: write the export file if enabled. A failed write
+      // Fire-and-forget: the server writes the export file if enabled. A failed write
       // must never affect rendering, so log a warning and continue.
-      void writeQuotaExportIfEnabled(quotaSurfaceHost(props.context)).catch((error) => {
-        console.warn(`[opencode-quota] quota export write failed: ${String(error)}`);
-      });
+      void quotaRpc(props.context)
+        .writeExport({}, quotaRpcOptions(props.context))
+        .catch((error: unknown) => {
+          console.warn(`[opencode-quota] quota export write failed: ${rpcErrorMessage(error)}`);
+        });
     },
   );
   view.refresh();
@@ -214,8 +267,15 @@ function QuotaFooter(props: {
 }
 
 function reportFailure(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
-  console.warn(`[opencode-quota] failed to load quota: ${message}`);
+  // OpenCode answers rpc.unavailable when no server plugin registered the quota RPC here.
+  const hint =
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    error.type === "rpc.unavailable"
+      ? " (OpenCode Quota's server plugin is not loaded for this folder)"
+      : "";
+  console.warn(`[opencode-quota] failed to load quota: ${rpcErrorMessage(error)}${hint}`);
 }
 
 /**
@@ -331,14 +391,10 @@ async function runQuotaCommand(
   }
 
   try {
-    const result = await buildQuotaDialogCommandOutput({
-      command,
-      arguments: argumentsText,
-      client: quotaClient(context),
-      roots: quotaRoots(context),
-      sessionID,
-      resolveSessionMeta: (id) => getSessionModelMeta(context, id),
-    });
+    const result = await quotaRpc(context).command(
+      { command, arguments: argumentsText, sessionID },
+      quotaRpcOptions(context),
+    );
     if (result.state === "noop") return;
     await showQuotaOutputDialog(context, {
       title: result.title,
@@ -349,7 +405,7 @@ async function runQuotaCommand(
     context.ui.toast.show({
       variant: "error",
       title: "OpenCode Quota",
-      message: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+      message: sanitizeDisplayText(rpcErrorMessage(error)),
     });
   }
 }
@@ -419,7 +475,7 @@ function SidebarQuotaView(props: { context: TuiContext; sessionID: string }): JS
   const lines = () => quota()?.message.split("\n") ?? [];
   const expandable = () => lines().length > 2;
   const view = createViewRefresh(
-    () => getQuotaMessage(quotaSurfaceHost(props.context), props.sessionID, "sidebar"),
+    () => getQuotaMessage(props.context, props.sessionID, "sidebar"),
     setQuota,
   );
   view.refresh();
@@ -479,7 +535,7 @@ const plugin = Plugin.define({
           if (!sessionID) return;
           // As in v4, subagent (child) sessions never show quota toasts.
           if (api.data.session.get(sessionID)?.parentID) return;
-          void getQuotaMessage(quotaSurfaceHost(api), sessionID, reason)
+          void getQuotaMessage(api, sessionID, reason)
             .then((quota) => {
               if (!quota) return;
               api.ui.toast.show({

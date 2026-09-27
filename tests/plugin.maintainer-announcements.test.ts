@@ -11,6 +11,7 @@ import {
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
+import { createQuotaRpcBridge } from "./helpers/quota-rpc-bridge.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-plugin-announcements-tests";
 const TEST_ACCOUNTING = {
@@ -58,6 +59,19 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
   createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
+// Records the getters of the TUI's Solid signals, so a test can read what a view shows.
+const signals = vi.hoisted(() => [] as Array<() => unknown>);
+vi.mock("solid-js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("solid-js")>();
+  return {
+    ...actual,
+    createSignal: ((...args: Parameters<typeof actual.createSignal>) => {
+      const signal = actual.createSignal(...args);
+      signals.push(signal[0]);
+      return signal;
+    }) as typeof actual.createSignal,
+  };
+});
 vi.mock("../src/lib/maintainer-announcements.js", () => ({
   BUNDLED_MAINTAINER_ANNOUNCEMENTS: [TEST_ANNOUNCEMENT],
   formatMaintainerAnnouncementHomeCountLine:
@@ -118,24 +132,39 @@ function configureQuestionQuotaToast(
   ]);
 }
 
+/** Starts the server plugin and the TUI plugin, joined by the quota RPC. */
 async function startCli() {
   vi.stubGlobal("React", {
     createElement: (type: unknown, props: Record<string, unknown> | null) =>
       typeof type === "function" ? type(props ?? {}) : { type, props },
   });
+  const { default: server } = await import("../src/plugin.js");
+  const register = vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } }));
+  await server.setup({
+    location: { directory: process.cwd() },
+    provider: { list: vi.fn(async () => ({ data: [{ id: "copilot" }] })) },
+    session: { get: vi.fn(async () => ({})), hook: vi.fn() },
+    command: { transform: vi.fn() },
+    tool: { transform: vi.fn() },
+    rpc: { register },
+  } as never);
+  const [, handlers] = register.mock.calls[0] as unknown as [
+    unknown,
+    Parameters<typeof createQuotaRpcBridge>[0],
+  ];
   const { default: plugin } = await import("../src/tui-v2.js");
   const listeners = new Map<string, (event: { data: Record<string, unknown> }) => void>();
   const renderers = new Map<string, () => unknown>();
   const toast = vi.fn();
   const context = {
     location: { directory: process.cwd() },
+    client: { rpc: createQuotaRpcBridge(handlers) },
     data: {
       session: { get: vi.fn(() => undefined) },
       on: vi.fn((name: string, listener: (event: { data: Record<string, unknown> }) => void) => {
         listeners.set(name, listener);
         return () => listeners.delete(name);
       }),
-      location: { provider: { list: () => [{ id: "copilot" }] } },
     },
     keymap: { layer: vi.fn() },
     ui: {
@@ -205,6 +234,7 @@ describe("maintainer announcement plugin integration", () => {
         if (activeCount === 1) return ANNOUNCEMENT_HOME_MESSAGE;
         return `Notice: ${activeCount} maintainer announcements available. Run /quota_announcements.`;
       });
+    signals.length = 0;
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
@@ -303,10 +333,9 @@ describe("maintainer announcement plugin integration", () => {
     configureQuestionQuotaToast();
     const cli = await startCli();
     cli.renderHome();
+    // The Home footer shows the lines the server returns over the RPC.
     await vi.waitFor(() =>
-      expect(announcementMocks.formatMaintainerAnnouncementHomeCountLine).toHaveReturnedWith(
-        ANNOUNCEMENT_HOME_MESSAGE,
-      ),
+      expect(signals.map((read) => read())).toContainEqual([ANNOUNCEMENT_HOME_MESSAGE]),
     );
     expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
       expect.objectContaining({ enabledProviders: ["copilot"] }),

@@ -1,7 +1,7 @@
 /**
  * Computes the text of the TUI quota surfaces: the sidebar panel, the toasts, the
  * session prompt line and the Home footer, plus the optional export file. The server
- * plugin serves these over its RPC; the TUI still calls them in-process.
+ * plugin serves these to the TUI over its RPC.
  */
 import type { RuntimeContextRootHints } from "./config-file-utils.js";
 import { sanitizeDisplayText } from "./display-sanitize.js";
