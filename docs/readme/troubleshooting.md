@@ -55,7 +55,7 @@ The updater preserves unrelated settings, comments, and plugins where targeted e
 | Update result | What to do |
 | --- | --- |
 | Obsolete OpenCode Go source | Configure `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, or `opencode auth login opencode-go`. Verify it, then manually remove the reported old variable/file. Workspace/cookie material cannot become an API key. |
-| Ambiguous OpenCode Zen environment names | Decide whether the names belong to Zen or OpenCode's workspace feature. If they are Zen credentials, create and protect the supported global `opencode-quota/opencode.json` manually. Never paste the values into output or reports. |
+| Old OpenCode Zen file or environment names | Run `opencode auth login opencode` and verify Zen works. Then remove the reported old `opencode-quota/opencode.json` file manually. Remove `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` only if they held Zen credentials; they may belong to OpenCode's workspace feature. Never paste the values into output or reports. |
 | Unsupported display migration | Fix the reported invalid, duplicate, or ambiguous config manually. Use root `accountingDetail: "summary"` or `"detailed"`; do not share the rejected value. |
 | Update race or partial-write failure | No package cache was deleted. Read the error's exact changed-path list, inspect those files, fix the cause, and rerun `update --dry-run` for a fresh plan. Do not restore over concurrent edits blindly. |
 
@@ -255,6 +255,20 @@ Run `/quota_status` and check the `opencode_go` section. It reports safe `auth_*
 | API request times out or fails      | Check `live_fetch_error`, confirm `https://opencode.ai/zen/go/v1/usage` is reachable, and retry. Increase `requestTimeoutMs` only when the error is a timeout.                                                          |
 | Expected window is not displayed    | Check `selected_windows`, then update `opencodeGoWindows` in `opencode-quota/quota-toast.json`. This setting only filters the already validated 5h (`rolling`), Weekly (`weekly`), and Monthly (`monthly`) API results. |
 | Provider missing in manual mode     | Include `opencode-go` in `enabledProviders` in `opencode-quota/quota-toast.json`.                                                                                                                                     |
+
+</details>
+
+<details>
+<summary><strong>OpenCode Zen</strong></summary>
+
+Run `/quota_status` and check the `opencode_zen` section. `console_auth_state` shows whether OpenCode returned your Console sign-in, `console_server` and `console_org` show which Console and organization Zen reads, and `budget_source` shows whether the monthly budget came from the org budget (`org_budget`) or the credit limit plus this month's usage (`credit_limit`). `live_fetch_error` lists failed Console routes. The token is never shown.
+
+| Symptom | Fix |
+| --- | --- |
+| Zen does not appear | Run `opencode auth login opencode` and sign in to the Console. An OpenCode API key alone is not a Console sign-in. To see a hint instead of nothing, include `opencode` in `enabledProviders`. |
+| `OpenCode Console sign-in failed` or `session expired or invalid` | Run `opencode auth login opencode` again. |
+| Wrong organization | Run `opencode auth switch opencode` to pick another saved sign-in, or sign in again and pick the organization. Check `console_org`. |
+| `OpenCode Console <route> error 403` | Your sign-in cannot read that route for this organization. Zen still shows the other rows, unless the route is `billing/status` (the balance). |
 
 </details>
 

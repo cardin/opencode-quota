@@ -70,6 +70,7 @@ The updater always shows a preview first. `--yes` applies only the safe edits it
 > - Web and Desktop get the slash commands (report posts in the chat) but no toasts or panels.
 > - One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
 > - TUI slash reports now open in a popup. Set `tuiCommandDisplay: "inline"` to keep them in the chat.
+> - OpenCode Zen uses your OpenCode Console sign-in (`opencode auth login opencode`); the copied Console cookie file is no longer read. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
 >
 > Details: [Moving to OpenCode 2](docs/readme/updating.md#moving-to-opencode-2).
 
@@ -168,7 +169,7 @@ Use the CLI for setup, updates, terminal checks, and custom providers.
 | Ollama Cloud       | Automatic                                                      | Remote API         | Quota and usage    |
 | OpenAI             | Automatic                                                      | Remote API         | Quota              |
 | OpenCode Go        | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen       | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard API      | Budget and balance |
+| OpenCode Zen       | Automatic                                                      | Remote API         | Budget and balance |
 | OpenRouter         | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok      | Automatic                                                      | Remote API         | Quota              |
@@ -188,7 +189,7 @@ Use the CLI for setup, updates, terminal checks, and custom providers.
 | Google AGY              | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
 | NanoGPT                 | Automatic                                                      | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen            | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard API      | Budget and balance |
+| OpenCode Zen            | Automatic                                                      | Remote API         | Budget and balance |
 | OpenRouter              | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok           | Automatic                                                      | Remote API         | Quota              |

@@ -14,10 +14,10 @@ import {
   LEGACY_DISPLAY_MAPPINGS,
   OBSOLETE_GO_ENV_NAMES,
   OBSOLETE_GO_FILE,
+  OBSOLETE_ZEN_FILE,
   resolveScopedUpdateMigrationBoundary,
   type ScopedUpdateManualFinding,
   type ScopedUpdateSafeAction,
-  SUPPORTED_ZEN_FILE,
   sortScopedUpdateManualFindings,
   sortScopedUpdateSafeActions,
 } from "../src/lib/scoped-update-migration.js";
@@ -468,7 +468,7 @@ describe("obsolete source audit", () => {
     expect(OBSOLETE_GO_ENV_NAMES).toEqual(["OPENCODE_GO_WORKSPACE_ID", "OPENCODE_GO_AUTH_COOKIE"]);
     expect(AMBIGUOUS_ZEN_ENV_NAMES).toEqual(["OPENCODE_WORKSPACE_ID", "OPENCODE_AUTH_COOKIE"]);
     expect(OBSOLETE_GO_FILE).toBe("opencode-quota/opencode-go.json");
-    expect(SUPPORTED_ZEN_FILE).toBe("opencode-quota/opencode.json");
+    expect(OBSOLETE_ZEN_FILE).toBe("opencode-quota/opencode.json");
   });
 
   it.each([
@@ -529,31 +529,24 @@ describe("obsolete source audit", () => {
       configDir: root,
     });
 
-    expect(findings).toEqual([
-      {
-        kind: "ambiguous-zen-env",
-        names,
-        suggestedPath: join(root, SUPPORTED_ZEN_FILE),
-      },
-    ]);
+    expect(findings).toEqual([{ kind: "ambiguous-zen-env", names }]);
     expect(JSON.stringify(findings)).not.toContain("zen-secret-canary");
   });
 
   it.each([
-    "malformed",
-    "incomplete",
+    "file",
     "symlink",
-  ])("suppresses ambiguous Zen findings when the supported file path exists: %s", async (kind) => {
+  ])("reports the obsolete Zen %s and still reports ambiguous Zen names", async (kind) => {
     const root = tempDir();
     const configDir = join(root, "config");
-    const supportedPath = join(configDir, SUPPORTED_ZEN_FILE);
+    const obsoletePath = join(configDir, OBSOLETE_ZEN_FILE);
     if (kind === "symlink") {
       const target = join(root, "target.json");
-      write(target, "supported-file-secret-canary");
-      mkdirSync(dirname(supportedPath), { recursive: true });
-      symlinkSync(target, supportedPath);
+      write(target, "zen-file-secret-canary");
+      mkdirSync(dirname(obsoletePath), { recursive: true });
+      symlinkSync(target, obsoletePath);
     } else {
-      write(supportedPath, kind === "malformed" ? "{" : "{}");
+      write(obsoletePath, "zen-file-secret-canary");
     }
 
     const findings = await auditObsoleteUpdateSources({
@@ -564,7 +557,11 @@ describe("obsolete source audit", () => {
       configDir,
     });
 
-    expect(findings).toEqual([]);
+    expect(findings).toEqual([
+      { kind: "ambiguous-zen-env", names: ["OPENCODE_WORKSPACE_ID", "OPENCODE_AUTH_COOKIE"] },
+      { kind: "obsolete-zen-file", path: obsoletePath },
+    ]);
+    expect(JSON.stringify(findings)).not.toMatch(/secret/u);
   });
 });
 

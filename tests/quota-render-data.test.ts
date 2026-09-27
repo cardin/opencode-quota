@@ -18,6 +18,15 @@ vi.mock("../src/providers/registry.js", () => ({
   getProviders: () => mockProviders,
 }));
 
+const consoleAuthMocks = vi.hoisted(() => ({
+  resolveOpenCodeConsoleAuth: vi.fn(),
+}));
+
+vi.mock("../src/lib/opencode-console-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-console-auth.js")>()),
+  resolveOpenCodeConsoleAuth: consoleAuthMocks.resolveOpenCodeConsoleAuth,
+}));
+
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirs: () => ({
     dataDir: `${TEST_RUNTIME_ROOT}/data`,
@@ -34,6 +43,7 @@ import {
 } from "../src/lib/quota-render-data.js";
 import { __resetQuotaStateForTests } from "../src/lib/quota-state.js";
 import { DEFAULT_CONFIG, type QuotaToastConfig } from "../src/lib/types.js";
+import { opencodeZenProvider } from "../src/providers/opencode-zen.js";
 
 function renderConfig(overrides: Partial<QuotaToastConfig> = {}): QuotaToastConfig {
   return { ...DEFAULT_CONFIG, showSessionTokens: false, ...overrides };
@@ -110,6 +120,56 @@ describe("collectQuotaRenderData shared quota state", () => {
         percentRemaining: 42,
       },
     ]);
+  });
+
+  it("surfaces a failed OpenCode Zen sign-in but keeps auto mode quiet without one", async () => {
+    // A failed Console sign-in passes the auto-mode availability gate so
+    // fetch() can show its recovery hint.
+    consoleAuthMocks.resolveOpenCodeConsoleAuth.mockResolvedValue({
+      state: "invalid",
+      error: "refresh_failed: boom",
+    });
+
+    const failed = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig(),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [opencodeZenProvider],
+    });
+    expect(failed.active).toEqual([opencodeZenProvider]);
+    expect(failed.data?.errors).toContainEqual({
+      label: "OpenCode",
+      message:
+        "OpenCode Console sign-in failed: refresh_failed: boom. Run `opencode auth login opencode`.",
+    });
+
+    // Without a Console sign-in, auto mode stays silent, but an explicit
+    // opencode entry keeps Zen actionable.
+    consoleAuthMocks.resolveOpenCodeConsoleAuth.mockResolvedValue({ state: "none" });
+
+    const autoNone = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig(),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [opencodeZenProvider],
+    });
+    expect(autoNone.active).toEqual([]);
+    expect(autoNone.data?.errors ?? []).toEqual([]);
+
+    const explicitNone = await collectQuotaRenderData({
+      client: TEST_CLIENT,
+      config: renderConfig({ enabledProviders: ["opencode"] }),
+      surfaceExplicitProviderIssues: true,
+      formatStyle: "allWindows",
+      providers: [opencodeZenProvider],
+    });
+    expect(explicitNone.active).toEqual([opencodeZenProvider]);
+    expect(explicitNone.data?.errors).toContainEqual({
+      label: "OpenCode",
+      message: "No OpenCode Console sign-in found. Run `opencode auth login opencode`.",
+    });
   });
 
   it("returns allWindowsData when includeAllWindowsData is true and style is singleWindow", async () => {

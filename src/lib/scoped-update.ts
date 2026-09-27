@@ -456,17 +456,19 @@ function formatSafeAction(action: ScopedUpdateSafeAction): string {
 const OBSOLETE_GO_GUIDANCE =
   "OpenCode Go no longer uses this workspace/cookie source, and it cannot be converted into the official API key. Configure OPENCODE_API_KEY, trusted global provider.opencode-go.options.apiKey, fallback provider.opencode.options.apiKey, or run opencode auth login opencode-go. This updater will not read, copy, or delete credentials; remove the old variable/file manually after the supported key works.";
 
+const ZEN_CONSOLE_GUIDANCE =
+  "OpenCode Zen now uses the OpenCode Console sign-in: run opencode auth login opencode (and opencode auth switch opencode to pick a saved organization), then verify with opencode-quota status.";
+
 function formatManualFinding(finding: ScopedUpdateManualFinding): string {
   switch (finding.kind) {
     case "obsolete-go-env":
       return `  ${finding.name}: ${OBSOLETE_GO_GUIDANCE}`;
     case "obsolete-go-file":
       return `  ${displayUpdatePath(finding.path)}: ${OBSOLETE_GO_GUIDANCE}`;
-    case "ambiguous-zen-env": {
-      const names = finding.names.join(" and ");
-      const suggestedPath = displayUpdatePath(finding.suggestedPath);
-      return `  ${names}: These environment names may be from an older OpenCode Zen setup, but they may also belong to OpenCode's workspace feature. Current quota code ignores them, and no supported global opencode-quota/opencode.json was found. Review the variables, then create and protect the supported file manually only if they are Zen credentials. Suggested path: ${suggestedPath}. This updater will not read, print, or move their values.`;
-    }
+    case "ambiguous-zen-env":
+      return `  ${finding.names.join(" and ")}: These environment names may be from an older OpenCode Zen setup, but they may also belong to OpenCode's workspace feature. Current quota code ignores them. ${ZEN_CONSOLE_GUIDANCE} If they held Zen credentials, remove them manually after Zen works; if they belong to OpenCode's workspace feature, leave them. This updater will not read, print, or move their values.`;
+    case "obsolete-zen-file":
+      return `  ${displayUpdatePath(finding.path)}: OpenCode Zen no longer reads this workspace/cookie file. ${ZEN_CONSOLE_GUIDANCE} This updater will not read, copy, or delete credentials; remove the old file manually after Zen works.`;
     case "display-migration-manual": {
       const path = displayUpdatePath(finding.path);
       switch (finding.reason) {

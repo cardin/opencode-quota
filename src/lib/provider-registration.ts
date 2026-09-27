@@ -339,12 +339,11 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     runtimeIds: ["opencode", "opencode-zen"],
     synonyms: ["opencode-zen"],
     shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "state_only",
+      autoSetup: "yes",
+      authentication: "opencode_auth_oauth_token",
       quota: "remote_api",
-      quickSetupAnchor: "opencode-zen",
       notes:
-        "Reads the OpenCode Console billing API; requires workspaceId and consoleSessionCookie",
+        "Reads the OpenCode Console billing, budget and usage APIs with your OpenCode Console sign-in",
     },
   },
   {

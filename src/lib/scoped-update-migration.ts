@@ -35,7 +35,10 @@ export type ScopedUpdateManualFinding =
   | {
       kind: "ambiguous-zen-env";
       names: Array<"OPENCODE_WORKSPACE_ID" | "OPENCODE_AUTH_COOKIE">;
-      suggestedPath: string;
+    }
+  | {
+      kind: "obsolete-zen-file";
+      path: string;
     }
   | {
       kind: "display-migration-manual";
@@ -71,7 +74,8 @@ export const OBSOLETE_GO_ENV_NAMES = [
 export const AMBIGUOUS_ZEN_ENV_NAMES = ["OPENCODE_WORKSPACE_ID", "OPENCODE_AUTH_COOKIE"] as const;
 
 export const OBSOLETE_GO_FILE = "opencode-quota/opencode-go.json";
-export const SUPPORTED_ZEN_FILE = "opencode-quota/opencode.json";
+/** OpenCode Zen workspace/cookie file, replaced by the `opencode auth login opencode` sign-in. */
+export const OBSOLETE_ZEN_FILE = "opencode-quota/opencode.json";
 
 export interface ScopedUpdateMigrationCandidate {
   path: string;
@@ -439,25 +443,23 @@ export async function auditObsoleteUpdateSources(params: {
   }
 
   const goPath = join(params.configDir, OBSOLETE_GO_FILE);
-  const zenPath = join(params.configDir, SUPPORTED_ZEN_FILE);
+  const zenPath = join(params.configDir, OBSOLETE_ZEN_FILE);
   const [goPresent, zenPresent] = await Promise.all([
     knownPathExists(goPath, "inspect obsolete OpenCode Go source"),
-    knownPathExists(zenPath, "inspect supported OpenCode Zen source"),
+    knownPathExists(zenPath, "inspect obsolete OpenCode Zen source"),
   ]);
 
   if (goPresent) {
     findings.push({ kind: "obsolete-go-file", path: goPath });
   }
 
-  if (!zenPresent) {
-    const names = AMBIGUOUS_ZEN_ENV_NAMES.filter((name) => Object.hasOwn(params.env, name));
-    if (names.length > 0) {
-      findings.push({
-        kind: "ambiguous-zen-env",
-        names: [...names],
-        suggestedPath: zenPath,
-      });
-    }
+  const zenNames = AMBIGUOUS_ZEN_ENV_NAMES.filter((name) => Object.hasOwn(params.env, name));
+  if (zenNames.length > 0) {
+    findings.push({ kind: "ambiguous-zen-env", names: [...zenNames] });
+  }
+
+  if (zenPresent) {
+    findings.push({ kind: "obsolete-zen-file", path: zenPath });
   }
 
   return findings;
@@ -481,7 +483,9 @@ function manualFindingSortKey(finding: ScopedUpdateManualFinding): string {
     case "obsolete-go-file":
       return `${finding.kind}\u0000${finding.path}`;
     case "ambiguous-zen-env":
-      return `${finding.kind}\u0000${finding.suggestedPath}\u0000${finding.names.join("\u0000")}`;
+      return `${finding.kind}\u0000${finding.names.join("\u0000")}`;
+    case "obsolete-zen-file":
+      return `${finding.kind}\u0000${finding.path}`;
     case "display-migration-manual":
       return `${finding.kind}\u0000${finding.path}\u0000${finding.container}\u0000${finding.reason}`;
     case "migration-file-uninspectable":

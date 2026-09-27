@@ -27,14 +27,11 @@ import {
 import { resolveNanoGptApiKey } from "../lib/nanogpt-config.js";
 import { resolveOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
 import { resolveOpenAIAuthIdentity } from "../lib/openai.js";
+import { consoleBaseUrl, resolveOpenCodeConsoleAuth } from "../lib/opencode-console-auth.js";
 import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
   resolveOpenCodeGoAuthCached,
 } from "../lib/opencode-go-auth.js";
-import {
-  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-  resolveOpenCodeZenConfigCached,
-} from "../lib/opencode-zen-config.js";
 import { resolveOpenRouterAuthIdentity } from "../lib/openrouter.js";
 import type { CanonicalQuotaProviderId } from "../lib/provider-registration.js";
 import type {
@@ -234,15 +231,16 @@ export const PROVIDER_CACHE_POLICIES = {
     return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
   }),
   opencode: resolvedCredentialPolicy("opencode", async () => {
-    const resolved = await resolveOpenCodeZenConfigCached({
-      maxAgeMs: DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? {
-          credential: resolved.config.workspaceId,
-          principalKind: "stable-id",
-        }
-      : null;
+    const resolved = await resolveOpenCodeConsoleAuth();
+    if (resolved.state !== "configured") return null;
+    const { credential } = resolved;
+    // The identity is the org (else the account, else the token) plus the Console URL:
+    // org ids can collide across self-hosted Console URLs.
+    return {
+      credential: credential.orgId ?? credential.accountId ?? credential.accessToken,
+      principalKind: credential.orgId || credential.accountId ? "stable-id" : "credential",
+      qualifiers: [consoleBaseUrl(credential)],
+    };
   }),
   "ollama-cloud": resolvedCredentialPolicy("ollama-cloud", async () => {
     const resolved = await resolveOllamaCloudApiKey();
