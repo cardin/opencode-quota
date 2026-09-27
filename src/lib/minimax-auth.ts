@@ -179,6 +179,13 @@ function resolveMiniMaxAuthForSpec(
     return { state: "invalid", error: "MiniMax auth entry has invalid shape" };
   }
 
+  if (typeof minimax.resolveError === "string") {
+    return {
+      state: "invalid",
+      error: `OpenCode could not read this login: ${minimax.resolveError}`,
+    };
+  }
+
   if (typeof minimax.type !== "string") {
     return { state: "invalid", error: "MiniMax auth entry present but type is missing or invalid" };
   }

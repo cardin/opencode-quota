@@ -37,7 +37,8 @@ describe("tui dist import graph", () => {
     // node:sqlite is allowed: the session and token-history storage (opencode-storage.js ->
     // opencode-sqlite.js) is reachable through config.js -> quota-providers.js ->
     // quota-stats.js, but it opens a database only when called, and the TUI never calls it.
-    // It reads no logins; only the login reader's SQL names the credential table.
+    // It reads no logins: logins come only through OpenCode's plugin API, and no reachable
+    // module may query OpenCode's credential table.
     expect(
       reached.filter((file) =>
         readFileSync(resolve(distDir, file), "utf8").includes("FROM credential"),

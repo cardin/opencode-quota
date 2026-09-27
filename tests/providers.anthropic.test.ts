@@ -73,6 +73,58 @@ describe("anthropic provider", () => {
     ]);
   });
 
+  it("shows a login OpenCode could not read as its own error row", async () => {
+    const { getAnthropicDiagnostics, queryAnthropicQuota, queryAnthropicQuotaWithOAuth } =
+      await import("../src/lib/anthropic.js");
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    (readCredentialRows as any).mockResolvedValueOnce([
+      {
+        id: "failed-active",
+        integrationId: "anthropic",
+        label: "default",
+        active: true,
+        value: { type: "oauth" },
+        resolveError: "refresh_failed: HTTP 500",
+      },
+      {
+        id: "valid-inactive",
+        integrationId: "anthropic",
+        label: "Work",
+        active: false,
+        value: { type: "oauth", access: "valid" },
+      },
+    ]);
+    (getAnthropicDiagnostics as any).mockResolvedValueOnce({
+      installed: false,
+      authStatus: "unknown",
+      quotaSupported: false,
+      quotaSource: "none",
+      checkedCommands: [],
+    });
+    (queryAnthropicQuotaWithOAuth as any).mockResolvedValueOnce({
+      success: true,
+      five_hour: { percentRemaining: 80 },
+      seven_day: { percentRemaining: 70 },
+    });
+
+    const out = await anthropicProvider.fetch({} as any);
+
+    expect(queryAnthropicQuotaWithOAuth).toHaveBeenCalledOnce();
+    expect(queryAnthropicQuotaWithOAuth).toHaveBeenCalledWith("valid", undefined);
+    expect(queryAnthropicQuota).not.toHaveBeenCalled();
+    expect(out.errors).toEqual([
+      {
+        label: "[Claude]*",
+        message:
+          "Anthropic sign-in could not be read: refresh_failed: HTTP 500. Run `opencode auth login anthropic`.",
+      },
+    ]);
+    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
+      ["[Claude Work]", "valid-inactive"],
+      ["[Claude Work]", "valid-inactive"],
+    ]);
+  });
+
   it("reports the credential store that answered the usage probe", async () => {
     const { getAnthropicDiagnostics, queryAnthropicQuota } = await import(
       "../src/lib/anthropic.js"

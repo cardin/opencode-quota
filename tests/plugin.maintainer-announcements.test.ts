@@ -1,6 +1,7 @@
 import { rm } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
@@ -147,6 +148,8 @@ async function startCli() {
     command: { transform: vi.fn() },
     tool: { transform: vi.fn() },
     rpc: { register },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
   } as never);
   const [, handlers] = register.mock.calls[0] as unknown as [
     unknown,

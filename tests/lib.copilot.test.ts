@@ -232,6 +232,27 @@ describe("GitHub Copilot AI Credit accounting", () => {
     });
   });
 
+  it("shows a login OpenCode could not read as an error, present but without identity", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", resolveError: "refresh_failed: HTTP 401" },
+      copilot: { type: "oauth", access: "alias-token" },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
+    const { hasCopilotQuotaRuntimeAvailable, queryCopilotQuota, resolveCopilotAuthIdentity } =
+      await import("../src/lib/copilot.js");
+
+    await expect(queryCopilotQuota()).resolves.toEqual({
+      success: false,
+      error:
+        "Copilot sign-in could not be read: refresh_failed: HTTP 401. Run `opencode auth login github-copilot`.",
+    });
+    await expect(hasCopilotQuotaRuntimeAvailable()).resolves.toBe(true);
+    await expect(resolveCopilotAuthIdentity()).resolves.toBeNull();
+    expect(identityMocks.deriveResolvedAuthIdentity).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("derives only absent Copilot percentages and preserves reported values", async () => {
     authMocks.readAuthFile.mockResolvedValue({
       "github-copilot": { type: "oauth", access: "oauth-token" },

@@ -304,6 +304,8 @@ export interface CopilotAuthData {
   expires?: number;
   /** OpenCode-managed GitHub Enterprise Cloud hostname for this OAuth credential. */
   enterpriseUrl?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
 }
 
 export type AlibabaCodingPlanTier = "lite" | "pro";
@@ -324,6 +326,8 @@ export interface AnthropicOAuthAuthData {
   access?: string;
   refresh?: string;
   expires?: number;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -372,6 +376,8 @@ export interface AlibabaAuthData {
   access?: string;
   tier?: string;
   plan?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -399,6 +405,8 @@ export interface MiniMaxAuthData {
   type: string;
   key?: string;
   access?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
 }
 
 /**

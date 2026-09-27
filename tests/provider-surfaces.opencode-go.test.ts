@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
@@ -123,6 +124,8 @@ async function runQuotaStatus(sessionID: string): Promise<string> {
     },
     command: { transform: vi.fn() },
     rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
     tool: {
       transform: async (callback: (editor: { add: (tool: typeof quotaTool) => void }) => void) =>
         callback({

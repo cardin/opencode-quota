@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DEFAULT_CONFIG } from "../src/lib/types.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createAlibabaAuthModuleMock,
   createConfigModuleMock,
@@ -94,6 +95,8 @@ async function setupServer(sessionGet = vi.fn().mockResolvedValue({})) {
       }),
     },
     rpc: { register },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
   };
   await server.setup(ctx as never);
   expect(register).toHaveBeenCalledOnce();

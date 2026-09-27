@@ -414,6 +414,17 @@ describe("Claude CLI diagnostics", () => {
     expect(identity).not.toContain("opencode-access-secret");
   });
 
+  it("counts an OpenCode login it could not read as present but derives no identity from it", async () => {
+    mockExecSequence([{ code: "ENOENT", errorMessage: "spawn claude ENOENT" }]);
+    readAuthFileCachedMock.mockResolvedValue({
+      anthropic: { type: "oauth", resolveError: "refresh_failed: HTTP 500" },
+    });
+
+    await expect(hasAnthropicCredentialsConfigured()).resolves.toBe(true);
+    await expect(resolveAnthropicAuthIdentity()).resolves.toBeNull();
+    expect(identityMocks.deriveResolvedAuthIdentity).not.toHaveBeenCalled();
+  });
+
   it("composes both credentials when authenticated Claude may receive OAuth fallback", async () => {
     setProcessPlatform("linux");
     mockExecSequence(authenticatedWithoutQuotaSteps(1));

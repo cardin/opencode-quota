@@ -13,6 +13,7 @@ export const DEFAULT_ANTHROPIC_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
 export type ResolvedAnthropicOAuth =
   | { state: "none" }
+  | { state: "failed"; error: string }
   | { state: "expired"; expiresAt: number }
   | { state: "configured"; accessToken: string; expiresAt?: number };
 
@@ -23,6 +24,9 @@ export function resolveAnthropicOAuth(
   const entry = auth?.anthropic;
   if (!entry || entry.type !== "oauth") {
     return { state: "none" };
+  }
+  if (entry.resolveError !== undefined) {
+    return { state: "failed", error: entry.resolveError };
   }
 
   const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";

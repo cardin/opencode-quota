@@ -1416,7 +1416,8 @@ export async function hasAnthropicCredentialsConfigured(
 ): Promise<boolean> {
   try {
     const opencodeCredentials = await resolveAnthropicOAuthCached();
-    if (opencodeCredentials.state === "configured") {
+    // A login OpenCode could not return still counts, so it shows as an error.
+    if (opencodeCredentials.state === "configured" || opencodeCredentials.state === "failed") {
       return true;
     }
   } catch {

@@ -19,6 +19,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import {
+  credentialRowAuthEntry,
   formatCredentialDisplayNames,
   readAuthFileCached,
   readCredentialRows,
@@ -314,12 +315,13 @@ export const copilotProvider: QuotaProvider = {
         ),
       );
       if (credentials.length > 0) {
+        // A failed login stays in the list so it shows as its own error row.
         const results = await Promise.all(
           credentials.map(async (row) => ({
             row,
             result: await queryCopilotQuota({
               requestTimeoutMs: ctx.config?.requestTimeoutMs,
-              authData: { [row.integrationId]: row.value } as AuthData,
+              authData: { [row.integrationId]: credentialRowAuthEntry(row) } as AuthData,
             }),
           })),
         );

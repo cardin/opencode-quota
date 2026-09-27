@@ -67,6 +67,14 @@ describe("anthropic auth resolution", () => {
     });
   });
 
+  it("reports a login OpenCode could not return as failed", () => {
+    expect(
+      resolveAnthropicOAuth({
+        anthropic: { type: "oauth", resolveError: "refresh_failed: HTTP 500" },
+      }),
+    ).toEqual({ state: "failed", error: "refresh_failed: HTTP 500" });
+  });
+
   it("returns none when auth data is missing", () => {
     expect(resolveAnthropicOAuth(null)).toEqual({ state: "none" });
     expect(resolveAnthropicOAuth({})).toEqual({ state: "none" });

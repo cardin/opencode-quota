@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-command-specs.js";
 import tuiPlugin from "../src/tui-v2.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 
 // The TUI must never read logins or build reports itself: the server plugin does both.
 const mocks = vi.hoisted(() => ({
@@ -206,6 +207,8 @@ describe("V2 CLI command boundary", () => {
       rpc: {
         register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })),
       },
+      integration: createFakeIntegration([]),
+      event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
     } as never);
     expect(transform).toHaveBeenCalledOnce();
     expect(commandTransform).toHaveBeenCalledOnce();

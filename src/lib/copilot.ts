@@ -557,7 +557,8 @@ function selectCopilotAuth(authData: AuthData | null): {
 
   for (const [keyName, auth] of candidates) {
     if (!auth || auth.type !== "oauth") continue;
-    if (!getCopilotOAuthToken(auth)) continue;
+    // A login OpenCode could not return still counts, so it shows as an error.
+    if (!getCopilotOAuthToken(auth) && auth.resolveError === undefined) continue;
     return { auth, keyName };
   }
 
@@ -1348,6 +1349,11 @@ export async function queryCopilotQuota(
     const { auth } = selectCopilotAuth(
       options.authData ?? (await readAuthFile({ integrationIds: COPILOT_AUTH_KEYS })),
     );
+    if (auth?.resolveError !== undefined) {
+      return toQuotaError(
+        `Copilot sign-in could not be read: ${auth.resolveError}. Run \`opencode auth login github-copilot\`.`,
+      );
+    }
     const token = getCopilotOAuthToken(auth);
     if (!auth || !token) return null;
 

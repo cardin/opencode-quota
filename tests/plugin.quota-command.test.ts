@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { QuotaProviderContext } from "../src/lib/entries.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
@@ -71,6 +72,8 @@ async function createV2StatusTool(directory: string) {
     session: { get: vi.fn().mockResolvedValue({}), hook: vi.fn() },
     command: { transform: vi.fn() },
     rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
     tool: {
       transform: async (
         register: (editor: { add: (tool: { execute: typeof execute }) => void }) => void,
@@ -206,6 +209,8 @@ describe("/quota command behavior", () => {
       rpc: {
         register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })),
       },
+      integration: createFakeIntegration([]),
+      event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
     };
     await server.setup(ctx as never);
     expect(tool?.name).toBe("quota_status");

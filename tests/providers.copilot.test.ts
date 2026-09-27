@@ -175,6 +175,60 @@ describe("copilot provider", () => {
     expect(out.statusDetails).toContainEqual({ key: "billing_scope", value: "user" });
   });
 
+  it("shows a login OpenCode could not read as its own error row", async () => {
+    const { getCopilotQuotaAuthDiagnostics, queryCopilotQuota } = await import(
+      "../src/lib/copilot.js"
+    );
+    const diagnostics = {
+      ...(getCopilotQuotaAuthDiagnostics as any)(null),
+      effectiveSource: "oauth",
+    };
+    (getCopilotQuotaAuthDiagnostics as any)
+      .mockReturnValueOnce(diagnostics)
+      .mockReturnValueOnce(diagnostics);
+    authMocks.readCredentialRows.mockResolvedValueOnce([
+      {
+        id: "copilot-alice",
+        integrationId: "github-copilot",
+        label: "alice",
+        active: true,
+        value: { type: "oauth" },
+        resolveError: "refresh_failed: HTTP 401",
+      },
+      {
+        id: "copilot-bob",
+        integrationId: "github-copilot",
+        label: "bob",
+        active: false,
+        value: { type: "oauth", access: "bob-token" },
+      },
+    ]);
+    const signInError =
+      "Copilot sign-in could not be read: refresh_failed: HTTP 401. Run `opencode auth login github-copilot`.";
+    (queryCopilotQuota as any).mockResolvedValueOnce({ success: false, error: signInError });
+    (queryCopilotQuota as any).mockResolvedValueOnce({
+      success: true,
+      mode: "user_quota",
+      unit: "premium_interactions",
+      used: 600,
+      total: 1_000,
+      percentRemaining: 40,
+      authority: "provider_reported",
+      plan: "enterprise",
+    });
+
+    const out = await copilotProvider.fetch({} as any);
+
+    expect(
+      (queryCopilotQuota as any).mock.calls.map(([options]: any[]) => options.authData),
+    ).toEqual([
+      { "github-copilot": { type: "oauth", resolveError: "refresh_failed: HTTP 401" } },
+      { "github-copilot": { type: "oauth", access: "bob-token" } },
+    ]);
+    expect(out.errors).toEqual([{ label: "[Copilot alice]*", message: signInError }]);
+    expect(visibleEntries(out.entries, "copilot")[0]?.group).toBe("[Copilot bob] (enterprise)");
+  });
+
   it("renders pooled organization credits plus a real additional-usage budget", async () => {
     const { queryCopilotQuota } = await import("../src/lib/copilot.js");
     (queryCopilotQuota as any).mockResolvedValueOnce({

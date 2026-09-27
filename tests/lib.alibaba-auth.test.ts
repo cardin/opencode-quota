@@ -169,6 +169,18 @@ describe("alibaba auth resolution", () => {
       expect(hasAlibabaAuth(auth as any)).toBe(false);
     });
 
+    it("returns OpenCode's reason for a login OpenCode could not read", () => {
+      const auth = {
+        "alibaba-coding-plan": { type: "api", resolveError: "refresh_failed: HTTP 500" },
+        alibaba: { type: "api", key: "alias-key" },
+      };
+
+      expect(resolveAlibabaCodingPlanAuth(auth as any)).toEqual({
+        state: "invalid",
+        error: "OpenCode could not read this login: refresh_failed: HTTP 500",
+      });
+    });
+
     it("returns invalid for malformed auth entries", () => {
       expect(resolveAlibabaCodingPlanAuth({ alibaba: "bad-shape" } as any)).toEqual({
         state: "invalid",

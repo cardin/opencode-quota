@@ -12,6 +12,7 @@ import {
   PHASE5_SECRET_CANARIES,
   phase5JsonResponse,
 } from "./fixtures/v4-phase5-integration.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createAlibabaAuthModuleMock,
   createConfigModuleMock,
@@ -167,6 +168,8 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     },
     command: { transform: vi.fn() },
     rpc: { register },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
     tool: {
       transform: vi.fn(async (callback: (editor: { add(value: RegisteredTool): void }) => void) => {
         callback({

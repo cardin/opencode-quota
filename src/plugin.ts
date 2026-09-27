@@ -1,11 +1,17 @@
 /**
  * OpenCode V2 server plugin: quota slash commands for every client, a diagnostics tool, and
- * the quota RPC that computes the TUI surfaces and the terminal command's reports.
+ * the quota RPC that computes the TUI surfaces and the terminal command's reports. It is the
+ * only place logins are read, through OpenCode's integration API.
  */
 import { Plugin } from "@opencode/plugin";
 import { buildCliShowJson, buildCliShowText, buildCliStatus } from "./lib/cli-reports.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
+import {
+  bindCredentialSource,
+  createIntegrationCredentialSource,
+  notifyCredentialsChanged,
+} from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import {
   QUOTA_DIALOG_COMMANDS,
@@ -259,6 +265,28 @@ export const QuotaToastPlugin = Plugin.define({
       );
       if (!textLeft) event.result = "";
     });
+
+    // Every login read in this process goes through this location's `ctx.integration`. Bound
+    // last, so a setup that fails part way leaves no binding behind. OpenCode routes tools,
+    // commands and RPC calls to the plugin only after setup, so no read comes earlier.
+    const unbindCredentialSource = bindCredentialSource(
+      createIntegrationCredentialSource(ctx.integration),
+    );
+    // A login added, changed or switched in OpenCode drops cached logins and failed-login
+    // entries, so the next read asks OpenCode again.
+    const credentialEvents = new AbortController();
+    void (async () => {
+      for await (const event of ctx.event.subscribe({ signal: credentialEvents.signal })) {
+        if (event.type === "credential.updated" || event.type === "credential.switched") {
+          notifyCredentialsChanged();
+        }
+      }
+    })().catch(() => {});
+
+    return () => {
+      credentialEvents.abort();
+      unbindCredentialSource();
+    };
   },
 });
 

@@ -18,7 +18,11 @@ import type {
   QuotaProviderResult,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
+import {
+  credentialRowAuthEntry,
+  formatCredentialDisplayNames,
+  readCredentialRows,
+} from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import type { AuthData } from "../lib/types.js";
 import {
@@ -62,12 +66,13 @@ export const anthropicProvider: QuotaProvider = {
     };
     let statusDetails;
     let acquisitionMethod: QuotaToastEntry["accounting"]["acquisitionMethod"] = "local_cli";
+    // A failed login stays in the list so it shows as its own error row.
     const databaseCredentials = (
       await readCredentialRows(["anthropic"], { methods: ["oauth"] })
     ).flatMap((row) => {
       if (row.integrationId !== "anthropic") return [];
-      const auth = resolveAnthropicOAuth({ anthropic: row.value } as AuthData);
-      return auth.state === "configured" ? [{ row, auth }] : [];
+      const auth = resolveAnthropicOAuth({ anthropic: credentialRowAuthEntry(row) } as AuthData);
+      return auth.state === "configured" || auth.state === "failed" ? [{ row, auth }] : [];
     });
     try {
       const diagnostics = await getAnthropicDiagnostics(options);
@@ -105,7 +110,13 @@ export const anthropicProvider: QuotaProvider = {
       const results = await Promise.all(
         databaseCredentials.map(async ({ row, auth }) => ({
           row,
-          result: await queryAnthropicQuotaWithOAuth(auth.accessToken, options.requestTimeoutMs),
+          result:
+            auth.state === "failed"
+              ? {
+                  success: false as const,
+                  error: `Anthropic sign-in could not be read: ${auth.error}. Run \`opencode auth login anthropic\`.`,
+                }
+              : await queryAnthropicQuotaWithOAuth(auth.accessToken, options.requestTimeoutMs),
         })),
       );
       const names = formatCredentialDisplayNames(

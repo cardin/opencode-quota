@@ -114,6 +114,14 @@ describe("minimax auth resolution", () => {
         withMiniMaxAuth({ type: "api", key: "", access: "access-token" }),
         { state: "invalid", error: "MiniMax auth entry present but key is empty" },
       ],
+      [
+        "OpenCode could not read the login",
+        withMiniMaxAuth({ type: "api", resolveError: "refresh_failed: HTTP 500" }),
+        {
+          state: "invalid",
+          error: "OpenCode could not read this login: refresh_failed: HTTP 500",
+        },
+      ],
     ])("returns %j when %s", (_label, auth, expected) => {
       expect(resolveMiniMaxAuth(auth as any)).toEqual(expected);
     });
@@ -313,6 +321,17 @@ describe("minimax auth resolution", () => {
         state: "configured",
         apiKey: "china-key",
         endpoint: "china",
+      });
+    });
+
+    it("returns OpenCode's reason for a MiniMax China login OpenCode could not read", () => {
+      expect(
+        resolveMiniMaxChinaAuth(
+          withMiniMaxChinaAuth({ type: "api", resolveError: "active_failed: database is locked" }),
+        ),
+      ).toEqual({
+        state: "invalid",
+        error: "OpenCode could not read this login: active_failed: database is locked",
       });
     });
 

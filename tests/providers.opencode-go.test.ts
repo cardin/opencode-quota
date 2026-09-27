@@ -275,6 +275,35 @@ describe("opencode-go provider", () => {
     expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
   });
 
+  it("keeps two failed database logins as two error rows", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const failed = (id: string, label: string, active: boolean) => ({
+      id,
+      integrationId: "opencode-go",
+      label,
+      active,
+      value: { type: "api" },
+      resolveError: "active_failed: database is locked",
+    });
+    (readCredentialRows as any).mockResolvedValueOnce([
+      failed("cred_personal", "Personal", true),
+      failed("cred_work", "Work", false),
+    ]);
+    mocks.resolveOpenCodeGoAuth.mockImplementation((auth: any) => ({
+      state: "invalid",
+      error: `OpenCode could not read this login: ${auth["opencode-go"].resolveError}`,
+    }));
+
+    const out = await runFetch();
+
+    const message = "OpenCode could not read this login: active_failed: database is locked";
+    expect(out.errors).toEqual([
+      { label: "[OpenCode Go Personal]*", message },
+      { label: "[OpenCode Go Work]", message },
+    ]);
+    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+  });
+
   it("reports one Go connection when the same key is stored under both integrations", async () => {
     const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
     const workspaceCredential = { type: "key", key: "workspace-key" };

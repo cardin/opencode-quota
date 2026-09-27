@@ -108,6 +108,13 @@ export function resolveAlibabaCodingPlanAuth(
     return { state: "invalid", error: "Alibaba Coding Plan auth entry has invalid shape" };
   }
 
+  if (typeof alibaba.resolveError === "string") {
+    return {
+      state: "invalid",
+      error: `OpenCode could not read this login: ${alibaba.resolveError}`,
+    };
+  }
+
   if (typeof alibaba.type !== "string") {
     return {
       state: "invalid",

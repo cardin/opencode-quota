@@ -6,9 +6,16 @@ vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
   buildQuotaDialogCommandOutput: buildOutput,
 }));
 
+import {
+  clearReadAuthFileCacheForTests,
+  getCredentialSourceDiagnostics,
+  readAuthFile,
+  readAuthFileCached,
+} from "../src/lib/opencode-auth.js";
 import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-command-specs.js";
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/plugin.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 
 type RegisteredTool = {
   name: string;
@@ -60,6 +67,8 @@ function createContext() {
       }),
     },
     rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
   };
   return { ctx, tools, commands, hooks, calls };
 }
@@ -278,5 +287,77 @@ describe("V2 server plugin", () => {
     title(normal);
     expect(normal.result).toBeUndefined();
     expect(normal.messages[0]).toBe(plain);
+  });
+
+  it("reads logins through ctx.integration from setup until cleanup", async () => {
+    const { ctx } = createContext();
+    const integration = createFakeIntegration([
+      {
+        integrationId: "deepseek",
+        id: "cred_deepseek",
+        label: "default",
+        registered: true,
+        method: "key",
+        value: { type: "key", key: "deepseek-key" },
+      },
+    ]);
+    const subscribe = vi.fn((_options: { signal: AbortSignal }) => ({
+      async *[Symbol.asyncIterator]() {},
+    }));
+
+    const cleanup = await plugin.setup({ ...ctx, integration, event: { subscribe } } as never);
+    expect(getCredentialSourceDiagnostics().state).toBe("bound");
+    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toEqual({
+      deepseek: { type: "api", key: "deepseek-key" },
+    });
+    const signal = subscribe.mock.calls[0]?.[0].signal;
+    expect(signal?.aborted).toBe(false);
+
+    await cleanup?.();
+    expect(signal?.aborted).toBe(true);
+    // Only this setup's binding is gone; earlier tests' empty fakes hold no deepseek login.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toBeNull();
+    warn.mockRestore();
+    expect(integration.connection.active).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "credential.updated",
+    "credential.switched",
+  ])("drops cached logins when OpenCode reports %s", async (type) => {
+    clearReadAuthFileCacheForTests();
+    const { ctx } = createContext();
+    const deepseek = {
+      integrationId: "deepseek",
+      id: "cred_deepseek",
+      label: "default",
+      registered: true,
+      method: "key" as const,
+      value: { type: "key", key: "old-key" } as Record<string, unknown>,
+    };
+    const integration = createFakeIntegration([deepseek]);
+    let emit!: (event: { type: string; data: Record<string, unknown> }) => void;
+    const nextEvent = new Promise<{ type: string; data: Record<string, unknown> }>((resolve) => {
+      emit = resolve;
+    });
+    const subscribe = vi.fn(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: "session.idle", data: {} };
+        yield await nextEvent;
+      },
+    }));
+    const cleanup = await plugin.setup({ ...ctx, integration, event: { subscribe } } as never);
+    const read = () => readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["deepseek"] });
+
+    await expect(read()).resolves.toEqual({ deepseek: { type: "api", key: "old-key" } });
+    deepseek.value = { type: "key", key: "new-key" };
+    await expect(read()).resolves.toEqual({ deepseek: { type: "api", key: "old-key" } });
+
+    emit({ type, data: { integrationID: "deepseek", credentialID: "cred_deepseek" } });
+    await vi.waitFor(async () =>
+      expect(await read()).toEqual({ deepseek: { type: "api", key: "new-key" } }),
+    );
+    await cleanup?.();
   });
 });
