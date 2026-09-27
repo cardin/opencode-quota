@@ -2,11 +2,11 @@
 
 # Troubleshooting
 
-Start with `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal. Both show which config, providers, authentication, and local files OpenCode Quota found.
+Start with `/quota_status` inside OpenCode, or `opencode-quota status` from a terminal while OpenCode is running. Both show which config, providers, authentication, and local files OpenCode Quota found.
 
 ## First checks
 
-1. Run `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal.
+1. Run `/quota_status` inside OpenCode. From a terminal, `opencode-quota status` shows the same report; it needs OpenCode running and uses your global quota settings.
 2. Find the provider or feature that is failing.
 3. Follow the matching fix below.
 4. Restart OpenCode after changing config or authentication.
@@ -28,6 +28,8 @@ OpenCode Quota reads logins only from OpenCode 2's `opencode.db`, never `auth.js
 | Token reports are empty                                 | Start OpenCode once, then use a model so `opencode.db` contains usage.                                                                            |
 | Pricing looks old                                       | Run `/pricing_refresh`.                                                                                                                           |
 | Web report columns do not line up                       | Expected: Web uses a proportional font. Use the TUI or run `npx @slkiser/opencode-quota show` in a terminal.                                      |
+| Terminal command says `OpenCode is not running` (exit 3) | Open OpenCode or run `opencode service start`, then try again. The command never starts OpenCode itself.                                         |
+| Terminal command says the server plugin is not loaded (exit 3) | Check the plugin entry above, then run `opencode service restart`.                                                                         |
 
 ## Update safely
 

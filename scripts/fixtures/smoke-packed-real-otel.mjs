@@ -434,14 +434,21 @@ async function runFailingInfrastructure() {
 }
 
 async function runSeedProductionOpenRouter() {
-  const { createCliQuotaClient, resolveCliRoots } = await packageImport("cli-show.js");
+  const { buildCliShowJson } = await packageImport("cli-reports.js");
+  const { resolveOpenCodeLocationRoots } = await packageImport("config-file-utils.js");
   const { createExportProviderContext } = await packageImport("quota-export.js");
   const { resolveQuotaRuntimeContext } = await packageImport("quota-runtime-context.js");
   const secret = process.env.OPENROUTER_API_KEY;
   assert.ok(secret);
 
-  const roots = resolveCliRoots(process.cwd());
-  const client = createCliQuotaClient({ configRootDir: roots.configRoot });
+  // The same configuration client and roots the server plugin builds for its location.
+  const roots = resolveOpenCodeLocationRoots(process.cwd());
+  const client = {
+    config: {
+      get: async () => ({ data: {} }),
+      providers: async () => ({ data: { providers: [] } }),
+    },
+  };
   const runtime = await resolveQuotaRuntimeContext({
     client,
     roots,
@@ -468,6 +475,20 @@ async function runSeedProductionOpenRouter() {
   assert.equal(exported.providers.openrouter.status, "ok");
   assert.equal(exported.providers.openrouter.entries[0].percentRemaining, 67);
   assert.ok(!JSON.stringify(exported).includes(secret));
+
+  // `opencode-quota show --json` gets this report from the server plugin's `cli` RPC method.
+  const report = await buildCliShowJson({ runtime, providerId: "openrouter" });
+  assert.equal(report.exitCode, 0);
+  assert.equal(report.stderr, "");
+  const cachedOpenRouter = JSON.parse(report.stdout);
+  assert.equal(cachedOpenRouter.fromCache, true);
+  assert.equal(cachedOpenRouter.providers.openrouter.status, "ok");
+  assert.equal(
+    cachedOpenRouter.providers.openrouter.entries[0].name,
+    "Packed production OpenRouter",
+  );
+  assert.equal(cachedOpenRouter.providers.openrouter.entries[0].percentRemaining, 67);
+  process.stdout.write(report.stdout);
 }
 
 try {

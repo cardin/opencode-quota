@@ -19,11 +19,11 @@ const USAGE = [
   "  init    Run the interactive quota installer",
   "          --dry-run            Preview validated changes without writing files",
   "          --sync-legacy-config also writes experimental.quotaToast",
-  "  show    Print a quick quota glance",
+  "  show    Print a quick quota glance (needs OpenCode running)",
   "          --json               Machine-readable JSON output (reads from cache)",
   "          --threshold <pct>    With --json, exit 1 if below <pct>%, 2 if incomplete/not comparable",
   "          --provider <id>      Filter to one provider",
-  "  status  Print Quota Status diagnostics (same data as /quota_status)",
+  "  status  Print Quota Status diagnostics (same data as /quota_status; needs OpenCode running)",
   "          --json               Machine-readable JSON output",
   "          --provider <id>      Filter to one provider",
   "  update  Preview safe setting/package-cache changes and report legacy credential findings",
@@ -33,6 +33,8 @@ const USAGE = [
   "          --yes                Apply only safe setting/cache work after printing the preview",
   "  provider add  Add or update one global quotaProviders definition",
   "          --dry-run            Preview the exact global OpenCode config without writing",
+  "",
+  "show and status exit with code 3 when OpenCode is not running or the plugin could not be reached.",
 ].join("\n");
 
 function printUsage(): void {

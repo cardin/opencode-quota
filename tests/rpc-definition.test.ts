@@ -33,11 +33,11 @@ async function expectRejected(schema: StandardSchema, value: unknown, message: s
 const methods = QuotaRpc.methods;
 
 describe("quota RPC definition", () => {
-  it("defines the plain RPC id, no events and four methods", () => {
+  it("defines the plain RPC id, no events and five methods", () => {
     expect(QUOTA_RPC_ID).toBe("slkiser.opencode-quota");
     expect(QuotaRpc.id).toBe(QUOTA_RPC_ID);
     expect(QuotaRpc.events).toEqual({});
-    expect(Object.keys(methods)).toEqual(["surface", "footer", "writeExport", "command"]);
+    expect(Object.keys(methods)).toEqual(["surface", "footer", "writeExport", "command", "cli"]);
   });
 
   it("uses Standard Schema v1 validators that carry no runtime types", () => {
@@ -125,6 +125,41 @@ describe("quota RPC definition", () => {
       { command: "quota", sessionID: 5 },
       "sessionID must be a string",
     );
+  });
+
+  it("validates cli input", async () => {
+    for (const command of ["show", "show-json", "status", "status-json"]) {
+      await expectAccepted(methods.cli.input, { command });
+    }
+    await expectAccepted(methods.cli.input, {
+      command: "show-json",
+      providerId: "copilot",
+      threshold: 5,
+    });
+    await expectAccepted(methods.cli.input, { command: "status", providerId: "anthropic" });
+    await expectRejected(methods.cli.input, "show", "input must be an object");
+    await expectRejected(
+      methods.cli.input,
+      {},
+      "command must be one of show, show-json, status, status-json",
+    );
+    await expectRejected(
+      methods.cli.input,
+      { command: "update" },
+      "command must be one of show, show-json, status, status-json",
+    );
+    await expectRejected(
+      methods.cli.input,
+      { command: "show", providerId: 1 },
+      "providerId must be a string",
+    );
+    for (const threshold of ["5", 0, -1]) {
+      await expectRejected(
+        methods.cli.input,
+        { command: "show-json", threshold },
+        "threshold must be a positive finite number",
+      );
+    }
   });
 
   it("requires every output to be an object", async () => {

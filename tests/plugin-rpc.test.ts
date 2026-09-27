@@ -138,7 +138,7 @@ describe("server quota RPC", () => {
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("registers the quota RPC with its four methods during setup", async () => {
+  it("registers the quota RPC with its five methods during setup", async () => {
     const { QuotaRpc } = await import("../src/rpc.js");
     const { definition, handlers } = await setupServer();
 
@@ -149,6 +149,7 @@ describe("server quota RPC", () => {
       "footer",
       "writeExport",
       "command",
+      "cli",
     ]);
     expect(Object.keys(handlers)).toEqual(Object.keys(definition.methods));
   });
@@ -273,6 +274,91 @@ describe("server quota RPC", () => {
       title: "OpenCode Quota",
       output: "quota broke",
       dialogSize: "xlarge",
+    });
+  });
+
+  it("builds the terminal show report and its cached JSON with threshold exit codes", async () => {
+    useConfig({});
+    const { call } = await setupServer();
+
+    const text = (await call("cli", { command: "show" })) as {
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+    };
+    expect(text.exitCode).toBe(0);
+    expect(text.stdout).toContain("Copilot");
+    expect(text.stdout).toContain("81%");
+    expect(text.stderr).toBe("");
+
+    const json = (await call("cli", { command: "show-json", providerId: "copilot" })) as {
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+    };
+    expect(json).toEqual({ exitCode: 0, stdout: expect.any(String), stderr: "" });
+    expect(JSON.parse(json.stdout).providers.copilot).toEqual(
+      expect.objectContaining({ status: "ok" }),
+    );
+    await expect(call("cli", { command: "show-json", threshold: 50 })).resolves.toEqual(
+      expect.objectContaining({ exitCode: 0 }),
+    );
+    await expect(call("cli", { command: "show-json", threshold: 90 })).resolves.toEqual(
+      expect.objectContaining({ exitCode: 1 }),
+    );
+  });
+
+  it("builds the terminal status report as text and JSON", async () => {
+    useConfig({});
+    const dialogModule = await import("../src/lib/quota-dialog-commands.js");
+    const buildStatusReportData = vi
+      .spyOn(dialogModule, "buildStatusReportData")
+      .mockResolvedValue({
+        output: "Quota Status (opencode-quota v5.0.0)",
+        payload: { version: "5.0.0", liveProbes: [] } as never,
+        hasComparableProviderData: false,
+      });
+    const { call } = await setupServer();
+
+    await expect(call("cli", { command: "status" })).resolves.toEqual({
+      exitCode: 0,
+      stdout: "Quota Status (opencode-quota v5.0.0)\n",
+      stderr: "",
+    });
+    expect(buildStatusReportData).toHaveBeenLastCalledWith(
+      expect.objectContaining({ providerFilterId: undefined }),
+    );
+
+    await expect(call("cli", { command: "status-json", providerId: "copilot" })).resolves.toEqual({
+      exitCode: 2,
+      stdout: `${JSON.stringify({ version: "5.0.0", liveProbes: [] }, null, 2)}\n`,
+      stderr: "",
+    });
+    expect(buildStatusReportData).toHaveBeenLastCalledWith(
+      expect.objectContaining({ providerFilterId: "copilot" }),
+    );
+  });
+
+  it("returns disabled quota and failures as the terminal command's stderr", async () => {
+    useConfig({ enabled: false });
+    const disabled = await setupServer();
+    await expect(disabled.call("cli", { command: "show-json" })).resolves.toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Quota disabled in config (enabled: false).\n",
+    });
+
+    mocks.loadConfig.mockRejectedValue(new Error("boom"));
+    const failing = await setupServer();
+    await expect(failing.call("cli", { command: "show" })).resolves.toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Failed to show quota: boom\n",
+    });
+    await expect(failing.call("cli", { command: "status-json" })).resolves.toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Failed to generate quota status: boom\n",
     });
   });
 

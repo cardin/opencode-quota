@@ -1,13 +1,8 @@
-import { createCliQuotaClient, resolveCliRoots } from "./cli-show.js";
-
+import { runCliReportInOpenCode } from "./cli-show.js";
 import { getQuotaProviderShape } from "./provider-metadata.js";
-import { buildStatusReportData } from "./quota-dialog-commands.js";
-import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
-import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 
 export interface RunCliStatusCommandOptions {
   argv?: string[];
-  cwd?: string;
   stdout?: Pick<NodeJS.WriteStream, "write">;
   stderr?: Pick<NodeJS.WriteStream, "write">;
 }
@@ -20,8 +15,8 @@ const STATUS_USAGE = [
   "Usage:",
   "  npx @slkiser/opencode-quota status [--provider <provider-id>] [--json]",
   "",
-  "Print the same Quota Status diagnostics as the /quota_status slash command,",
-  "without launching OpenCode.",
+  "Print the same Quota Status diagnostics as the /quota_status slash command.",
+  "Needs OpenCode running: the report comes from its background service.",
   "",
   "Options:",
   "  --provider <provider-id>  Restrict provider availability and live probes to one provider",
@@ -33,6 +28,7 @@ const STATUS_USAGE = [
   "  0  success",
   "  1  error or quota disabled (enabled: false)",
   "  2  no comparable provider data (with --json only)",
+  "  3  OpenCode is not running or the plugin could not be reached",
 ].join("\n");
 
 const THRESHOLD_REDIRECT =
@@ -122,41 +118,9 @@ export async function runCliStatusCommand(
     return 1;
   }
 
-  try {
-    const roots = resolveCliRoots(options.cwd ?? process.cwd());
-    const client: QuotaRuntimeClient = createCliQuotaClient({ configRootDir: roots.configRoot });
-    const runtime = await resolveQuotaRuntimeContext({
-      client,
-      roots,
-      includeSessionMeta: false,
-    });
-
-    if (!runtime.config.enabled) {
-      writeLine(stderr, "Quota disabled in config (enabled: false).");
-      return 1;
-    }
-
-    const data = await buildStatusReportData({
-      runtime,
-      generatedAtMs: Date.now(),
-      providerFilterId: providerId,
-    });
-
-    if (!data.output || !data.payload) {
-      writeLine(stderr, "Quota disabled in config (enabled: false).");
-      return 1;
-    }
-
-    if (parsed.json) {
-      writeLine(stdout, JSON.stringify(data.payload, null, 2));
-      return data.hasComparableProviderData ? 0 : 2;
-    }
-
-    writeLine(stdout, data.output);
-    return 0;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    writeLine(stderr, `Failed to generate quota status: ${message}`);
-    return 1;
-  }
+  return runCliReportInOpenCode({
+    input: { command: parsed.json ? "status-json" : "status", providerId },
+    stdout,
+    stderr,
+  });
 }

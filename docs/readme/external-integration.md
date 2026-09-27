@@ -20,6 +20,8 @@ Use this for scripts and CI:
 opencode-quota show --json
 ```
 
+The command asks OpenCode's background service for the data, so OpenCode must be running. It never starts OpenCode. It always runs for your home folder, so it uses your global quota settings, not a project's.
+
 Useful variations:
 
 ```bash
@@ -37,12 +39,17 @@ Threshold exit codes:
 | `0` | Quota is available and above the threshold |
 | `1` | At least one comparable cached percentage is below the threshold |
 | `2` | Results were incomplete or no comparable percentage was found |
+| `3` | OpenCode is not running or the plugin could not be reached |
+
+Exit code `3` can come from any `show` or `status` command. The reason goes to stderr and stdout stays empty.
 
 ### CI example
 
 ```bash
 npx @slkiser/opencode-quota show --json --threshold 5
 ```
+
+This needs OpenCode running on the same machine and user account. Otherwise the command exits with code `3`. A tool that only needs recent numbers can read the [export file](#2-read-an-export-file) instead.
 
 ### Read Copilot's percentage with `jq`
 
@@ -73,9 +80,9 @@ The file is normally written here:
 ~/.cache/opencode/quota-export.json
 ```
 
-If you set `XDG_CACHE_HOME`, the file is written to `$XDG_CACHE_HOME/opencode/quota-export.json` instead.
+If OpenCode runs with `XDG_CACHE_HOME` set, the file is written to `$XDG_CACHE_HOME/opencode/quota-export.json` instead.
 
-The TUI refreshes the file about once a minute while the Home screen is open. A write error is logged, but it does not break the TUI.
+OpenCode's background service rewrites the file about once a minute while the TUI Home screen is open. A write error is logged, but it does not break the TUI.
 
 ### tmux example
 
@@ -92,7 +99,7 @@ Add this to `starship.toml`:
 
 ```toml
 [custom.quota]
-command = "opencode-quota show --json 2>/dev/null | jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|first(.value.entries[]?|select(.renderType==\"percent\" and .percentRemaining!=null))|(.percentRemaining|floor|tostring)+\"%\"]|join(\" \")'"
+command = "jq -r '[.providers|to_entries[]|select(.value.status==\"ok\")|first(.value.entries[]?|select(.renderType==\"percent\" and .percentRemaining!=null))|(.percentRemaining|floor|tostring)+\"%\"]|join(\" \")' ~/.cache/opencode/quota-export.json 2>/dev/null"
 when = "true"
 interval = 60
 ```
@@ -262,6 +269,7 @@ Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entr
 
 - All options use data collected during normal OpenCode Quota activity.
 - The command and export file read cached data instead of contacting providers.
+- The command and the export file both come from OpenCode's background service. The command needs OpenCode running; the file keeps its last contents when OpenCode stops.
 - The OpenTelemetry integration reads in-memory results and never starts its own refresh loop.
 - OpenTelemetry metric labels are limited to safe provider, result type, and quota-window values.
 - Display names, account IDs, source IDs, credentials, paths, URLs, errors, and raw responses are never metric labels.
