@@ -435,7 +435,7 @@ npm install -g bailian-cli
 bl auth login --console
 ```
 
-OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute directories on OpenCode's `PATH`. Relative entries are ignored, and so is anything inside the project folder quota is shown for, including a `bl` that links into it. Your home folder does not count as a project, so `~/.local/bin` and nvm folders work. On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
+OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute directories on the `PATH`: the OpenCode service's inside OpenCode, your shell's from the terminal command. Relative entries are ignored, and so is anything inside the project folder quota is shown for, including a `bl` that links into it. Your home folder does not count as a project, so `~/.local/bin` and nvm folders work. On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
 
 Team plans, China-only `alibaba-token-plan-cn` runtimes, and cookie-based console scraping are out of scope. After you change the CLI's active console account, restart OpenCode or wait for the next live probe. `/quota_status` has an `alibaba_token_plan` live probe that stays separate from Alibaba Coding Plan diagnostics.
 
