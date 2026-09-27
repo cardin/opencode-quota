@@ -58,12 +58,12 @@ OpenCode 1 users stay on 4.x: OpenCode Quota 5 needs OpenCode 2. The updater pin
 
 The updater prints the complete preview before its own config or cache changes. `--yes` authorizes only the previewed safe config edits and manifest-verified cache cleanup; it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md) for detailed behavior and manual credential steps.
 
-**Breaking changes in 4.10.3:**
+**Breaking changes since 4.10.3:**
 
 - Qwen Code was removed because Qwen ended its OAuth free tier; use Alibaba Coding Plan.
 - Google Antigravity was removed because its companion plugin is archived and Google rejects it; use Google AGY.
 - Personal Google accounts can no longer use Gemini CLI because Google ended them on 2026-06-18; use Google AGY.
-- OpenCode Zen now authenticates with the active `opencode console login` session instead of a manually copied Console cookie. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
+- OpenCode Zen now uses your `opencode console login` session; the copied Console cookie file is no longer read. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
 
 ## Choose your setup
 

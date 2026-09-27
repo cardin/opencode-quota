@@ -618,17 +618,15 @@ The updater reports obsolete `OPENCODE_GO_WORKSPACE_ID`, `OPENCODE_GO_AUTH_COOKI
 
 ### OpenCode Zen
 
-OpenCode Zen reads billing and usage from the OpenCode Console API (`/api/billing/status`, `/api/billing/account`, `/api/billing/auto-recharge`, and `/api/usage/cost-by-day`). These routes are unofficial, so OpenCode may change them. It authenticates with the active Console session that OpenCode itself stores after `opencode console login` — no cookie or workspace-id setup is required.
+OpenCode Zen reads billing and usage from unofficial OpenCode Console routes (`/api/billing/status`, `/api/billing/account`, `/api/billing/auto-recharge`, `/api/budgets/org`, and `/api/usage/cost-by-day`), so OpenCode may change them. It uses the Console session that OpenCode stores after `opencode console login`; no cookie or workspace ID is needed.
 
-1. Run `opencode console login` in OpenCode and sign in.
-2. Run `opencode console switch` if you belong to multiple organizations.
+1. In a terminal, run `opencode console login` and sign in.
+2. If you belong to several organizations, run `opencode console switch` and pick the one to track.
+3. Check it with `/quota_status` in OpenCode, or `opencode-quota status` in a terminal.
 
-OpenCode Quota reads that session strictly read-only from OpenCode's local state database; it never refreshes or writes tokens. When the session expires or no active organization is selected, Zen reports the exact command to run: `opencode console login` for an expired session, or `opencode console switch` when no organization is active.
+OpenCode Quota only reads that session from OpenCode's local database; it never refreshes or writes tokens. When the session expires, Zen asks you to run `opencode console login` again; with no active organization, it asks for `opencode console switch`. Without a Console sign-in, auto mode skips Zen.
 
-> The old `workspaceId` + `consoleSessionCookie` plugin config file and the
-> `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` environment variables are no
-> longer read. Remove leftover credential files after verifying the CLI session
-> works; see [Updating safely](updating.md#opencode-zen-findings).
+> The old `opencode-quota/opencode.json` file (`workspaceId` + `consoleSessionCookie`) and the `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` variables are no longer read. Remove them after Zen works; see [Updating safely](updating.md#opencode-zen-findings).
 
 The monthly budget prefers the org budget route (`/api/budgets/org`): when it reports a positive budget limit and usable spend, the **Monthly budget** percentage uses those values plus the org budget reset date. If the org budget route fails or the org has no budget, Zen falls back to the Console credit limit (`/api/billing/account`) plus the current month's usage costs (`/api/usage/cost-by-day`); a failed org-budget route is listed as an error but never removes the balance row.
 
