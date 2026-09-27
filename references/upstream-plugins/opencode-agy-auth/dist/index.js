@@ -268,7 +268,7 @@ function createAgyActivityRequestId() {
 import os from "os";
 
 // src/sdk/agy-cli-version.ts
-var AGY_CLI_VERSION = "1.2.10";
+var AGY_CLI_VERSION = "1.2.11";
 
 // src/sdk/user-agent.ts
 var cachedUserAgent = null;
@@ -16056,6 +16056,7 @@ var models_default = {
     106143956,
     105856899,
     106064030,
+    106264162,
     106711598,
     106106760,
     106021688,
@@ -16081,6 +16082,7 @@ var models_default = {
     106121399,
     106100654,
     106064028,
+    106264150,
     105906495,
     106283614,
     106640124,
@@ -16147,7 +16149,7 @@ var models_default = {
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
         remainingFraction: 1,
-        resetTime: "2026-09-24T13:14:02Z"
+        resetTime: "2026-09-25T11:24:59Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16186,7 +16188,7 @@ var models_default = {
       modelProvider: "MODEL_PROVIDER_ANTHROPIC",
       quotaInfo: {
         remainingFraction: 1,
-        resetTime: "2026-09-24T13:14:02Z"
+        resetTime: "2026-09-25T11:24:59Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16222,8 +16224,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16305,8 +16307,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16388,8 +16390,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16468,8 +16470,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       requiresImageOutputOutsideFunctionResponses: true,
@@ -16549,8 +16551,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16654,8 +16656,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16724,8 +16726,8 @@ var models_default = {
       model: "MODEL_PLACEHOLDER_M21",
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       }
     },
     "gemini-3.1-flash-lite": {
@@ -16743,8 +16745,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       }
     },
     "gemini-3.1-pro-high": {
@@ -16775,8 +16777,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16866,8 +16868,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -16971,8 +16973,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17054,8 +17056,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17161,8 +17163,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17280,8 +17282,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17399,8 +17401,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17518,8 +17520,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17636,8 +17638,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17747,8 +17749,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17860,8 +17862,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -17973,8 +17975,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18085,8 +18087,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18196,8 +18198,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18309,8 +18311,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18422,8 +18424,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18534,8 +18536,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18624,8 +18626,8 @@ var models_default = {
       },
       modelProvider: "MODEL_PROVIDER_GOOGLE",
       quotaInfo: {
-        remainingFraction: 0.9556033,
-        resetTime: "2026-09-24T13:08:46Z"
+        remainingFraction: 0.8656157,
+        resetTime: "2026-09-25T09:39:31Z"
       },
       recommended: true,
       supportedMimeTypes: {
@@ -18702,7 +18704,7 @@ var models_default = {
       modelProvider: "MODEL_PROVIDER_OPENAI",
       quotaInfo: {
         remainingFraction: 1,
-        resetTime: "2026-09-24T13:14:02Z"
+        resetTime: "2026-09-25T11:24:59Z"
       },
       recommended: true,
       supportsThinking: true,
