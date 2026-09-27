@@ -1,5 +1,6 @@
 import { sanitizeQuotaRenderData } from "./display-sanitize.js";
 import { formatQuotaRows } from "./format.js";
+import { wrapDisplayText } from "./format-utils.js";
 import type { QuotaRenderData } from "./quota-render-data.js";
 import type { QuotaToastConfig } from "./types.js";
 
@@ -36,5 +37,12 @@ export function buildSidebarQuotaPanelLines(params: {
     wrapLabels: params.config.quotaProjection === "runway",
     sessionTokens: data.sessionTokens,
   });
-  return quotaBody ? quotaBody.split("\n") : [];
+  if (!quotaBody) return [];
+  // The formatter fits every bar and value row to the sidebar width. Only free text
+  // (errors, notices) runs longer, and the TUI would cut it, so wrap it here.
+  return quotaBody
+    .split("\n")
+    .flatMap((line) =>
+      line.length > TUI_SIDEBAR_MAX_WIDTH ? wrapDisplayText(line, TUI_SIDEBAR_MAX_WIDTH) : [line],
+    );
 }

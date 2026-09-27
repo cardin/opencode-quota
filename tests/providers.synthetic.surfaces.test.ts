@@ -21,7 +21,8 @@ describe("Synthetic empty-object four-surface formatting", () => {
     });
 
     for (const output of Object.values(outputs)) {
-      expect(output).toContain(EMPTY_OBJECT_DIAGNOSTIC);
+      // The sidebar wraps long error rows to its width.
+      expect(output.replaceAll("\n", " ")).toContain(EMPTY_OBJECT_DIAGNOSTIC);
       expect(output).not.toContain("5h:");
       expect(output).not.toContain("Weekly:");
       expect(output).not.toContain("0/0");

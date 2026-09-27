@@ -67,6 +67,34 @@ describe("buildSidebarQuotaPanelLines", () => {
     expect(rendered).toContain("gpt-5");
   });
 
+  it("wraps long error rows within the sidebar width and keeps bar rows unchanged", () => {
+    const message = "Could not parse OpenCode Console budgets/org response";
+    const data = {
+      entries: [{ name: "Copilot", percentRemaining: 75 }],
+      errors: [{ label: "OpenCode Zen", message }],
+      sessionTokens: undefined,
+    };
+    const unwrapped = formatQuotaRows({
+      version: "1.0.0",
+      layout: TUI_SIDEBAR_LAYOUT,
+      entries: data.entries,
+      errors: data.errors,
+      style: "singleWindow",
+      percentDisplayMode: "remaining",
+    }).split("\n");
+
+    const lines = buildSidebarQuotaPanelLines({
+      data,
+      config: { formatStyle: "singleWindow", percentDisplayMode: "remaining" },
+    });
+
+    expect(lines.every((line) => line.length <= TUI_SIDEBAR_MAX_WIDTH)).toBe(true);
+    const errorStart = lines.findIndex((line) => line.startsWith("OpenCode Zen:"));
+    expect(lines.slice(0, errorStart)).toEqual(unwrapped.slice(0, errorStart));
+    expect(lines.slice(errorStart).join(" ")).toBe(`OpenCode Zen: ${message}`);
+    expect(lines.length).toBeGreaterThan(unwrapped.length);
+  });
+
   it("uses the fixed sidebar layout instead of toast layout settings", () => {
     const data = {
       entries: [
