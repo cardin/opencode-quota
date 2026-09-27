@@ -306,7 +306,10 @@ describe("V2 server plugin", () => {
     }));
 
     const cleanup = await plugin.setup({ ...ctx, integration, event: { subscribe } } as never);
-    expect(getCredentialSourceDiagnostics().state).toBe("bound");
+    expect(getCredentialSourceDiagnostics()).toMatchObject({
+      state: "bound",
+      kind: "opencode-integration-api",
+    });
     await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toEqual({
       deepseek: { type: "api", key: "deepseek-key" },
     });

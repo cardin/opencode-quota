@@ -1,20 +1,51 @@
-import { homedir } from "node:os";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/lib/opencode-service.js", () => ({
-  discoverOpenCodeService: vi.fn(),
+const { mockProviders, runtimeDirs, statusData } = vi.hoisted(() => ({
+  mockProviders: [] as any[],
+  runtimeDirs: {
+    value: {
+      dataDir: "/tmp/opencode-quota-cli-status-data",
+      configDir: "/tmp/opencode-quota-cli-status-config",
+      cacheDir: "/tmp/opencode-quota-cli-status-cache",
+      stateDir: "/tmp/opencode-quota-cli-status-state",
+    },
+  },
+  statusData: {
+    value: null as null | {
+      output: string;
+      payload: Record<string, unknown>;
+      hasComparableProviderData?: boolean;
+    },
+  },
 }));
 
-vi.mock("../src/lib/quota-rpc-client.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/quota-rpc-client.js")>()),
-  callQuotaRpc: vi.fn(),
+vi.mock("../src/providers/registry.js", () => ({
+  getProviders: () => mockProviders,
+}));
+
+vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
+}));
+
+vi.mock("../src/lib/quota-dialog-commands.js", () => ({
+  buildStatusReportData: vi.fn(async () => {
+    if (!statusData.value) {
+      return { output: null, payload: null };
+    }
+    return {
+      output: statusData.value.output,
+      payload: statusData.value.payload,
+      hasComparableProviderData: statusData.value.hasComparableProviderData ?? true,
+    };
+  }),
 }));
 
 import { runCliStatusCommand } from "../src/lib/cli-status.js";
-import { discoverOpenCodeService } from "../src/lib/opencode-service.js";
-import { callQuotaRpc, QuotaRpcTransportError } from "../src/lib/quota-rpc-client.js";
-
-const ENDPOINT = { url: "http://127.0.0.1:4096", headers: {} };
+import { getCredentialSourceDiagnostics } from "../src/lib/opencode-auth.js";
+import { buildStatusReportData } from "../src/lib/quota-dialog-commands.js";
 
 function createCaptureStream() {
   let output = "";
@@ -31,113 +62,189 @@ function createCaptureStream() {
   };
 }
 
-async function runStatus(argv: string[]) {
-  const stdout = createCaptureStream();
-  const stderr = createCaptureStream();
-  const code = await runCliStatusCommand({
-    argv,
-    stdout: stdout.stream as any,
-    stderr: stderr.stream as any,
-  });
-  return { code, stdout: stdout.output, stderr: stderr.output };
+function basePayload(overrides: Record<string, unknown> = {}) {
+  return {
+    version: "3.11.2",
+    generatedAt: "2026-07-16T00:00:00.000Z",
+    config: {
+      configSource: "workspace",
+      configPaths: ["/tmp/opencode.json"],
+      enabledProviders: ["synthetic"],
+      onlyCurrentModel: false,
+      pricingSnapshotSource: "auto",
+    },
+    providers: [
+      { id: "synthetic", enabled: true, available: true, matchesCurrentModel: undefined },
+    ],
+    pricing: {
+      selection: "auto",
+      activeSource: "bundled",
+      snapshot: {
+        source: "bundled",
+        generatedAt: "2026-01-01T00:00:00.000Z",
+        units: "USD per 1M tokens",
+      },
+      snapshotPath: "/tmp/pricing.json",
+      refreshStatePath: "/tmp/pricing-state.json",
+    },
+    liveProbes: [{ id: "synthetic", ok: true }],
+    ...overrides,
+  };
+}
+
+function useStatusData(
+  payload = basePayload(),
+  hasComparableProviderData?: boolean,
+  output = "report text",
+): void {
+  statusData.value = { output, payload, hasComparableProviderData };
 }
 
 describe("runCliStatusCommand", () => {
-  beforeEach(() => {
-    vi.mocked(discoverOpenCodeService).mockReset().mockResolvedValue(ENDPOINT);
-    vi.mocked(callQuotaRpc).mockReset().mockResolvedValue({
-      exitCode: 0,
-      stdout: "Quota Status (opencode-quota v5.0.0)\n",
-      stderr: "",
+  let tempDir: string;
+  let globalConfigDir: string;
+  let workspaceDir: string;
+  let savedConfigDir: string | undefined;
+
+  async function runStatus(argv: string[]) {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+    const code = await runCliStatusCommand({
+      argv,
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
     });
+    return { code, stdout: stdout.output, stderr: stderr.output };
+  }
+
+  beforeEach(() => {
+    savedConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.OPENCODE_CONFIG_DIR;
+    tempDir = mkdtempSync(join(tmpdir(), "opencode-quota-cli-status-"));
+    globalConfigDir = join(tempDir, "global-config", "opencode");
+    workspaceDir = join(tempDir, "workspace");
+    mkdirSync(globalConfigDir, { recursive: true });
+    mkdirSync(workspaceDir, { recursive: true });
+    runtimeDirs.value = {
+      dataDir: "/tmp/opencode-quota-cli-status-data",
+      configDir: globalConfigDir,
+      cacheDir: join(tempDir, "cache"),
+      stateDir: "/tmp/opencode-quota-cli-status-state",
+    };
+    vi.stubEnv("OPENCODE_DB", join(tempDir, "opencode.db"));
+    mockProviders.length = 0;
+    statusData.value = null;
+    vi.mocked(buildStatusReportData).mockClear();
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
+      }),
+      "utf8",
+    );
   });
 
-  it("asks the running OpenCode service for the report at the home folder and prints it", async () => {
+  afterEach(() => {
+    if (savedConfigDir !== undefined) process.env.OPENCODE_CONFIG_DIR = savedConfigDir;
+    else delete process.env.OPENCODE_CONFIG_DIR;
+    mockProviders.length = 0;
+    statusData.value = null;
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("prints a plain-text Quota Status report and returns zero", async () => {
+    useStatusData(
+      basePayload(),
+      undefined,
+      "Quota Status (opencode-quota v3.11.2)\ntoast:\n- enabledProviders: synthetic",
+    );
     const result = await runStatus([]);
 
-    expect(result).toEqual({
-      code: 0,
-      stdout: "Quota Status (opencode-quota v5.0.0)\n",
-      stderr: "",
-    });
-    expect(callQuotaRpc).toHaveBeenCalledWith(
-      ENDPOINT,
-      "cli",
-      { command: "status", providerId: undefined },
-      { directory: homedir(), timeoutMs: 60_000 },
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Quota Status");
+    expect(result.stdout).toContain("enabledProviders: synthetic");
+    expect(result.stderr).toBe("");
+    expect(buildStatusReportData).toHaveBeenCalledWith(
+      expect.objectContaining({ providerFilterId: undefined }),
     );
   });
 
-  it("forwards --json and returns the report's exit code", async () => {
-    vi.mocked(callQuotaRpc).mockResolvedValue({
-      exitCode: 2,
-      stdout: '{\n  "liveProbes": []\n}\n',
-      stderr: "",
-    });
-
+  it("--json emits a structured payload and returns zero when live probes exist", async () => {
+    useStatusData();
     const result = await runStatus(["--json"]);
 
-    expect(result).toEqual({ code: 2, stdout: '{\n  "liveProbes": []\n}\n', stderr: "" });
-    expect(callQuotaRpc).toHaveBeenCalledWith(
-      ENDPOINT,
-      "cli",
-      { command: "status-json", providerId: undefined },
-      expect.anything(),
-    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed).toHaveProperty("version", "3.11.2");
+    expect(parsed).toHaveProperty("generatedAt");
+    expect(parsed).toHaveProperty("config");
+    expect(parsed).toHaveProperty("providers");
+    expect(parsed).toHaveProperty("pricing");
+    expect(parsed).toHaveProperty("liveProbes");
+    expect(parsed.liveProbes).toHaveLength(1);
+    expect(parsed.liveProbes[0]).toEqual({ id: "synthetic", ok: true });
   });
 
-  it("--provider --json forwards the provider filter", async () => {
-    const result = await runStatus(["--json", "--provider", "synthetic"]);
+  it("--json exits 2 when there is no comparable provider data", async () => {
+    useStatusData(basePayload({ liveProbes: [] }), false);
+    const result = await runStatus(["--json"]);
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe("");
+    // JSON still prints on exit 2.
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.liveProbes).toEqual([]);
+  });
+
+  it("--json exits 2 when probes fail without producing quota entries", async () => {
+    useStatusData(basePayload({ liveProbes: [{ id: "synthetic", ok: false }] }), false);
+    const result = await runStatus(["--json"]);
+
+    expect(result.code).toBe(2);
+    expect(JSON.parse(result.stdout).liveProbes).toEqual([{ id: "synthetic", ok: false }]);
+  });
+
+  it("--json succeeds when a partial probe produced quota entries", async () => {
+    useStatusData(basePayload({ liveProbes: [{ id: "synthetic", ok: false }] }), true);
+
+    expect((await runStatus(["--json"])).code).toBe(0);
+  });
+
+  it("--provider filters the report to one provider", async () => {
+    useStatusData();
+    const result = await runStatus(["--provider", "synthetic"]);
 
     expect(result.code).toBe(0);
-    expect(callQuotaRpc).toHaveBeenCalledWith(
-      ENDPOINT,
-      "cli",
-      { command: "status-json", providerId: "synthetic" },
-      expect.anything(),
+    expect(result.stderr).toBe("");
+    expect(buildStatusReportData).toHaveBeenCalledWith(
+      expect.objectContaining({ providerFilterId: "synthetic" }),
     );
   });
 
   it("resolves a case-insensitive provider synonym before filtering", async () => {
+    useStatusData();
     const result = await runStatus(["--provider", "  CLAUDE  "]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
-    expect(callQuotaRpc).toHaveBeenCalledWith(
-      ENDPOINT,
-      "cli",
-      { command: "status", providerId: "anthropic" },
-      expect.anything(),
+    expect(buildStatusReportData).toHaveBeenCalledWith(
+      expect.objectContaining({ providerFilterId: "anthropic" }),
     );
   });
 
-  it("exits 3 with an empty stdout when OpenCode is not running", async () => {
-    vi.mocked(discoverOpenCodeService).mockResolvedValue(undefined);
+  it("--provider --json forwards the provider filter and still emits JSON", async () => {
+    useStatusData();
+    const result = await runStatus(["--json", "--provider", "synthetic"]);
 
-    const result = await runStatus(["--json"]);
-
-    expect(result).toEqual({
-      code: 3,
-      stdout: "",
-      stderr: "OpenCode is not running. Start OpenCode and try again.\n",
-    });
-    expect(callQuotaRpc).not.toHaveBeenCalled();
-  });
-
-  it("exits 3 with an empty stdout when the call to OpenCode fails", async () => {
-    vi.mocked(callQuotaRpc).mockRejectedValue(
-      new QuotaRpcTransportError(
-        "OpenCode's service password changed. Restart OpenCode and try again.",
-      ),
+    expect(result.code).toBe(0);
+    expect(buildStatusReportData).toHaveBeenCalledWith(
+      expect.objectContaining({ providerFilterId: "synthetic" }),
     );
-
-    const result = await runStatus([]);
-
-    expect(result).toEqual({
-      code: 3,
-      stdout: "",
-      stderr: "OpenCode's service password changed. Restart OpenCode and try again.\n",
-    });
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.providers).toHaveLength(1);
+    expect(parsed).not.toHaveProperty("providerFilterId");
   });
 
   it("rejects --threshold with a redirect to show --json --threshold", async () => {
@@ -147,7 +254,7 @@ describe("runCliStatusCommand", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("--threshold is not supported by status");
     expect(result.stderr).toContain("opencode-quota show --json --threshold");
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
+    expect(buildStatusReportData).not.toHaveBeenCalled();
   });
 
   it("rejects --threshold even when combined with --json", async () => {
@@ -155,17 +262,16 @@ describe("runCliStatusCommand", () => {
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("--threshold is not supported by status");
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
+    expect(buildStatusReportData).not.toHaveBeenCalled();
   });
 
-  it("rejects an unknown provider before contacting OpenCode", async () => {
+  it("rejects an unknown provider before building the report", async () => {
     const result = await runStatus(["--provider", "not-a-provider"]);
 
     expect(result.code).toBe(1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("Unknown provider: not-a-provider");
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
-    expect(callQuotaRpc).not.toHaveBeenCalled();
+    expect(buildStatusReportData).not.toHaveBeenCalled();
   });
 
   it("rejects a missing --provider value", async () => {
@@ -184,17 +290,54 @@ describe("runCliStatusCommand", () => {
     expect(result.stderr).toContain("opencode-quota status");
   });
 
+  it("returns non-zero when quota is disabled in config", async () => {
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabled: false } } }),
+      "utf8",
+    );
+    const result = await runStatus([]);
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Quota disabled in config");
+    expect(buildStatusReportData).not.toHaveBeenCalled();
+  });
+
   it("prints help and returns zero for --help", async () => {
     const result = await runStatus(["--help"]);
 
     expect(result.code).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("opencode-quota status");
-    expect(result.stdout).toContain("Needs OpenCode running");
     expect(result.stdout).toContain("Exit codes:");
-    expect(result.stdout).toContain(
-      "3  OpenCode is not running or the plugin could not be reached",
-    );
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
+    expect(buildStatusReportData).not.toHaveBeenCalled();
+  });
+
+  it("returns non-zero when report building throws", async () => {
+    vi.mocked(buildStatusReportData).mockRejectedValueOnce(new Error("boom"));
+    const result = await runStatus([]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Failed to generate quota status: boom");
+    expect(getCredentialSourceDiagnostics().state).toBe("unbound");
+  });
+
+  it("builds the report with the database login source bound and unbinds it afterwards", async () => {
+    let sourceDuringRun: unknown;
+    vi.mocked(buildStatusReportData).mockImplementationOnce(async () => {
+      sourceDuringRun = getCredentialSourceDiagnostics();
+      return {
+        output: "Quota Status (opencode-quota v3.11.2)",
+        payload: basePayload(),
+        hasComparableProviderData: true,
+      } as never;
+    });
+
+    const result = await runStatus([]);
+
+    expect(result.code).toBe(0);
+    expect(sourceDuringRun).toMatchObject({ state: "bound", kind: "sqlite" });
+    expect(getCredentialSourceDiagnostics().state).toBe("unbound");
   });
 });

@@ -1489,10 +1489,27 @@ describe("buildQuotaStatusReport", () => {
     `);
   });
 
+  it("reports the terminal command's database login source", async () => {
+    credentialSourceMocks.getCredentialSourceDiagnostics.mockReturnValueOnce({
+      state: "bound",
+      kind: "sqlite",
+      failures: [],
+    } as never);
+
+    const report = await buildQuotaStatusReportForTest();
+
+    expect(getReportSection(report, "credential_source:")).toMatchInlineSnapshot(`
+      "credential_source:
+      - source: sqlite
+      - list_error: (none)
+      - failures: (none)
+      "
+    `);
+  });
+
   it("reports an unbound login source", async () => {
     credentialSourceMocks.getCredentialSourceDiagnostics.mockReturnValueOnce({
       state: "unbound",
-      kind: "opencode-integration-api",
       failures: [],
     } as never);
 

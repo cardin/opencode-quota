@@ -1,11 +1,26 @@
-import { homedir } from "node:os";
-import type { QuotaRpcCliInput, QuotaRpcCliOutput } from "../rpc.js";
-import { discoverOpenCodeService } from "./opencode-service.js";
+import { resolve } from "path";
+import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
+import { buildCliShowJson, buildCliShowText, type CliReport } from "./cli-reports.js";
+import { findGitWorktreeRoot } from "./config-file-utils.js";
+import {
+  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+  resolveKimiCnAuthCached,
+  resolveKimiGlobalAuthCached,
+} from "./kimi-auth.js";
+import { bindCredentialSource } from "./opencode-auth.js";
+import { createSqliteCredentialSource } from "./opencode-auth-sqlite.js";
+import {
+  loadConfiguredOpenCodeConfig,
+  loadConfiguredProviderIds,
+} from "./opencode-config-providers.js";
 import { getQuotaProviderShape } from "./provider-metadata.js";
-import { callQuotaRpc } from "./quota-rpc-client.js";
+import type { QuotaRuntimeClient, QuotaRuntimeContext } from "./quota-runtime-context.js";
+import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
+import type { QuotaToastConfig } from "./types.js";
 
 export interface RunCliShowCommandOptions {
   argv?: string[];
+  cwd?: string;
   stdout?: Pick<NodeJS.WriteStream, "write">;
   stderr?: Pick<NodeJS.WriteStream, "write">;
 }
@@ -18,16 +33,12 @@ const SHOW_USAGE = [
   "Usage:",
   "  npx @slkiser/opencode-quota show [--provider <provider-id>] [--json] [--threshold <pct>]",
   "",
-  "Needs OpenCode running: the quota comes from its background service.",
-  "",
   "Options:",
   "  --provider <provider-id>  Show quota for one provider",
   "  --json                    Machine-readable JSON output (reads from cache)",
   "  --threshold <pct>         With --json, exit 1 if any complete cached percentage is below",
   "                            <pct>% remaining (exit 2 if data is incomplete or not comparable)",
   "  --help, -h                Show help",
-  "",
-  "Exit code 3: OpenCode is not running or the plugin could not be reached.",
 ].join("\n");
 
 function parseShowArgs(argv: string[]): ParsedShowArgs {
@@ -108,57 +119,118 @@ function parseShowArgs(argv: string[]): ParsedShowArgs {
   return { ok: true, providerId, help: false, json, threshold };
 }
 
+export function resolveCliRoots(cwd: string): {
+  workspaceRoot: string;
+  configRoot: string;
+  fallbackDirectory: string;
+} {
+  const fallbackDirectory = resolve(cwd);
+  const worktreeRoot = findGitWorktreeRoot(fallbackDirectory) ?? fallbackDirectory;
+  return {
+    workspaceRoot: worktreeRoot,
+    configRoot: worktreeRoot,
+    fallbackDirectory,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+async function loadCliAuthenticatedProviderIds(config: Record<string, unknown>): Promise<string[]> {
+  const experimental = isRecord(config.experimental) ? config.experimental : undefined;
+  const quotaToast = isRecord(experimental?.quotaToast) ? experimental.quotaToast : undefined;
+  const anthropicBinaryPath =
+    typeof quotaToast?.anthropicBinaryPath === "string"
+      ? quotaToast.anthropicBinaryPath
+      : undefined;
+  const [anthropicConfigured, kimiGlobalAuth, kimiCnAuth] = await Promise.all([
+    hasAnthropicCredentialsConfigured({ binaryPath: anthropicBinaryPath }),
+    resolveKimiGlobalAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS }),
+    resolveKimiCnAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS }),
+  ]);
+
+  return [
+    ...(anthropicConfigured ? ["anthropic"] : []),
+    ...(kimiGlobalAuth.state === "configured" ? ["kimi-code-plan-global"] : []),
+    ...(kimiCnAuth.state === "configured" ? ["kimi-code-plan-cn"] : []),
+  ];
+}
+
+export function createCliQuotaClient(params: { configRootDir: string }): QuotaRuntimeClient {
+  let configPromise: Promise<Record<string, unknown>> | undefined;
+  let providerIdsPromise: Promise<string[]> | undefined;
+
+  return {
+    config: {
+      get: async () => {
+        configPromise ??= loadConfiguredOpenCodeConfig({
+          configRootDir: params.configRootDir,
+        });
+        return {
+          data: (await configPromise) as {
+            experimental?: { quotaToast?: Partial<QuotaToastConfig> };
+            model?: string;
+          },
+        };
+      },
+      providers: async () => {
+        providerIdsPromise ??= (async () => {
+          configPromise ??= loadConfiguredOpenCodeConfig({
+            configRootDir: params.configRootDir,
+          });
+          const [configuredIds, authenticatedIds] = await Promise.all([
+            loadConfiguredProviderIds({ configRootDir: params.configRootDir }),
+            configPromise.then(loadCliAuthenticatedProviderIds),
+          ]);
+          return [...new Set([...configuredIds, ...authenticatedIds])];
+        })();
+        const ids = await providerIdsPromise;
+        return {
+          data: {
+            providers: ids.map((id) => ({ id })),
+          },
+        };
+      },
+    },
+  };
+}
+
 function writeLine(stream: Pick<NodeJS.WriteStream, "write">, message: string): void {
   stream.write(message.endsWith("\n") ? message : `${message}\n`);
 }
 
-function isCliOutput(value: unknown): value is QuotaRpcCliOutput {
-  if (typeof value !== "object" || value === null) return false;
-  const output = value as Record<string, unknown>;
-  return (
-    Number.isInteger(output.exitCode) &&
-    typeof output.stdout === "string" &&
-    typeof output.stderr === "string"
-  );
-}
-
 /**
- * Runs a `show` or `status` report inside the running OpenCode service, which computes it
- * for the home folder, and prints what it returns. Exit code 3 means OpenCode or the plugin
- * could not be reached; stdout then stays empty so JSON readers never parse an error.
+ * Builds one `show` or `status` report in this process, for the folder the command runs in,
+ * and prints it. It works with OpenCode closed: logins are read read-only from OpenCode's
+ * database, and only while the report runs.
  */
-export async function runCliReportInOpenCode(params: {
-  input: QuotaRpcCliInput;
+export async function runCliReport(params: {
+  cwd: string;
+  failurePrefix: "Failed to show quota" | "Failed to generate quota status";
+  build: (runtime: QuotaRuntimeContext) => Promise<CliReport>;
   stdout: Pick<NodeJS.WriteStream, "write">;
   stderr: Pick<NodeJS.WriteStream, "write">;
 }): Promise<number> {
-  const endpoint = await discoverOpenCodeService();
-  if (!endpoint) {
-    writeLine(params.stderr, "OpenCode is not running. Start OpenCode and try again.");
-    return 3;
-  }
-
-  let output: unknown;
+  const unbind = bindCredentialSource(createSqliteCredentialSource());
   try {
-    output = await callQuotaRpc(endpoint, "cli", params.input, {
-      directory: homedir(),
-      timeoutMs: 60_000,
+    const roots = resolveCliRoots(params.cwd);
+    const runtime = await resolveQuotaRuntimeContext({
+      client: createCliQuotaClient({ configRootDir: roots.configRoot }),
+      roots,
+      includeSessionMeta: false,
     });
+    const report = await params.build(runtime);
+    params.stdout.write(report.stdout);
+    params.stderr.write(report.stderr);
+    return report.exitCode;
   } catch (error) {
-    writeLine(params.stderr, error instanceof Error ? error.message : String(error));
-    return 3;
+    const message = error instanceof Error ? error.message : String(error);
+    writeLine(params.stderr, `${params.failurePrefix}: ${message}`);
+    return 1;
+  } finally {
+    unbind();
   }
-  if (!isCliOutput(output)) {
-    writeLine(
-      params.stderr,
-      "OpenCode Quota's server plugin returned an unexpected result. Update the plugin and restart OpenCode.",
-    );
-    return 3;
-  }
-
-  params.stdout.write(output.stdout);
-  params.stderr.write(output.stderr);
-  return output.exitCode;
 }
 
 export async function runCliShowCommand(options: RunCliShowCommandOptions = {}): Promise<number> {
@@ -184,12 +256,13 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     return 1;
   }
 
-  return runCliReportInOpenCode({
-    input: {
-      command: parsed.json ? "show-json" : "show",
-      providerId,
-      threshold: parsed.threshold,
-    },
+  return runCliReport({
+    cwd: options.cwd ?? process.cwd(),
+    failurePrefix: "Failed to show quota",
+    build: (runtime) =>
+      parsed.json
+        ? buildCliShowJson({ runtime, providerId, threshold: parsed.threshold })
+        : buildCliShowText({ runtime, providerId }),
     stdout,
     stderr,
   });

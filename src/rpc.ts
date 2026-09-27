@@ -34,12 +34,6 @@ export type QuotaRpcCommandInput = {
   sessionID?: string;
 };
 export type QuotaRpcCommandOutput = QuotaDialogCommandOutputResult;
-export type QuotaRpcCliInput = {
-  command: "show" | "show-json" | "status" | "status-json";
-  providerId?: string;
-  threshold?: number;
-};
-export type QuotaRpcCliOutput = { exitCode: number; stdout: string; stderr: string };
 
 type StandardValueSchema = Extract<Rpc.PortableValueSchema, { "~standard": unknown }>;
 type QuotaRpcSchema<T> = StandardValueSchema & { "~standard": { types?: { input: T; output: T } } };
@@ -77,7 +71,6 @@ function checkOptionalString(input: Record<string, unknown>, field: string): str
 
 const SURFACES = ["sidebar", "idle", "compacted", "question"];
 const FOOTER_SURFACES = ["prompt", "home"];
-const CLI_COMMANDS = ["show", "show-json", "status", "status-json"];
 
 export const QuotaRpc = {
   id: QUOTA_RPC_ID,
@@ -119,24 +112,6 @@ export const QuotaRpc = {
         return checkOptionalString(value, "arguments") ?? checkOptionalString(value, "sessionID");
       }),
       output: schema<QuotaRpcCommandOutput>(checkOutput),
-    },
-    cli: {
-      input: schema<QuotaRpcCliInput>((value) => {
-        if (!isObject(value)) return "input must be an object";
-        if (typeof value.command !== "string" || !CLI_COMMANDS.includes(value.command)) {
-          return `command must be one of ${CLI_COMMANDS.join(", ")}`;
-        }
-        if (
-          value.threshold !== undefined &&
-          (typeof value.threshold !== "number" ||
-            !Number.isFinite(value.threshold) ||
-            value.threshold <= 0)
-        ) {
-          return "threshold must be a positive finite number";
-        }
-        return checkOptionalString(value, "providerId");
-      }),
-      output: schema<QuotaRpcCliOutput>(checkOutput),
     },
   },
 } satisfies Rpc.PortableDefinition;

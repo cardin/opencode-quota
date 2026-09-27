@@ -529,7 +529,6 @@ describe("integration credential source", () => {
     expect(warn.mock.calls).toEqual([["[opencode-quota] credential source is not bound"]]);
     expect(unboundReader.getCredentialSourceDiagnostics()).toEqual({
       state: "unbound",
-      kind: "opencode-integration-api",
       failures: [],
     });
     warn.mockRestore();
@@ -545,7 +544,10 @@ describe("integration credential source", () => {
     expect((await readCredentialRows(["deepseek"]))[0]?.id).toBe("cred_second");
     unbindFirst();
     expect((await readCredentialRows(["deepseek"]))[0]?.id).toBe("cred_second");
-    expect(getCredentialSourceDiagnostics().state).toBe("bound");
+    expect(getCredentialSourceDiagnostics()).toMatchObject({
+      state: "bound",
+      kind: "opencode-integration-api",
+    });
     unbindSecond();
     unbindSecond();
     await expect(readCredentialRows(["deepseek"])).resolves.toEqual([]);
@@ -667,7 +669,7 @@ describe("readAuthFile and readAuthFileCached", () => {
     let rows = new Promise<ReturnType<typeof openaiRow>[]>((resolve) => {
       releaseOldRead = resolve;
     });
-    unbinds.push(bindCredentialSource({ readRows: () => rows }));
+    unbinds.push(bindCredentialSource({ kind: "opencode-integration-api", readRows: () => rows }));
 
     const oldRead = readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["openai"] });
     notifyCredentialsChanged();

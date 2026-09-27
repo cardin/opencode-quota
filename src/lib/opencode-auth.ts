@@ -1,9 +1,10 @@
 /**
  * OpenCode login reader
  *
- * Reads OpenCode 2 logins through the server plugin's integration API
- * (`ctx.integration`). The server plugin binds that source in `setup`; the TUI
- * and the terminal command never bind one, so a read there finds no login.
+ * Reads OpenCode 2 logins through the bound credential source. The server
+ * plugin binds its integration API (`ctx.integration`) in `setup`; the terminal
+ * command binds the read-only database reader in `opencode-auth-sqlite.ts`
+ * while one report runs; the TUI binds nothing, so a read there finds no login.
  * Every read names the integration ids it needs, so OpenCode resolves (and may
  * refresh) only those logins.
  */
@@ -50,8 +51,14 @@ export type CredentialReadRequest = ReadCredentialRowsOptions & {
   integrationIds: readonly string[];
 };
 
-/** Where logins come from. The only production source is `ctx.integration`. */
+export type CredentialSourceKind = "opencode-integration-api" | "sqlite";
+
+/**
+ * Where logins come from. The two production sources: `ctx.integration` in the
+ * server plugin, and the terminal command's read-only reader of OpenCode's database.
+ */
 export type CredentialSource = {
+  kind: CredentialSourceKind;
   readRows(request: CredentialReadRequest): Promise<CredentialRow[]>;
 };
 
@@ -74,9 +81,10 @@ type CredentialFailure = {
   label: string;
 };
 
-export type CredentialSourceDiagnostics = {
-  state: "bound" | "unbound";
-  kind: "opencode-integration-api";
+export type CredentialSourceDiagnostics = (
+  | { state: "bound"; kind: CredentialSourceKind }
+  | { state: "unbound" }
+) & {
   lastListError?: { at: number; detail: string };
   failures: Array<{
     integrationId: string;
@@ -146,9 +154,10 @@ const authCache = new Map<string, AuthCacheEntry>();
 let authCacheGeneration = 0;
 
 /**
- * The database OpenCode keeps its logins in, for diagnostics only (logins are
- * read through OpenCode, never from this file): the one resolved path, or none
- * when `OPENCODE_DB` is `:memory:`.
+ * The database OpenCode keeps its logins in: the one resolved path, or none
+ * when `OPENCODE_DB` is `:memory:`. Inside OpenCode it is for diagnostics only
+ * (logins are read through OpenCode); the terminal command reads its logins
+ * from this file.
  */
 export function getCredentialDatabasePaths(): string[] {
   const path = getOpenCodeDbPath();
@@ -177,9 +186,9 @@ export function notifyCredentialsChanged(): void {
 }
 
 export function getCredentialSourceDiagnostics(): CredentialSourceDiagnostics {
+  const source = credentialSources.at(-1)?.source;
   return {
-    state: credentialSources.length > 0 ? "bound" : "unbound",
-    kind: "opencode-integration-api",
+    ...(source ? { state: "bound" as const, kind: source.kind } : { state: "unbound" as const }),
     ...(lastListError ? { lastListError: { ...lastListError } } : {}),
     failures: Array.from(credentialFailures, ([connectionId, failure]) => ({
       integrationId: failure.integrationId,
@@ -372,6 +381,7 @@ export function createIntegrationCredentialSource(
   integration: CredentialIntegration,
 ): CredentialSource {
   return {
+    kind: "opencode-integration-api",
     async readRows(request) {
       const slots: ConnectionSlot[] = [];
       if (request.firstOnly) {
@@ -425,9 +435,11 @@ export async function readAuthFile(params: {
 }
 
 /**
- * Credential rows of the requested integration ids, in request-id order, then
- * OpenCode's connection order (active first, then newest). Without a bound
- * source (the TUI and the terminal command) there are none.
+ * Credential rows of the requested integration ids from the last bound source.
+ * Row order depends on the source: the integration API returns request-id
+ * order, then OpenCode's connection order (active first, then newest); the
+ * database reader returns database order. With no bound source (the TUI) there
+ * are none.
  */
 export async function readCredentialRows(
   integrationIds: readonly string[],

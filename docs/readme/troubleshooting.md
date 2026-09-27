@@ -2,22 +2,22 @@
 
 # Troubleshooting
 
-Start with `/quota_status` inside OpenCode, or `opencode-quota status` from a terminal while OpenCode is running. Both show which config, providers, authentication, and local files OpenCode Quota found.
+Start with `/quota_status` inside OpenCode, or `opencode-quota status` from a terminal. Both show which config, providers, authentication, and local files OpenCode Quota found.
 
 ## First checks
 
-1. Run `/quota_status` inside OpenCode. From a terminal, `opencode-quota status` shows the same report; it needs OpenCode running and uses your global quota settings.
+1. Run `/quota_status` inside OpenCode. From a terminal, `opencode-quota status` shows the same report for the folder you run it in; it works with OpenCode closed.
 2. Find the provider or feature that is failing.
 3. Follow the matching fix below.
 4. Restart OpenCode after changing config or authentication.
 
 If every provider is missing, confirm OpenCode Quota is listed in `opencode.jsonc` or `.json`. That one entry also loads the TUI; no `tui.json` entry is needed.
 
-OpenCode Quota asks OpenCode 2 for logins through its plugin API (OpenCode keeps them in `opencode.db`) and never reads `auth.json`. OpenCode 2 copies `auth.json` once, the first time it starts. If a provider is missing, log in to it again in OpenCode 2. In `/quota_status`, the `credential_source` section shows the login `source`, a `list_error` when OpenCode could not list logins, and `failures`: each login OpenCode could not return (for example a failed token refresh) as `provider:label:reason:detail`. Such a login also shows as an error row; log in to that provider again. `/quota_status` also shows the `opencode.db` path used for session and token history; `OPENCODE_DB` and `XDG_DATA_HOME` change it. Custom or source builds of OpenCode may use `opencode-<channel>.db` instead; set `OPENCODE_DB` to that file's path.
+Inside OpenCode, OpenCode Quota asks OpenCode 2 for logins through its plugin API (OpenCode keeps them in `opencode.db`); the terminal command reads `opencode.db` read-only. Neither reads `auth.json`. OpenCode 2 copies `auth.json` once, the first time it starts. If a provider is missing, log in to it again in OpenCode 2. In `/quota_status`, the `credential_source` section shows the login `source`, a `list_error` when OpenCode could not list logins, and `failures`: each login OpenCode could not return (for example a failed token refresh) as `provider:label:reason:detail`. Such a login also shows as an error row; log in to that provider again. From the terminal, `source` is `sqlite`, and `list_error` and `failures` stay empty. `/quota_status` also shows the `opencode.db` path used for session and token history; `OPENCODE_DB` and `XDG_DATA_HOME` change it. Custom or source builds of OpenCode may use `opencode-<channel>.db` instead; set `OPENCODE_DB` to that file's path.
 
 ## Service environment
 
-Every surface (TUI, Web, Desktop, and the terminal command) gets its numbers from OpenCode's background service. The service takes `PATH` and environment variables from whatever started it first, not from the terminal you use now, and it runs in your home folder.
+The TUI, Web, and Desktop get their numbers from OpenCode's background service. The service takes `PATH` and environment variables from whatever started it first, not from the terminal you use now, and it runs in your home folder. The terminal command uses your terminal's `PATH`, environment, and current folder instead.
 
 - **`claude` or `bl` not found, or an API-key variable ignored:** in a terminal where they work, run `opencode service restart`. To keep that `PATH` for every later start, run `opencode service set env PATH "$PATH"` (it stops the service; open OpenCode again). For Claude you can instead set `anthropicBinaryPath`.
 - A relative `export.path` is relative to your home folder.
@@ -36,8 +36,7 @@ Every surface (TUI, Web, Desktop, and the terminal command) gets its numbers fro
 | Token reports are empty                                 | Start OpenCode once, then use a model so `opencode.db` contains usage.                                                                            |
 | Pricing looks old                                       | Run `/pricing_refresh`.                                                                                                                           |
 | Web report columns do not line up                       | Expected: Web uses a proportional font. Use the TUI or run `npx @slkiser/opencode-quota show` in a terminal.                                      |
-| Terminal command says `OpenCode is not running` (exit 3) | Open OpenCode or run `opencode service start`, then try again. The command never starts OpenCode itself.                                         |
-| Terminal command says the server plugin is not loaded (exit 3) | Check the plugin entry above, then run `opencode service restart`.                                                                         |
+| Terminal shows a sign-in as expired but OpenCode shows data | The terminal command never refreshes tokens. Open OpenCode (or use that provider in it) once, then run the command again.                    |
 
 ## Update safely
 

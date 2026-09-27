@@ -100,7 +100,8 @@ describe("CLI reports", () => {
   let workspaceDir: string;
   let savedConfigDir: string | undefined;
 
-  // The server plugin's configuration client: OpenCode's provider list, no SDK config.
+  // A minimal configuration client: the given provider ids, no SDK config. Quota settings
+  // come from the files in the workspace folder.
   async function runtimeFor(providerIds: string[] = []) {
     return resolveQuotaRuntimeContext({
       client: {

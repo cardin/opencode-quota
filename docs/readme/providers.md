@@ -628,9 +628,9 @@ OpenCode Zen reads billing and usage from unofficial OpenCode Console routes (`/
 
 1. In a terminal, run `opencode auth login opencode`, sign in to the Console in your browser, and pick the organization to track.
 2. To track another organization, sign in again and pick it. With several saved Console sign-ins, `opencode auth switch opencode` chooses the active one, and Zen follows it.
-3. Check it with `/quota_status` in OpenCode, or `opencode-quota status` in a terminal while OpenCode runs.
+3. Check it with `/quota_status` in OpenCode, or `opencode-quota status` in a terminal.
 
-When Zen reads the sign-in, OpenCode refreshes its token if needed. If the sign-in fails or the Console rejects it, Zen asks you to run `opencode auth login opencode` again. Without a Console sign-in (an OpenCode API key alone is not one), auto mode skips Zen; include `opencode` in `enabledProviders` to see the sign-in hint instead.
+When Zen reads the sign-in inside OpenCode, OpenCode refreshes its token if needed; the terminal command does not. If the sign-in fails or the Console rejects it, Zen asks you to run `opencode auth login opencode` again. Without a Console sign-in (an OpenCode API key alone is not one), auto mode skips Zen; include `opencode` in `enabledProviders` to see the sign-in hint instead.
 
 > The old `opencode-quota/opencode.json` file (`workspaceId` + `consoleSessionCookie`) and the `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` variables are no longer read. Remove them after Zen works; see [Updating safely](updating.md#opencode-zen-findings).
 

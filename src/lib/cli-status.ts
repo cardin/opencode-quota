@@ -1,8 +1,10 @@
-import { runCliReportInOpenCode } from "./cli-show.js";
+import { buildCliStatus } from "./cli-reports.js";
+import { runCliReport } from "./cli-show.js";
 import { getQuotaProviderShape } from "./provider-metadata.js";
 
 export interface RunCliStatusCommandOptions {
   argv?: string[];
+  cwd?: string;
   stdout?: Pick<NodeJS.WriteStream, "write">;
   stderr?: Pick<NodeJS.WriteStream, "write">;
 }
@@ -15,8 +17,8 @@ const STATUS_USAGE = [
   "Usage:",
   "  npx @slkiser/opencode-quota status [--provider <provider-id>] [--json]",
   "",
-  "Print the same Quota Status diagnostics as the /quota_status slash command.",
-  "Needs OpenCode running: the report comes from its background service.",
+  "Print the same Quota Status diagnostics as the /quota_status slash command,",
+  "without launching OpenCode.",
   "",
   "Options:",
   "  --provider <provider-id>  Restrict provider availability and live probes to one provider",
@@ -28,7 +30,6 @@ const STATUS_USAGE = [
   "  0  success",
   "  1  error or quota disabled (enabled: false)",
   "  2  no comparable provider data (with --json only)",
-  "  3  OpenCode is not running or the plugin could not be reached",
 ].join("\n");
 
 const THRESHOLD_REDIRECT =
@@ -118,8 +119,10 @@ export async function runCliStatusCommand(
     return 1;
   }
 
-  return runCliReportInOpenCode({
-    input: { command: parsed.json ? "status-json" : "status", providerId },
+  return runCliReport({
+    cwd: options.cwd ?? process.cwd(),
+    failurePrefix: "Failed to generate quota status",
+    build: (runtime) => buildCliStatus({ runtime, providerId, json: parsed.json }),
     stdout,
     stderr,
   });

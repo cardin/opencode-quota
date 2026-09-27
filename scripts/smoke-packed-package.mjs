@@ -125,12 +125,9 @@ try {
 
   const openRouterSecret = "packed-openrouter-secret-canary";
   const openRouterEnv = { ...isolatedRuntimeEnv, OPENROUTER_API_KEY: openRouterSecret };
-  const cachedOpenRouterOutput = run(
-    process.execPath,
-    [realOtelFixture, "seed-production-openrouter"],
-    workdir,
-    { env: openRouterEnv },
-  );
+  run(process.execPath, [realOtelFixture, "seed-production-openrouter"], workdir, {
+    env: openRouterEnv,
+  });
 
   const cliPath = path.join(
     workdir,
@@ -153,17 +150,20 @@ try {
     }
   }
 
-  // The isolated state folder has no OpenCode service registration, so the packed CLI must
-  // report that OpenCode is not running: exit 3, a stderr message and an empty stdout.
-  const offlineShow = spawnSync(
+  const cachedOpenRouterOutput = run(
     process.execPath,
     [cliPath, "show", "--json", "--provider", "openrouter"],
-    { cwd: workdir, encoding: "utf8", env: { ...process.env, ...openRouterEnv } },
+    workdir,
+    { env: openRouterEnv },
   );
-  if (offlineShow.error) throw offlineShow.error;
-  assert.equal(offlineShow.status, 3);
-  assert.equal(offlineShow.stdout, "");
-  assert.match(offlineShow.stderr, /OpenCode is not running\. Start OpenCode and try again\./);
+  const cachedOpenRouter = JSON.parse(cachedOpenRouterOutput);
+  assert.equal(cachedOpenRouter.fromCache, true);
+  assert.equal(cachedOpenRouter.providers.openrouter.status, "ok");
+  assert.equal(
+    cachedOpenRouter.providers.openrouter.entries[0].name,
+    "Packed production OpenRouter",
+  );
+  assert.equal(cachedOpenRouter.providers.openrouter.entries[0].percentRemaining, 67);
 
   const readTree = async (directory) => {
     const chunks = [];
@@ -176,7 +176,6 @@ try {
   };
   const privateArtifacts = [
     cachedOpenRouterOutput,
-    offlineShow.stderr,
     ...(await readTree(path.join(workdir, "runtime"))),
   ].join("\n");
   assert.ok(!privateArtifacts.includes(openRouterSecret));

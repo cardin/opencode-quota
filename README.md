@@ -39,7 +39,7 @@ Upgrading from 4.x? Read [what changed in 5.0](#breaking-changes-in-500).
 After installation:
 
 1. Restart OpenCode.
-2. Run `/quota` in the OpenCode TUI, or `opencode-quota show` in a terminal while OpenCode is running.
+2. Run `/quota` in the OpenCode TUI, or `opencode-quota show` in a terminal.
 3. If you enabled the sidebar, open the session sidebar and look for `Quota`.
 4. If you enabled the compact status line, look at the bottom of Home or below the message input.
 
@@ -66,8 +66,8 @@ The updater always shows a preview first. `--yes` applies only the safe edits it
 
 > [!WARNING]
 > - OpenCode 1 is no longer supported. `init` and `update` detect OpenCode 1 and keep you on 4.x (`@slkiser/opencode-quota@4`).
-> - Logins are read through OpenCode 2's plugin API (OpenCode keeps them in `opencode.db`), never from `auth.json`. If a provider is missing, log in again.
-> - Quota is computed in OpenCode's background service, so `PATH` and environment variables come from the service, not your terminal. See [Service environment](docs/readme/troubleshooting.md#service-environment).
+> - Logins come from OpenCode 2 (it keeps them in `opencode.db`), never from `auth.json`. If a provider is missing, log in again.
+> - Inside OpenCode, logins go through the plugin API and quota is computed in OpenCode's background service, so `PATH` and environment variables come from the service. See [Service environment](docs/readme/troubleshooting.md#service-environment). The terminal command reads `opencode.db` read-only and uses your terminal's environment.
 > - Web and Desktop get the slash commands (report posts in the chat) but no toasts or panels.
 > - One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
 > - TUI slash reports now open in a popup. Set `tuiCommandDisplay: "inline"` to keep them in the chat.
@@ -106,7 +106,7 @@ The updater always shows a preview first. `--yes` applies only the safe edits it
 
 More ways to use it:
 
-- **Terminal:** run `npx @slkiser/opencode-quota show` while OpenCode is running; it asks OpenCode's background service and exits with code `3` if OpenCode is not running. In Web and Desktop, slash commands post the report in the chat, and the AI can call the `quota_status` tool.
+- **Terminal:** run `npx @slkiser/opencode-quota show` (works with OpenCode closed). In Web and Desktop, slash commands post the report in the chat, and the AI can call the `quota_status` tool.
 - **Several logins:** each login for a provider gets its own rows; `*` marks the active one.
 - **Scripts and CI:** JSON output and optional OpenTelemetry metrics. See [External integration](docs/readme/external-integration.md).
 - **Display:** a quota bar under the prompt ([`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings)), OpenCode Go's collapsed-sidebar row ([`tuiSidebarPanel.opencodeGoPreferredWindow`](docs/readme/configuration.md#tui-settings)), reset countdown style ([`resetTimeSpaced`](docs/readme/configuration.md#common-changes), [`resetTimeDecimals`](docs/readme/configuration.md#common-changes)), bare `81%` labels ([`percentLabelStyle`](docs/readme/configuration.md#common-changes)), and extra accounting rows ([`accountingDetail`](docs/readme/configuration.md#show-accounting-detail)).
@@ -149,7 +149,7 @@ Use the CLI for setup, updates, terminal checks, and custom providers.
 | `npx @slkiser/opencode-quota@latest status`              | Check configuration and provider problems  |
 | `npx @slkiser/opencode-quota@latest update`              | Update an existing installation             |
 
-`show` and `status` need OpenCode running: they ask its background service, using your global quota settings. If OpenCode is not running, they exit with code `3`. Run `npx @slkiser/opencode-quota@latest --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
+`show` and `status` work with OpenCode closed: they read logins from `opencode.db` read-only, never refresh a token (a sign-in can show as expired, for example `Token expired`, until you open OpenCode), take `PATH` and API-key variables from your shell, and use the settings of the folder you run them in (a project's `opencode-quota/quota-toast.jsonc` applies). Run `npx @slkiser/opencode-quota@latest --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
 
 ## Providers
 
@@ -248,7 +248,7 @@ The guided setup previews the change before saving. See the [custom-provider gui
 
 If quota or token data looks wrong:
 
-1. Run `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal for the same diagnostics (OpenCode must be running). Use `opencode-quota show` for a quick quota glance.
+1. Run `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal for the same diagnostics. Use `opencode-quota show` for a quick quota glance.
 2. Confirm the expected provider appears in the detected provider list. If it is missing, log in to it again in OpenCode 2. `credential_source` lists logins OpenCode could not return.
 3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.

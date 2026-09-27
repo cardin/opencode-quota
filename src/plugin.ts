@@ -1,10 +1,9 @@
 /**
  * OpenCode V2 server plugin: quota slash commands for every client, a diagnostics tool, and
- * the quota RPC that computes the TUI surfaces and the terminal command's reports. It is the
- * only place logins are read, through OpenCode's integration API.
+ * the quota RPC that computes the TUI surfaces. Inside OpenCode, logins are read only here,
+ * through OpenCode's integration API.
  */
 import { Plugin } from "@opencode/plugin";
-import { buildCliShowJson, buildCliShowText, buildCliStatus } from "./lib/cli-reports.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import {
@@ -26,17 +25,14 @@ import {
   type QuotaReportMetadata,
   removeQuotaReports,
 } from "./lib/quota-report-message.js";
-import {
-  type QuotaSessionModelContext,
-  resolveQuotaRuntimeContext,
-} from "./lib/quota-runtime-context.js";
+import type { QuotaSessionModelContext } from "./lib/quota-runtime-context.js";
 import {
   getQuotaFooter,
   getQuotaMessage,
   type QuotaSurfaceHost,
   writeQuotaExportIfEnabled,
 } from "./lib/quota-surface-data.js";
-import { QuotaRpc, type QuotaRpcCliOutput, type QuotaRpcCommandOutput } from "./rpc.js";
+import { QuotaRpc, type QuotaRpcCommandOutput } from "./rpc.js";
 
 type ModelMessage = {
   readonly role: string;
@@ -178,38 +174,6 @@ export const QuotaToastPlugin = Plugin.define({
             output: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
             dialogSize: spec.dialogSize,
           };
-        }
-      },
-      // `opencode-quota show` and `status` in a terminal. The command calls this at the home
-      // folder and prints the result, so a failure is returned as the command's stderr.
-      cli: async (input): Promise<QuotaRpcCliOutput> => {
-        try {
-          const runtime = await resolveQuotaRuntimeContext({
-            client,
-            roots,
-            includeSessionMeta: false,
-          });
-          switch (input.command) {
-            case "show":
-              return await buildCliShowText({ runtime, providerId: input.providerId });
-            case "show-json":
-              return await buildCliShowJson({
-                runtime,
-                providerId: input.providerId,
-                threshold: input.threshold,
-              });
-            case "status":
-              return await buildCliStatus({ runtime, providerId: input.providerId, json: false });
-            case "status-json":
-              return await buildCliStatus({ runtime, providerId: input.providerId, json: true });
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const failure =
-            input.command === "status" || input.command === "status-json"
-              ? "Failed to generate quota status"
-              : "Failed to show quota";
-          return { exitCode: 1, stdout: "", stderr: `${failure}: ${message}\n` };
         }
       },
     });

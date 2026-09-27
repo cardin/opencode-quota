@@ -1,20 +1,58 @@
-import { homedir } from "node:os";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/lib/opencode-service.js", () => ({
-  discoverOpenCodeService: vi.fn(),
+const TEST_ACCOUNTING = {
+  resultType: "quota",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+} as const;
+
+const { authMocks, mockProviders, runtimeDirs } = vi.hoisted(() => ({
+  authMocks: {
+    anthropicConfigured: false,
+    kimiGlobalState: "none" as "none" | "configured",
+    kimiCnState: "none" as "none" | "configured",
+  },
+  mockProviders: [] as any[],
+  runtimeDirs: {
+    value: {
+      dataDir: "/tmp/opencode-quota-cli-show-data",
+      configDir: "/tmp/opencode-quota-cli-show-config",
+      cacheDir: "/tmp/opencode-quota-cli-show-cache",
+      stateDir: "/tmp/opencode-quota-cli-show-state",
+    },
+  },
 }));
 
-vi.mock("../src/lib/quota-rpc-client.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/quota-rpc-client.js")>()),
-  callQuotaRpc: vi.fn(),
+vi.mock("../src/lib/anthropic.js", () => ({
+  hasAnthropicCredentialsConfigured: vi.fn(async () => authMocks.anthropicConfigured),
 }));
 
-import { runCliShowCommand } from "../src/lib/cli-show.js";
-import { discoverOpenCodeService } from "../src/lib/opencode-service.js";
-import { callQuotaRpc, QuotaRpcTransportError } from "../src/lib/quota-rpc-client.js";
+vi.mock("../src/lib/kimi-auth.js", () => ({
+  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS: 30_000,
+  resolveKimiGlobalAuthCached: vi.fn(async () => ({ state: authMocks.kimiGlobalState })),
+  resolveKimiCnAuthCached: vi.fn(async () => ({ state: authMocks.kimiCnState })),
+}));
 
-const ENDPOINT = { url: "http://127.0.0.1:4096", headers: { authorization: "Basic abc" } };
+vi.mock("../src/providers/registry.js", () => ({
+  getProviders: () => mockProviders,
+}));
+
+vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
+}));
+
+import { createCliQuotaClient, runCliShowCommand } from "../src/lib/cli-show.js";
+import {
+  clearReadAuthFileCacheForTests,
+  getCredentialSourceDiagnostics,
+  readCredentialRows,
+} from "../src/lib/opencode-auth.js";
+import { __resetQuotaStateForTests } from "../src/lib/quota-state.js";
+import { writeCredentialDatabase } from "./helpers/credential-database.js";
 
 function createCaptureStream() {
   let output = "";
@@ -31,179 +69,503 @@ function createCaptureStream() {
   };
 }
 
-async function runShow(argv: string[]) {
-  const stdout = createCaptureStream();
-  const stderr = createCaptureStream();
-  const code = await runCliShowCommand({
-    argv,
-    stdout: stdout.stream as any,
-    stderr: stderr.stream as any,
-  });
-  return { code, stdout: stdout.output, stderr: stderr.output };
-}
-
 describe("runCliShowCommand", () => {
+  let tempDir: string;
+  let globalConfigDir: string;
+  let workspaceDir: string;
+  let savedConfigDir: string | undefined;
+
   beforeEach(() => {
-    vi.mocked(discoverOpenCodeService).mockReset().mockResolvedValue(ENDPOINT);
-    vi.mocked(callQuotaRpc)
-      .mockReset()
-      .mockResolvedValue({ exitCode: 0, stdout: "Synthetic Weekly 75%\n", stderr: "" });
+    authMocks.anthropicConfigured = false;
+    authMocks.kimiGlobalState = "none";
+    authMocks.kimiCnState = "none";
+    savedConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.OPENCODE_CONFIG_DIR;
+    tempDir = mkdtempSync(join(tmpdir(), "opencode-quota-cli-show-"));
+    globalConfigDir = join(tempDir, "global-config", "opencode");
+    workspaceDir = join(tempDir, "workspace");
+    mkdirSync(globalConfigDir, { recursive: true });
+    mkdirSync(workspaceDir, { recursive: true });
+    runtimeDirs.value = {
+      dataDir: "/tmp/opencode-quota-cli-show-data",
+      configDir: globalConfigDir,
+      cacheDir: join(tempDir, "cache"),
+      stateDir: "/tmp/opencode-quota-cli-show-state",
+    };
+    vi.stubEnv("OPENCODE_DB", join(tempDir, "opencode.db"));
+    mockProviders.length = 0;
+    __resetQuotaStateForTests();
   });
 
-  it("asks the running OpenCode service for the report at the home folder and prints it", async () => {
-    const result = await runShow([]);
-
-    expect(result).toEqual({ code: 0, stdout: "Synthetic Weekly 75%\n", stderr: "" });
-    expect(callQuotaRpc).toHaveBeenCalledWith(
-      ENDPOINT,
-      "cli",
-      { command: "show", providerId: undefined, threshold: undefined },
-      { directory: homedir(), timeoutMs: 60_000 },
-    );
+  afterEach(() => {
+    vi.useRealTimers();
+    if (savedConfigDir !== undefined) process.env.OPENCODE_CONFIG_DIR = savedConfigDir;
+    else delete process.env.OPENCODE_CONFIG_DIR;
+    mockProviders.length = 0;
+    __resetQuotaStateForTests();
+    clearReadAuthFileCacheForTests();
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("forwards --json and --threshold and returns the report's exit code", async () => {
-    vi.mocked(callQuotaRpc).mockResolvedValue({
-      exitCode: 2,
-      stdout: '{\n  "version": 2\n}\n',
-      stderr: "",
-    });
+  it("synthesizes offline Kimi runtime ids independently by region", async () => {
+    writeFileSync(join(workspaceDir, "opencode.json"), "{}", "utf8");
 
-    const result = await runShow(["--json", "--threshold", "5"]);
+    const unauthenticated = await createCliQuotaClient({
+      configRootDir: workspaceDir,
+    }).config.providers();
+    expect(unauthenticated.data?.providers).toEqual([]);
 
-    expect(result).toEqual({ code: 2, stdout: '{\n  "version": 2\n}\n', stderr: "" });
-    expect(callQuotaRpc).toHaveBeenCalledWith(
-      ENDPOINT,
-      "cli",
-      { command: "show-json", providerId: undefined, threshold: 5 },
-      expect.anything(),
-    );
+    authMocks.anthropicConfigured = true;
+    authMocks.kimiCnState = "configured";
+    const cnOnly = await createCliQuotaClient({
+      configRootDir: workspaceDir,
+    }).config.providers();
+    expect(cnOnly.data?.providers).toEqual([{ id: "anthropic" }, { id: "kimi-code-plan-cn" }]);
+
+    authMocks.kimiGlobalState = "configured";
+    const bothRegions = await createCliQuotaClient({
+      configRootDir: workspaceDir,
+    }).config.providers();
+    expect(bothRegions.data?.providers).toEqual([
+      { id: "anthropic" },
+      { id: "kimi-code-plan-global" },
+      { id: "kimi-code-plan-cn" },
+    ]);
   });
 
-  it("prints the report's stderr and exit code when the server reports an error", async () => {
-    vi.mocked(callQuotaRpc).mockResolvedValue({
-      exitCode: 1,
-      stdout: "",
-      stderr: "Quota disabled in config (enabled: false).\n",
-    });
-
-    const result = await runShow([]);
-
-    expect(result).toEqual({
-      code: 1,
-      stdout: "",
-      stderr: "Quota disabled in config (enabled: false).\n",
-    });
-  });
-
-  it("normalizes --provider aliases before calling OpenCode", async () => {
-    const result = await runShow(["--provider=github-copilot"]);
-
-    expect(result.code).toBe(0);
-    expect(callQuotaRpc).toHaveBeenCalledWith(
-      ENDPOINT,
-      "cli",
-      { command: "show", providerId: "copilot", threshold: undefined },
-      expect.anything(),
-    );
-  });
-
-  it("exits 3 with an empty stdout when OpenCode is not running", async () => {
-    vi.mocked(discoverOpenCodeService).mockResolvedValue(undefined);
-
-    const result = await runShow(["--json"]);
-
-    expect(result).toEqual({
-      code: 3,
-      stdout: "",
-      stderr: "OpenCode is not running. Start OpenCode and try again.\n",
-    });
-    expect(callQuotaRpc).not.toHaveBeenCalled();
-  });
-
-  it("exits 3 with an empty stdout when the call to OpenCode fails", async () => {
-    vi.mocked(callQuotaRpc).mockRejectedValue(
-      new QuotaRpcTransportError(
-        "OpenCode Quota's server plugin is not loaded. Check the plugin entry in opencode.json and restart OpenCode.",
-      ),
+  it("renders a compact quota glance and returns zero when quota rows are available", async () => {
+    const provider = {
+      id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic Weekly", percentRemaining: 75 }],
+        errors: [],
+      }),
+    };
+    mockProviders.push(provider);
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: {
+          quotaToast: {
+            enabledProviders: ["synthetic"],
+            showSessionTokens: true,
+          },
+        },
+      }),
+      "utf8",
     );
 
-    const result = await runShow(["--json"]);
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
 
-    expect(result).toEqual({
-      code: 3,
-      stdout: "",
-      stderr:
-        "OpenCode Quota's server plugin is not loaded. Check the plugin entry in opencode.json and restart OpenCode.\n",
+    const code = await runCliShowCommand({
+      argv: [],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
     });
+
+    expect(code).toBe(0);
+    expect(stdout.output).toContain("Synthetic Weekly");
+    expect(stdout.output).toContain("75%");
+    expect(stderr.output).toBe("");
+    expect(provider.fetch).toHaveBeenCalledOnce();
   });
 
-  it("exits 3 when OpenCode returns an output that is not a report", async () => {
-    vi.mocked(callQuotaRpc).mockResolvedValue({ exitCode: 0, stdout: 5 });
+  it("reads logins from OpenCode's database, read-only, only while the command runs", async () => {
+    const databasePath = join(tempDir, "opencode.db");
+    writeCredentialDatabase(databasePath, [
+      {
+        id: "cred_synthetic",
+        integrationId: "synthetic",
+        active: 1,
+        updated: 1,
+        value: { type: "key", key: "synthetic-key" },
+      },
+    ]);
+    const databaseBefore = readFileSync(databasePath);
+    let rowsDuringRun: unknown;
+    let sourceDuringRun: unknown;
+    const provider = {
+      id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn(async () => {
+        rowsDuringRun = await readCredentialRows(["synthetic"]);
+        sourceDuringRun = getCredentialSourceDiagnostics();
+        return {
+          attempted: true,
+          entries: [
+            { accounting: TEST_ACCOUNTING, name: "Synthetic Weekly", percentRemaining: 75 },
+          ],
+          errors: [],
+        };
+      }),
+    };
+    mockProviders.push(provider);
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabledProviders: ["synthetic"] } } }),
+      "utf8",
+    );
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
 
-    const result = await runShow([]);
+    const code = await runCliShowCommand({
+      argv: [],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
 
-    expect(result.code).toBe(3);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("returned an unexpected result");
+    expect(code).toBe(0);
+    expect(stderr.output).toBe("");
+    expect(rowsDuringRun).toEqual([
+      {
+        id: "cred_synthetic",
+        integrationId: "synthetic",
+        label: "default",
+        active: true,
+        value: { type: "api", key: "synthetic-key" },
+      },
+    ]);
+    expect(sourceDuringRun).toMatchObject({ state: "bound", kind: "sqlite" });
+    expect(getCredentialSourceDiagnostics().state).toBe("unbound");
+    expect(readFileSync(databasePath).equals(databaseBefore)).toBe(true);
   });
 
-  it("rejects an unknown provider before contacting OpenCode", async () => {
-    const result = await runShow(["--provider", "not-a-provider"]);
+  it("normalizes --provider aliases and uses the provider as an invocation override", async () => {
+    const copilotProvider = {
+      id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Copilot", percentRemaining: 50 }],
+        errors: [],
+      }),
+    };
+    const openAiProvider = {
+      id: "openai",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({ attempted: true, entries: [], errors: [] }),
+    };
+    mockProviders.push(openAiProvider, copilotProvider);
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabledProviders: ["openai"] } } }),
+      "utf8",
+    );
 
-    expect(result.code).toBe(1);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Unknown provider: not-a-provider");
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
-    expect(callQuotaRpc).not.toHaveBeenCalled();
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+
+    const code = await runCliShowCommand({
+      argv: ["--provider=github-copilot"],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(0);
+    expect(stdout.output).toContain("Copilot");
+    expect(copilotProvider.fetch).toHaveBeenCalledOnce();
+    expect(openAiProvider.fetch).not.toHaveBeenCalled();
+    expect(stderr.output).toBe("");
+  });
+
+  it("rejects an unknown provider before probing providers", async () => {
+    const provider = {
+      id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn(),
+    };
+    mockProviders.push(provider);
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+
+    const code = await runCliShowCommand({
+      argv: ["--provider", "not-a-provider"],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(1);
+    expect(stdout.output).toBe("");
+    expect(stderr.output).toContain("Unknown provider: not-a-provider");
+    expect(provider.isAvailable).not.toHaveBeenCalled();
+    expect(provider.fetch).not.toHaveBeenCalled();
   });
 
   it("rejects missing provider values", async () => {
-    const result = await runShow(["--provider"]);
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
 
-    expect(result.code).toBe(1);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Missing value for --provider");
-    expect(result.stderr).toContain("opencode-quota show");
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
+    const code = await runCliShowCommand({
+      argv: ["--provider"],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(1);
+    expect(stdout.output).toBe("");
+    expect(stderr.output).toContain("Missing value for --provider");
+    expect(stderr.output).toContain("opencode-quota show");
+  });
+
+  it("returns non-zero when quota is disabled in config", async () => {
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabled: false } } }),
+      "utf8",
+    );
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+
+    const code = await runCliShowCommand({
+      argv: [],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(1);
+    expect(stdout.output).toBe("");
+    expect(stderr.output).toContain("Quota disabled in config");
+  });
+
+  it("prefers the git worktree root over a nested cwd for config loading", async () => {
+    const nestedDir = join(workspaceDir, "packages", "app");
+    mkdirSync(nestedDir, { recursive: true });
+    mkdirSync(join(workspaceDir, ".git"));
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabled: false } } }),
+      "utf8",
+    );
+    writeFileSync(
+      join(nestedDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabled: true } } }),
+      "utf8",
+    );
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+
+    const code = await runCliShowCommand({
+      argv: [],
+      cwd: nestedDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(1);
+    expect(stdout.output).toBe("");
+    expect(stderr.output).toContain("Quota disabled in config");
+  });
+
+  it("reads worktree root config even when OPENCODE_CONFIG_DIR is set", async () => {
+    const nestedDir = join(workspaceDir, "packages", "app");
+    const provider = {
+      id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn(),
+    };
+    mockProviders.push(provider);
+    mkdirSync(nestedDir, { recursive: true });
+    mkdirSync(join(workspaceDir, ".git"));
+    process.env.OPENCODE_CONFIG_DIR = ".opencode";
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ experimental: { quotaToast: { enabled: false } } }),
+      "utf8",
+    );
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+
+    const code = await runCliShowCommand({
+      argv: [],
+      cwd: nestedDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(1);
+    expect(stdout.output).toBe("");
+    expect(stderr.output).toContain("Quota disabled in config");
+    expect(provider.fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses root-level OpenCode provider ids for standalone provider availability", async () => {
+    const provider = {
+      id: "copilot",
+      cachePolicy: { kind: "account-neutral" as const },
+      isAvailable: vi.fn(async (ctx: any) => {
+        const response = await ctx.client.config.providers();
+        return response.data.providers.some((item: { id: string }) => item.id === "github-copilot");
+      }),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Copilot", percentRemaining: 88 }],
+        errors: [],
+      }),
+    };
+    mockProviders.push(provider);
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({ provider: { "github-copilot": {} } }),
+      "utf8",
+    );
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
+
+    const code = await runCliShowCommand({
+      argv: [],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(0);
+    expect(stdout.output).toContain("Copilot");
+    expect(provider.fetch).toHaveBeenCalledOnce();
+    expect(stderr.output).toBe("");
+  });
+
+  // ──────────────────────────────────────────────
+  //  --json / --threshold tests
+  // ──────────────────────────────────────────────
+
+  it("--json outputs valid JSON to stdout with cached provider data", async () => {
+    const provider = {
+      id: "synthetic",
+      cachePolicy: { kind: "account-neutral" as const },
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Synthetic", percentRemaining: 75 }],
+        errors: [],
+      }),
+    };
+    mockProviders.push(provider);
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        experimental: { quotaToast: { enabledProviders: ["synthetic"] } },
+      }),
+      "utf8",
+    );
+
+    // Run non-JSON show first to populate the cache.
+    const textOut = createCaptureStream();
+    const textErr = createCaptureStream();
+    const textCode = await runCliShowCommand({
+      argv: [],
+      cwd: workspaceDir,
+      stdout: textOut.stream as any,
+      stderr: textErr.stream as any,
+    });
+    expect(textCode).toBe(0);
+    expect(provider.fetch).toHaveBeenCalledOnce();
+
+    // Now run --json (reads from cache).
+    const jsonOut = createCaptureStream();
+    const jsonErr = createCaptureStream();
+    const jsonCode = await runCliShowCommand({
+      argv: ["--json"],
+      cwd: workspaceDir,
+      stdout: jsonOut.stream as any,
+      stderr: jsonErr.stream as any,
+    });
+
+    expect(jsonCode).toBe(0);
+    expect(jsonErr.output).toBe("");
+
+    const parsed = JSON.parse(jsonOut.output);
+    expect(parsed).toHaveProperty("version", 2);
+    expect(parsed).toHaveProperty("exportedAt");
+    expect(parsed).toHaveProperty("fromCache", true);
+    expect(parsed).toHaveProperty("cacheAgeSeconds");
+    expect(parsed.providers).toHaveProperty("synthetic");
+    expect(parsed.providers.synthetic.status).toBe("ok");
+    expect(parsed.providers.synthetic.entries[0].name).toBe("Synthetic");
+    expect(parsed.providers.synthetic.entries[0].percentRemaining).toBe(75);
+    expect(parsed.providers.synthetic.entries[0].renderType).toBe("percent");
+    expect(parsed.providers.synthetic.entries[0]).not.toHaveProperty("unlimited");
+    expect(provider.fetch).toHaveBeenCalledTimes(1); // still only called from text path
   });
 
   it("reports unknown flag with --json as error on stderr with exit code 1", async () => {
-    const result = await runShow(["--json", "--bogus-flag"]);
+    const jsonOut = createCaptureStream();
+    const jsonErr = createCaptureStream();
 
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("Unknown option: --bogus-flag");
-    expect(result.stderr).toContain("opencode-quota show");
+    const jsonCode = await runCliShowCommand({
+      argv: ["--json", "--bogus-flag"],
+      cwd: workspaceDir,
+      stdout: jsonOut.stream as any,
+      stderr: jsonErr.stream as any,
+    });
+
+    expect(jsonCode).toBe(1);
+    expect(jsonErr.output).toContain("Unknown option: --bogus-flag");
+    expect(jsonErr.output).toContain("opencode-quota show");
   });
 
   it("--threshold validates input and requires --json", async () => {
-    let result = await runShow(["--json", "--threshold", "abc"]);
+    const run = async (argv: string[]) => {
+      const stdout = createCaptureStream();
+      const stderr = createCaptureStream();
+      const code = await runCliShowCommand({
+        argv,
+        cwd: workspaceDir,
+        stdout: stdout.stream as any,
+        stderr: stderr.stream as any,
+      });
+      return { code, stderr: stderr.output };
+    };
+
+    // Invalid value
+    let result = await run(["--json", "--threshold", "abc"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("--threshold must be a positive finite number");
 
-    result = await runShow(["--json", "--threshold", "0"]);
+    // Zero
+    result = await run(["--json", "--threshold", "0"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("--threshold must be a positive finite number");
 
-    result = await runShow(["--json", "--threshold"]);
+    // Missing value
+    result = await run(["--json", "--threshold"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Missing value for --threshold");
 
-    result = await runShow(["--threshold", "5"]);
+    // Without --json
+    result = await run(["--threshold", "5"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("--threshold requires --json");
-
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
   });
 
-  it("prints help that names the OpenCode requirement and exit code 3", async () => {
-    const result = await runShow(["--help"]);
+  it("prints help without an OpenCode requirement or exit code 3", async () => {
+    const stdout = createCaptureStream();
+    const stderr = createCaptureStream();
 
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("opencode-quota show");
-    expect(result.stdout).toContain("Needs OpenCode running");
-    expect(result.stdout).toContain("Exit code 3");
-    expect(discoverOpenCodeService).not.toHaveBeenCalled();
+    const code = await runCliShowCommand({
+      argv: ["--help"],
+      cwd: workspaceDir,
+      stdout: stdout.stream as any,
+      stderr: stderr.stream as any,
+    });
+
+    expect(code).toBe(0);
+    expect(stderr.output).toBe("");
+    expect(stdout.output).toContain("opencode-quota show");
+    expect(stdout.output).not.toContain("OpenCode running");
+    expect(stdout.output).not.toMatch(/exit code 3/i);
   });
 });

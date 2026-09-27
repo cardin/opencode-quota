@@ -20,7 +20,13 @@ Use this for scripts and CI:
 opencode-quota show --json
 ```
 
-The command asks OpenCode's background service for the data, so OpenCode must be running. It never starts OpenCode. It always runs for your home folder, so it uses your global quota settings, not a project's.
+The command runs in your terminal and works with OpenCode closed:
+
+- It reads logins from OpenCode's database (`opencode.db`) read-only.
+- It never refreshes a token, so a sign-in can show as expired (for example `Token expired`) in the terminal while OpenCode shows data. Opening OpenCode refreshes it.
+- It takes `PATH` and API-key variables from your shell.
+- It uses the settings of the folder you run it in, so a project's `opencode-quota/quota-toast.jsonc` applies.
+- `opencode-quota status` shows `source: sqlite` under `credential_source`.
 
 Useful variations:
 
@@ -39,17 +45,12 @@ Threshold exit codes:
 | `0` | Quota is available and above the threshold |
 | `1` | At least one comparable cached percentage is below the threshold |
 | `2` | Results were incomplete or no comparable percentage was found |
-| `3` | OpenCode is not running or the plugin could not be reached |
-
-Exit code `3` can come from any `show` or `status` command. The reason goes to stderr and stdout stays empty.
 
 ### CI example
 
 ```bash
 npx @slkiser/opencode-quota show --json --threshold 5
 ```
-
-This needs OpenCode running on the same machine and user account. Otherwise the command exits with code `3`. A tool that only needs recent numbers can read the [export file](#2-read-an-export-file) instead.
 
 ### Read Copilot's percentage with `jq`
 
@@ -269,7 +270,7 @@ Each summary is exactly `id`, effective `providerId`, coarse `status`, and `entr
 
 - All options use data collected during normal OpenCode Quota activity.
 - The command and export file read cached data instead of contacting providers.
-- The command and the export file both come from OpenCode's background service. The command needs OpenCode running; the file keeps its last contents when OpenCode stops.
+- The export file comes from OpenCode's background service and keeps its last contents when OpenCode stops. The command runs in your terminal and works with OpenCode closed.
 - The OpenTelemetry integration reads in-memory results and never starts its own refresh loop.
 - OpenTelemetry metric labels are limited to safe provider, result type, and quota-window values.
 - Display names, account IDs, source IDs, credentials, paths, URLs, errors, and raw responses are never metric labels.

@@ -1,6 +1,6 @@
 /**
- * The reports behind `opencode-quota show` and `status`. The server plugin builds them for
- * the `cli` RPC method; the terminal command only prints what they return.
+ * The reports behind `opencode-quota show` and `status`. The terminal command builds them
+ * in its own process (`cli-show.ts`) and prints them.
  */
 import { sanitizeQuotaRenderData } from "./display-sanitize.js";
 import { formatQuotaRows } from "./format.js";
