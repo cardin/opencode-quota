@@ -511,18 +511,19 @@ describe("queryOpenCodeGoConsoleStatus", () => {
     );
   });
 
-  it.each([404, 403])("reads HTTP %s as no Go subscription", async (status) => {
-    mocks.fetchResponse.mockResolvedValueOnce({ ok: false, status });
+  it("reads HTTP 404 as no Go subscription", async () => {
+    mocks.fetchResponse.mockResolvedValueOnce({ ok: false, status: 404 });
 
     await expect(queryOpenCodeGoConsoleStatus({ accessToken: "console-access" })).resolves.toEqual({
       success: false,
-      error: `OpenCode Go subscription not found for this console account (${status})`,
+      error: "OpenCode Go subscription not found for this console account (404)",
       notSubscribed: true,
     });
   });
 
   it.each([
     [401, false],
+    [403, false],
     [500, true],
   ])("keeps HTTP %s as a failed Console request", async (status, retryable) => {
     mocks.fetchResponse.mockResolvedValueOnce({ ok: false, status });

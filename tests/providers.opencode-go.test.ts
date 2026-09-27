@@ -166,13 +166,11 @@ describe("opencode-go provider", () => {
     ]);
   });
 
-  it.each([
-    404, 403,
-  ])("reports a console not-subscribed state (%s) without errors", async (status) => {
+  it("reports a console not-subscribed state without errors", async () => {
     consoleConfigured();
     mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
       success: false,
-      error: `OpenCode Go subscription not found for this console account (${status})`,
+      error: "OpenCode Go subscription not found for this console account (404)",
       notSubscribed: true,
     });
 
@@ -202,6 +200,53 @@ describe("opencode-go provider", () => {
       expect.arrayContaining([
         { key: "go_source", value: "legacy_key" },
         { key: "console_error", value: "OpenCode Console API error 500 (/api/go/status)" },
+      ]),
+    );
+  });
+
+  it("falls back to the API key after a Console 403", async () => {
+    consoleConfigured();
+    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
+      success: false,
+      error: "OpenCode Console API error 403 (/api/go/status)",
+      retryable: false,
+    });
+
+    const out = await runFetch();
+
+    expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
+    expectAttemptedWithNoErrors(out);
+    expect(visibleEntries(out.entries, "opencode-go")).toHaveLength(3);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "go_source", value: "legacy_key" },
+        { key: "console_error", value: "OpenCode Console API error 403 (/api/go/status)" },
+      ]),
+    );
+    expect(out.statusDetails).not.toContainEqual({
+      key: "opencode_go_state",
+      value: "not_subscribed",
+    });
+  });
+
+  it("stays quiet after a Console 403 when there is no API key", async () => {
+    consoleConfigured();
+    mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
+      success: false,
+      error: "OpenCode Console API error 403 (/api/go/status)",
+      retryable: false,
+    });
+    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValueOnce({ state: "none" });
+
+    const out = await runFetch();
+
+    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+    expectNotAttempted(out);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "console_auth_state", value: "configured" },
+        { key: "console_error", value: "OpenCode Console API error 403 (/api/go/status)" },
       ]),
     );
   });

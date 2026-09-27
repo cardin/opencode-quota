@@ -606,7 +606,7 @@ Project-local `opencode.json` and `opencode.jsonc` files are not read for this s
 
 ### OpenCode Go
 
-If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired or cannot be read, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. Without an API key, a sign-in OpenCode cannot return shows as an OpenCode Go error, and a failed Console call shows no Go quota (`/quota_status` lists `console_error`). If the Console reports no Go subscription (including HTTP 403 or 404), no Go rows appear. OpenCode Quota automatically resolves the API key in this order:
+If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired or cannot be read, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. Without an API key, a sign-in OpenCode cannot return shows as an OpenCode Go error, and a failed Console call shows no Go quota (`/quota_status` lists `console_error`). If the Console reports no Go subscription (for example HTTP 404), no Go rows appear. An HTTP 403 counts as a failed Console call. OpenCode Quota automatically resolves the API key in this order:
 
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
