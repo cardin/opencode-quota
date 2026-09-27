@@ -62,6 +62,18 @@ const primaryBalance: QuotaToastEntry = {
   },
 };
 
+const monthlySpend: QuotaToastEntry = {
+  kind: "quantity",
+  accounting: { ...providerAccounting, resultType: "spend" },
+  name: "zen-monthly-spend",
+  group: "OpenCode Zen",
+  semantic: {
+    metric: { kind: "window", window: "month" },
+    prominence: "primary",
+  },
+  quantity: { decimal: "11.8202", unit: { kind: "currency", code: "USD" } },
+};
+
 const autoReload: QuotaToastEntry = {
   kind: "boolean",
   accounting: { ...providerAccounting, resultType: "status" },
@@ -112,6 +124,26 @@ describe("OpenCode Zen structured four-surface formatting", () => {
     expect(primaryBalance).not.toHaveProperty("right");
     expect(primaryBalance).not.toHaveProperty("barValue");
     expect(primaryBalance).not.toHaveProperty("value");
+  });
+
+  it("renders current-month spend next to the balance when there is no monthly limit", () => {
+    const outputs = renderAccountingFourSurfaces({
+      data: { entries: [monthlySpend, primaryBalance], errors: [] },
+      accountingDetail: "summary",
+      toastMaxWidth: 50,
+      toastNarrowAt: 42,
+      compactMaxWidth: 200,
+    });
+
+    for (const output of Object.values(outputs)) {
+      expect(output).toContain("OpenCode Zen");
+      expect(output).toContain("Monthly spend");
+      expect(output).toContain("USD 11.82");
+    }
+    for (const output of [outputs.command, outputs.toast, outputs.sidebar]) {
+      expect(output).toContain("Current balance");
+      expect(output).toContain("USD 42.50");
+    }
   });
 
   it("renders detailed basis and supplementary values within each surface width", () => {

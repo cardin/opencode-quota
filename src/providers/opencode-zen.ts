@@ -34,6 +34,12 @@ const OPENCODE_ZEN_BUDGET_ACCOUNTING: AccountingMetadata = {
   ownership: "maintained",
   authority: "locally_derived",
 };
+const OPENCODE_ZEN_SPEND_ACCOUNTING: AccountingMetadata = {
+  resultType: "spend",
+  acquisitionMethod: "remote_api",
+  ownership: "maintained",
+  authority: "provider_reported",
+};
 const OPENCODE_ZEN_STATUS_ACCOUNTING: AccountingMetadata = {
   resultType: "status",
   acquisitionMethod: "remote_api",
@@ -151,13 +157,13 @@ export const opencodeZenProvider: QuotaProvider = {
         ? null
         : result.data.monthlyUsage / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
 
+    const hasMonthlyUsage =
+      monthlyUsageUsd !== null && Number.isFinite(monthlyUsageUsd) && monthlyUsageUsd >= 0;
     const hasMonthlyBudget =
       effectiveMonthlyLimit !== null &&
       Number.isFinite(effectiveMonthlyLimit) &&
       effectiveMonthlyLimit > 0 &&
-      monthlyUsageUsd !== null &&
-      Number.isFinite(monthlyUsageUsd) &&
-      monthlyUsageUsd >= 0;
+      hasMonthlyUsage;
     const entries: QuotaToastEntry[] = [];
 
     if (hasMonthlyBudget) {
@@ -187,6 +193,19 @@ export const opencodeZenProvider: QuotaProvider = {
             authority: "locally_derived",
           },
         },
+      });
+    } else if (hasMonthlyUsage) {
+      // No limit to measure against: still show this month's real spend.
+      entries.push({
+        accounting: OPENCODE_ZEN_SPEND_ACCOUNTING,
+        kind: "quantity",
+        name: "zen-monthly-spend",
+        group: OPENCODE_ZEN_GROUP,
+        semantic: {
+          metric: { kind: "window", window: "month" },
+          prominence: "primary",
+        },
+        quantity: { decimal: zenUsdDecimal(monthlyUsageUsd), unit: USD_UNIT },
       });
     }
 
@@ -226,6 +245,10 @@ export const opencodeZenProvider: QuotaProvider = {
           result.data.monthlyLimit === null
             ? "(none)"
             : `USD ${zenUsdDecimal(result.data.monthlyLimit)}`,
+      },
+      {
+        key: "monthly_usage_usd",
+        value: monthlyUsageUsd === null ? "(unknown)" : `USD ${zenUsdDecimal(monthlyUsageUsd)}`,
       },
       {
         key: "auto_reload",

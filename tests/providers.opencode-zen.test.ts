@@ -251,6 +251,34 @@ describe("opencode Zen provider", () => {
     expect(result.presentation).toBeUndefined();
   });
 
+  it("shows current-month spend next to the balance when there is no monthly limit", async () => {
+    configured();
+    success({ monthlyLimit: null, monthlyUsage: 1_182_020_000 });
+
+    const result = await opencodeZenProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toEqual([
+      {
+        accounting: { ...balanceAccounting, resultType: "spend" },
+        kind: "quantity",
+        name: "zen-monthly-spend",
+        group: "OpenCode Zen",
+        semantic: {
+          metric: { kind: "window", window: "month" },
+          prominence: "primary",
+        },
+        quantity: { decimal: "11.8202", unit: { kind: "currency", code: "USD" } },
+      },
+      balanceEntry("primary"),
+      autoReloadEntry(),
+    ]);
+    expect(result.statusDetails).toContainEqual({
+      key: "monthly_usage_usd",
+      value: "USD 11.8202",
+    });
+  });
+
   it("calculates monthly-limit remaining from monthly usage (default display)", async () => {
     configured();
     success({ monthlyLimit: 100, monthlyUsage: 575_000_000 });
@@ -268,6 +296,7 @@ describe("opencode Zen provider", () => {
       { key: "console_url", value: "https://opencode.ai/console" },
       { key: "balance_usd", value: "USD 42.5" },
       { key: "monthly_limit_usd", value: "USD 100" },
+      { key: "monthly_usage_usd", value: "USD 5.75" },
       { key: "auto_reload", value: "false" },
       { key: "auto_reload_amount_raw", value: "(none)" },
       { key: "auto_reload_trigger_raw", value: "(none)" },
