@@ -517,7 +517,7 @@ describe("scoped update config planning", () => {
     const config = join(f.project, "opencode.json");
     const malformedSidecar = join(f.project, "opencode-quota", "quota-toast.jsonc");
     const obsoleteGoFile = join(f.global, "opencode-quota", "opencode-go.json");
-    const supportedZenFile = join(f.global, "opencode-quota", "opencode.json");
+    const obsoleteZenFile = join(f.global, "opencode-quota", "opencode.json");
     const authFile = join(f.global, "auth.json");
     const canaries = [
       "go-workspace-value-canary",
@@ -525,7 +525,7 @@ describe("scoped update config planning", () => {
       "zen-workspace-value-canary",
       "zen-cookie-value-canary",
       "legacy-go-file-content-canary",
-      "supported-zen-file-content-canary",
+      "obsolete-zen-file-content-canary",
       "provider-api-key-canary",
       "auth-json-key-canary",
       "invalid-display-value-canary",
@@ -538,8 +538,8 @@ describe("scoped update config planning", () => {
     write(malformedSidecar, `{"opencodeZenDisplay":"migration-parser-content-canary",`);
     write(obsoleteGoFile, `{"authCookie":"legacy-go-file-content-canary"}`);
     write(
-      supportedZenFile,
-      `{"workspaceId":"supported-zen-file-content-canary","consoleSessionCookie":"supported-zen-file-content-canary"}`,
+      obsoleteZenFile,
+      `{"workspaceId":"obsolete-zen-file-content-canary","consoleSessionCookie":"obsolete-zen-file-content-canary"}`,
     );
     write(authFile, `{"opencode-go":{"type":"api","key":"auth-json-key-canary"}}`);
     const env = {
@@ -567,6 +567,12 @@ describe("scoped update config planning", () => {
       logs: log.mock.calls,
     });
     for (const canary of canaries) expect(publicSuccess).not.toContain(canary);
+    expect(plan.manualFindings).toContainEqual({
+      kind: "obsolete-zen-file",
+      path: obsoleteZenFile,
+    });
+    expect(preview.join("\n")).toContain("run opencode console login");
+    expect(preview.join("\n")).not.toContain("create and protect");
 
     const failed = fixture();
     write(
