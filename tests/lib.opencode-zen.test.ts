@@ -236,6 +236,30 @@ describe("queryOpenCodeZenQuota", () => {
     });
   });
 
+  it.each([
+    ["a null body", () => json(null)],
+    ["an empty body", () => new Response("", { headers: { "content-type": "application/json" } })],
+    ["an empty object", () => json({})],
+  ])("treats %s from budgets/org as no org budget", async (_label, orgBudget) => {
+    routes({
+      "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
+      "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
+      "budgets/org": orgBudget,
+    });
+
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toMatchObject({
+      success: true,
+      data: {
+        balance: 0,
+        monthlyLimit: 100,
+        monthlyUsage: 75_000_000,
+        budgetResetIso: null,
+        budgetSource: "credit_limit",
+      },
+      errors: [],
+    });
+  });
+
   it("falls back and lists an error when the org budget route fails", async () => {
     routes({
       "billing/status": () => json({ ...STATUS, balanceMicroCents: "4250000000" }),
@@ -555,6 +579,8 @@ describe("queryOpenCodeZenQuota", () => {
     ["billing/account", () => json({ ...ACCOUNT, creditLimitMicroCents: "9".repeat(309) })],
     ["billing/auto-recharge", () => json({ ...AUTO_RECHARGE, enabled: "no" })],
     ["budgets/org", () => json([])],
+    ["budgets/org", () => json("none")],
+    ["budgets/org", () => json({ spentMicroCents: "0" })],
     ["budgets/org", () => json({ limitMicroCents: "abc", spentMicroCents: "0" })],
     ["budgets/org", () => json({ limitMicroCents: "6000000000", resetsAt: 7 })],
     ["usage/cost-by-day", () => json({ days: [] })],

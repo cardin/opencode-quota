@@ -139,7 +139,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(failed.active).toEqual([opencodeZenProvider]);
     expect(failed.data?.errors).toContainEqual({
-      label: "OpenCode",
+      label: "OpenCode Zen",
       message:
         "OpenCode Console sign-in failed: refresh_failed: boom. Run `opencode auth login opencode`.",
     });
@@ -167,7 +167,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(explicitNone.active).toEqual([opencodeZenProvider]);
     expect(explicitNone.data?.errors).toContainEqual({
-      label: "OpenCode",
+      label: "OpenCode Zen",
       message: "No OpenCode Console sign-in found. Run `opencode auth login opencode`.",
     });
   });

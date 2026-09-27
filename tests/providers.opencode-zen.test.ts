@@ -222,9 +222,9 @@ describe("opencode Zen provider", () => {
 
     const result = await opencodeZenProvider.fetch(context({ enabledProviders: ["opencode"] }));
 
-    expectAttemptedWithErrorLabel(result, "OpenCode");
+    expectAttemptedWithErrorLabel(result, "OpenCode Zen");
     expect(result.errors).toEqual([
-      { label: "OpenCode", message: `No OpenCode Console sign-in found. ${LOGIN_HINT}` },
+      { label: "OpenCode Zen", message: `No OpenCode Console sign-in found. ${LOGIN_HINT}` },
     ]);
     expect(result.statusDetails).toEqual([{ key: "console_auth_state", value: "none" }]);
     expect(mocks.queryOpenCodeZenQuota).not.toHaveBeenCalled();
@@ -239,10 +239,10 @@ describe("opencode Zen provider", () => {
 
     const result = await opencodeZenProvider.fetch(context());
 
-    expectAttemptedWithErrorLabel(result, "OpenCode");
+    expectAttemptedWithErrorLabel(result, "OpenCode Zen");
     expect(result.errors).toEqual([
       {
-        label: "OpenCode",
+        label: "OpenCode Zen",
         message: `OpenCode Console sign-in failed: refresh_failed: token [redacted] was rejected. ${LOGIN_HINT}`,
       },
     ]);
@@ -259,10 +259,10 @@ describe("opencode Zen provider", () => {
 
     const result = await opencodeZenProvider.fetch(context());
 
-    expectAttemptedWithErrorLabel(result, "OpenCode");
+    expectAttemptedWithErrorLabel(result, "OpenCode Zen");
     expect(result.errors).toEqual([
       {
-        label: "OpenCode",
+        label: "OpenCode Zen",
         message: `OpenCode Console sign-in failed: the sign-in expired. ${LOGIN_HINT}`,
       },
     ]);
@@ -281,7 +281,7 @@ describe("opencode Zen provider", () => {
 
     const result = await opencodeZenProvider.fetch(context());
 
-    expectAttemptedWithErrorLabel(result, "OpenCode");
+    expectAttemptedWithErrorLabel(result, "OpenCode Zen");
     expect(result.errors[0]?.message).toContain("opencode auth login opencode");
   });
 
@@ -514,8 +514,8 @@ describe("opencode Zen provider", () => {
     expect(result.attempted).toBe(true);
     expect(result.entries).toEqual([balanceEntry("primary")]);
     expect(result.errors).toEqual([
-      { label: "OpenCode", message: "OpenCode Console billing/auto-recharge error 500" },
-      { label: "OpenCode", message: "OpenCode Console usage/cost-by-day error 500" },
+      { label: "OpenCode Zen", message: "OpenCode Console billing/auto-recharge error 500" },
+      { label: "OpenCode Zen", message: "OpenCode Console usage/cost-by-day error 500" },
     ]);
     expect(result.statusDetails).toContainEqual({ key: "auto_reload", value: "(unknown)" });
     expect(result.statusDetails).toContainEqual({
@@ -544,7 +544,7 @@ describe("opencode Zen provider", () => {
       autoReloadEntry(),
     ]);
     expect(result.errors).toEqual([
-      { label: "OpenCode", message: "OpenCode Console billing/account error 500" },
+      { label: "OpenCode Zen", message: "OpenCode Console billing/account error 500" },
     ]);
   });
 

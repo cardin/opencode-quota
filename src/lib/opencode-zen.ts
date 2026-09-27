@@ -127,14 +127,21 @@ function parseMonthlyUsage(json: unknown, now: Date): number {
   return Number.isFinite(total) ? total : invalidResponse();
 }
 
-/** Parses the org budget; a null limit means the org has no budget configured. */
+/**
+ * Parses the org budget. The org has no budget configured when the Console returns
+ * `null`, an empty body, `{}`, or a null limit.
+ */
 function parseOrgBudget(json: unknown): {
   limitMicroCents: number | null;
   spentMicroCents: number | null;
   resetsAt: string | null;
 } {
+  if (json === null) return { limitMicroCents: null, spentMicroCents: null, resetsAt: null };
   const budget = asRecord(json);
   if (!budget) return invalidResponse();
+  if (Object.keys(budget).length === 0) {
+    return { limitMicroCents: null, spentMicroCents: null, resetsAt: null };
+  }
 
   const limitValue = budget.limitMicroCents;
   if (limitValue === undefined) return invalidResponse();
@@ -202,7 +209,9 @@ async function fetchConsoleRoute<T>(params: {
 
         const text = await response.text();
         try {
-          return { success: true, data: params.parse(JSON.parse(text)) };
+          // An empty body carries no value, so the route parser sees it as JSON null.
+          const json: unknown = text.trim() === "" ? null : JSON.parse(text);
+          return { success: true, data: params.parse(json) };
         } catch {
           return {
             success: false,
