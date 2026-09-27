@@ -80,12 +80,12 @@ function useConfig(overrides: Partial<typeof DEFAULT_CONFIG>): void {
   );
 }
 
-async function setupServer(sessionGet = vi.fn().mockResolvedValue({})) {
+async function setupServer(sessionGet = vi.fn().mockResolvedValue({}), directory = process.cwd()) {
   const { default: server } = await import("../src/plugin.js");
   const register = vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } }));
   const commands: RegisteredCommand[] = [];
   const ctx = {
-    location: { directory: process.cwd() },
+    location: { directory },
     provider: { list: vi.fn().mockResolvedValue({ data: [{ id: "copilot" }] }) },
     session: { get: sessionGet, wait: vi.fn(), prompt: vi.fn(), hook: vi.fn() },
     tool: { transform: vi.fn() },
@@ -375,5 +375,56 @@ describe("server quota RPC", () => {
 
     await expect(missing.call("surface", input)).resolves.toEqual(expected);
     expect(sessionGet).toHaveBeenCalledWith({ sessionID: "missing" });
+  });
+
+  it("computes quota for the location's project folder, not the service's working folder", async () => {
+    useConfig({
+      tuiCompactStatus: { enabled: true, homeBottom: true, sessionPrompt: false, maxWidth: 96 },
+    });
+    const workspaceRoots: string[] = [];
+    mocks.getProviders.mockReturnValue([
+      {
+        id: "copilot",
+        isAvailable: vi.fn().mockResolvedValue(true),
+        fetch: vi.fn(async (ctx: { workspaceRoot: string }) => {
+          workspaceRoots.push(ctx.workspaceRoot);
+          return {
+            attempted: true,
+            entries: [{ accounting: TEST_ACCOUNTING, name: "Copilot", percentRemaining: 81 }],
+            errors: [],
+          };
+        }),
+      },
+    ]);
+    const project = `${TEST_RUNTIME_ROOT}/project`;
+    const { call } = await setupServer(undefined, project);
+
+    await call("surface", { surface: "sidebar", sessionID: "session-1" });
+    await call("footer", { surface: "home" });
+    await call("command", { command: "quota", sessionID: "session-1" });
+    await call("cli", { command: "show" });
+
+    expect(workspaceRoots).toHaveLength(4);
+    expect(new Set(workspaceRoots)).toEqual(new Set([project]));
+    expect(project).not.toBe(process.cwd());
+  });
+
+  it("logs why a surface, footer or export RPC failed, without tokens, and still fails it", async () => {
+    const token = `eyJ${"a".repeat(24)}.${"b".repeat(24)}.${"c".repeat(24)}`;
+    mocks.loadConfig.mockRejectedValue(new Error(`config broke ${token}`));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { handlers } = await setupServer();
+
+    for (const [method, input] of [
+      ["surface", { surface: "sidebar", sessionID: "session-1" }],
+      ["footer", { surface: "home" }],
+      ["writeExport", {}],
+    ] as const) {
+      await expect(handlers[method](input, callContext)).rejects.toThrow("config broke");
+      expect(warn).toHaveBeenLastCalledWith(
+        `[opencode-quota] ${method} RPC failed: config broke [redacted]`,
+      );
+    }
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(token);
   });
 });

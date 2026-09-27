@@ -365,6 +365,11 @@ export interface QuotaProviderContext {
     };
   };
   resolveRuntimeProviderIds: RuntimeProviderIdResolver;
+  /**
+   * The project folder quota is computed for: the git root of the OpenCode location, or the
+   * location itself. The terminal command computes quota for the home folder.
+   */
+  workspaceRoot: string;
   config: {
     anthropicBinaryPath?: string;
     cursorPlan: CursorQuotaPlan;

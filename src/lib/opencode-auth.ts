@@ -142,6 +142,8 @@ export function formatCredentialDisplayNames(
 
 /** Cached auth maps keyed by the sorted integration id list and the method filter. */
 const authCache = new Map<string, AuthCacheEntry>();
+/** Changes when the cache is dropped, so a read started before that does not refill it. */
+let authCacheGeneration = 0;
 
 /**
  * The database OpenCode keeps its logins in, for diagnostics only (logins are
@@ -170,6 +172,7 @@ export function bindCredentialSource(source: CredentialSource): () => void {
 export function notifyCredentialsChanged(): void {
   credentialFailures.clear();
   authCache.clear();
+  authCacheGeneration += 1;
   lastListError = undefined;
 }
 
@@ -511,12 +514,16 @@ export async function readAuthFileCached(params: {
     return cached.inFlight;
   }
 
+  const generation = authCacheGeneration;
   const inFlight = (async () => {
     const value = await readAuthFile({
       integrationIds: params.integrationIds,
       methods: params.methods,
     });
-    authCache.set(cacheKey, { timestamp: Date.now(), value });
+    // A login change during the read may make this value stale: return it, but do not cache it.
+    if (generation === authCacheGeneration) {
+      authCache.set(cacheKey, { timestamp: Date.now(), value });
+    }
     return value;
   })();
 
@@ -539,4 +546,5 @@ export async function readAuthFileCached(params: {
 /** Test helper to clear cached auth state between test cases. */
 export function clearReadAuthFileCacheForTests(): void {
   authCache.clear();
+  authCacheGeneration += 1;
 }

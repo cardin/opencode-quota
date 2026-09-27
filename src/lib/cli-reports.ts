@@ -63,6 +63,7 @@ export async function buildCliShowText(params: {
     config,
     configMeta: runtime.configMeta,
     request: createQuotaRuntimeRequestContext(runtime),
+    workspaceRoot: runtime.roots.workspaceRoot,
     surfaceExplicitProviderIssues: true,
     formatStyle: resolveQuotaFormatStyle(config.formatStyle),
     providers: runtime.providers,

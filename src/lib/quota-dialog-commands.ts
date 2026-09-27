@@ -138,6 +138,7 @@ async function fetchQuotaCommandData(params: {
     config: runtime.config,
     configMeta: runtime.configMeta,
     request,
+    workspaceRoot: runtime.roots.workspaceRoot,
     surfaceExplicitProviderIssues: false,
     formatStyle: ALL_WINDOWS_FORMAT_STYLE,
     providers: runtime.providers,
@@ -307,7 +308,10 @@ export async function buildStatusReportData(params: {
   const providers = params.providerFilterId
     ? params.runtime.providers.filter((provider) => provider.id === params.providerFilterId)
     : params.runtime.providers;
-  const providerContext = createQuotaProviderRuntimeContext(params.runtime);
+  const providerContext = createQuotaProviderRuntimeContext({
+    ...params.runtime,
+    workspaceRoot: params.runtime.roots.workspaceRoot,
+  });
   const availability = await Promise.all(
     providers.map(async (p) => {
       let ok = false;
@@ -353,6 +357,7 @@ export async function buildStatusReportData(params: {
         config: runtimeConfig,
         configMeta: params.runtime.configMeta,
         request: createQuotaRuntimeRequestContext(params.runtime),
+        workspaceRoot: params.runtime.roots.workspaceRoot,
         providers: liveProbeProviders,
       });
     } catch (error) {
@@ -528,7 +533,10 @@ async function buildQuotaAnnouncementsCommandOutput(runtime: QuotaRuntimeContext
   if (runtime.config.enabled && runtime.config.maintainerAnnouncements.enabled) {
     const providerIds = await collectConcreteEnabledProviderIds({
       providers: runtime.providers,
-      ctx: createQuotaProviderRuntimeContext(runtime),
+      ctx: createQuotaProviderRuntimeContext({
+        ...runtime,
+        workspaceRoot: runtime.roots.workspaceRoot,
+      }),
       enabledProviders: runtime.config.enabledProviders,
     });
     const summary = getMaintainerAnnouncementsSummary({

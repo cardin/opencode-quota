@@ -54,6 +54,7 @@ const EXPORT_WINDOW_LABELS: Readonly<Record<AccountingWindow, string>> = {
 export function createExportProviderContext(runtime: QuotaRuntimeContext): QuotaProviderContext {
   return createQuotaProviderRuntimeContext({
     ...runtime,
+    workspaceRoot: runtime.roots.workspaceRoot,
     config: {
       ...runtime.config,
       onlyCurrentModel: false,

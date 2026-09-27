@@ -179,6 +179,7 @@ export async function resolveQuotaRenderSelection(params: {
   client: QuotaProviderContext["client"];
   config: QuotaToastConfig;
   request?: QuotaRequestContext;
+  workspaceRoot: string;
   configMeta?: Pick<LoadConfigMeta, "settingSources">;
   providers?: QuotaProvider[];
   resolveRuntimeProviderIds?: RuntimeProviderIdResolver;
@@ -197,6 +198,7 @@ export async function resolveQuotaRenderSelection(params: {
     configMeta: params.configMeta,
     resolveRuntimeProviderIds:
       params.resolveRuntimeProviderIds ?? createRuntimeProviderIdResolver(client),
+    workspaceRoot: params.workspaceRoot,
     session: {
       sessionMeta: {
         modelID: currentModel,
@@ -304,6 +306,7 @@ export async function collectQuotaStatusLiveProbes(params: {
   client: QuotaProviderContext["client"];
   config: QuotaToastConfig;
   request?: QuotaRequestContext;
+  workspaceRoot: string;
   configMeta?: Pick<LoadConfigMeta, "settingSources">;
   providers: QuotaProvider[];
   resolveRuntimeProviderIds?: RuntimeProviderIdResolver;
@@ -325,6 +328,7 @@ export async function collectQuotaStatusLiveProbes(params: {
     configMeta: params.configMeta,
     resolveRuntimeProviderIds:
       params.resolveRuntimeProviderIds ?? createRuntimeProviderIdResolver(params.client),
+    workspaceRoot: params.workspaceRoot,
     session: {
       sessionMeta: {
         modelID: currentModel,
@@ -459,6 +463,7 @@ export async function collectQuotaRenderData(params: {
   client: QuotaProviderContext["client"];
   config: QuotaToastConfig;
   request?: QuotaRequestContext;
+  workspaceRoot: string;
   surfaceExplicitProviderIssues: boolean;
   formatStyle?: QuotaFormatStyle;
   configMeta?: Pick<LoadConfigMeta, "settingSources">;

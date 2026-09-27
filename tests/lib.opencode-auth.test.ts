@@ -655,6 +655,31 @@ describe("readAuthFile and readAuthFileCached", () => {
     ).resolves.toEqual({ openai: { type: "oauth", access: "switched-access" } });
   });
 
+  it("does not cache a read that was in flight when the logins changed", async () => {
+    const openaiRow = (access: string) => ({
+      id: "cred_openai",
+      integrationId: "openai",
+      label: "default",
+      active: true,
+      value: { type: "oauth", access },
+    });
+    let releaseOldRead!: (rows: ReturnType<typeof openaiRow>[]) => void;
+    let rows = new Promise<ReturnType<typeof openaiRow>[]>((resolve) => {
+      releaseOldRead = resolve;
+    });
+    unbinds.push(bindCredentialSource({ readRows: () => rows }));
+
+    const oldRead = readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["openai"] });
+    notifyCredentialsChanged();
+    releaseOldRead([openaiRow("old-access")]);
+    await expect(oldRead).resolves.toEqual({ openai: { type: "oauth", access: "old-access" } });
+    rows = Promise.resolve([openaiRow("new-access")]);
+
+    await expect(
+      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["openai"] }),
+    ).resolves.toEqual({ openai: { type: "oauth", access: "new-access" } });
+  });
+
   it("shares one in-flight read per id list", async () => {
     bindFakeIntegration([
       keyCredential("deepseek", "cred_deepseek", { value: { type: "key", key: "deepseek-key" } }),

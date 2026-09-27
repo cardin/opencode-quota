@@ -114,6 +114,7 @@ export async function getQuotaMessage(
     config,
     configMeta: runtime.configMeta,
     request: createQuotaRuntimeRequestContext(runtime),
+    workspaceRoot: runtime.roots.workspaceRoot,
     surfaceExplicitProviderIssues: true,
     formatStyle,
     providers: runtime.providers,
@@ -247,7 +248,10 @@ async function getHomeAnnouncementText(runtime: QuotaRuntimeContext): Promise<st
   });
   const providerIds = await collectConcreteEnabledProviderIds({
     providers: announcementProviders,
-    ctx: createQuotaProviderRuntimeContext(runtime),
+    ctx: createQuotaProviderRuntimeContext({
+      ...runtime,
+      workspaceRoot: runtime.roots.workspaceRoot,
+    }),
     enabledProviders: runtime.config.enabledProviders,
   });
   const summary = getMaintainerAnnouncementsSummary({
@@ -308,6 +312,7 @@ export async function getQuotaFooter(
     config,
     configMeta: runtime.configMeta,
     request: createQuotaRuntimeRequestContext(runtime),
+    workspaceRoot: runtime.roots.workspaceRoot,
     surfaceExplicitProviderIssues: true,
     formatStyle: rootFormatStyle,
     providers: runtime.providers,

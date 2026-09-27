@@ -133,6 +133,7 @@ describe("quota surface data", () => {
       configMeta: {},
       providers: [],
       resolveRuntimeProviderIds: vi.fn(),
+      roots: { workspaceRoot: "/project", configRoot: "/project" },
       session: { sessionID: "session-1" },
     } as never);
     const collect = vi.spyOn(renderDataModule, "collectQuotaRenderData").mockImplementation(
@@ -205,6 +206,7 @@ describe("quota surface data", () => {
       configMeta: {},
       providers: [],
       resolveRuntimeProviderIds: vi.fn(),
+      roots: { workspaceRoot: "/project", configRoot: "/project" },
       session: { sessionID: "ses_1", sessionMeta: { modelID: "m", providerID: "p" } },
     } as never);
     const collect = vi.spyOn(renderDataModule, "collectQuotaRenderData").mockResolvedValue({
@@ -218,6 +220,7 @@ describe("quota surface data", () => {
     const params = collect.mock.calls[0][0];
     expect(params.config).toMatchObject({ onlyCurrentModel: false, showSessionTokens: false });
     expect(params.request).toEqual({ sessionID: undefined, sessionMeta: undefined });
+    expect(params.workspaceRoot).toBe("/project");
   });
 
   it("computes the count-only Home announcement from the enabled providers", async () => {

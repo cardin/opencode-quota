@@ -167,7 +167,8 @@ export const opencodeGoProvider: QuotaProvider = {
         ]);
       }
       // Console request failed; fall back to the legacy API-key path below
-      // and surface the console error in diagnostics.
+      // and surface the console error in diagnostics. Without an API key Go
+      // stays quiet: the sign-in works, only this request failed.
       const diagnostics = await getOpenCodeGoAuthDiagnostics({
         maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
       });
@@ -178,10 +179,7 @@ export const opencodeGoProvider: QuotaProvider = {
         { key: "go_source", value: "legacy_key" },
         { key: "selected_windows", value: windows.join(",") },
       ];
-      return await fetchOpenCodeGoLegacy(ctx, diagnostics, legacyStatusDetails, {
-        message: `OpenCode Console request failed: ${scrubCredentialErrorText(consoleResult.error)}`,
-        retryable: consoleResult.retryable,
-      });
+      return await fetchOpenCodeGoLegacy(ctx, diagnostics, legacyStatusDetails);
     }
 
     if (consoleAuth.state === "expired") {
@@ -214,7 +212,7 @@ export const opencodeGoProvider: QuotaProvider = {
           { key: "go_source", value: "legacy_key" },
           { key: "selected_windows", value: windows.join(",") },
         ],
-        { message: `OpenCode Console sign-in failed: ${consoleError}. ${CONSOLE_LOGIN_HINT}` },
+        `OpenCode Console sign-in failed: ${consoleError}. ${CONSOLE_LOGIN_HINT}`,
       );
     }
 
@@ -229,14 +227,14 @@ export const opencodeGoProvider: QuotaProvider = {
 };
 
 /**
- * The API-key path. `consoleFailure` is set when the Console sign-in or request
- * failed first; without an API key it becomes Go's one error row.
+ * The API-key path. `consoleSignInFailure` is set when OpenCode could not return
+ * the Console sign-in; without an API key it becomes Go's one error row.
  */
 async function fetchOpenCodeGoLegacy(
   ctx: QuotaProviderContext,
   diagnostics: OpenCodeGoAuthDiagnostics,
   statusDetails?: QuotaProviderResult["statusDetails"],
-  consoleFailure?: { message: string; retryable?: boolean },
+  consoleSignInFailure?: string,
 ): Promise<QuotaProviderResult> {
   const windows = ctx.config.opencodeGoWindows ?? OPENCODE_GO_WINDOW_ORDER;
   const baseStatusDetails = statusDetails ?? [];
@@ -246,11 +244,9 @@ async function fetchOpenCodeGoLegacy(
 
   if (auth.state === "none") {
     notSubscribedCredentialFingerprints.clear();
-    if (consoleFailure) {
+    if (consoleSignInFailure) {
       return withStatusDetails(
-        attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, consoleFailure.message, {
-          retryable: consoleFailure.retryable,
-        }),
+        attemptedErrorResult(OPENCODE_GO_PROVIDER_LABEL, consoleSignInFailure),
         baseStatusDetails,
       );
     }

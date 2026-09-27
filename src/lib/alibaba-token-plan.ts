@@ -122,7 +122,8 @@ export type AlibabaTokenPlanExecutableResolution =
 export type AlibabaTokenPlanRuntime = {
   platform?: NodeJS.Platform;
   pathEnv?: string;
-  cwd?: string;
+  /** The project folder quota is computed for. */
+  cwd: string;
   tmpdir?: string;
   homedir?: string;
   env?: NodeJS.ProcessEnv;
@@ -202,14 +203,30 @@ function stripPathQuotes(value: string): string {
   return trimmed;
 }
 
+/**
+ * The folder whose PATH entries and executables are not trusted: the project folder quota is
+ * computed for. For OpenCode opened at the home folder, and for the terminal command, that is
+ * the home folder. The home folder is not a project, so it gives none.
+ */
+function untrustedProjectFolder(params: {
+  cwd: string;
+  homedir?: string;
+  platform: NodeJS.Platform;
+}): string | null {
+  const paths = runtimePath(params.platform);
+  const cwd = paths.resolve(params.cwd);
+  return cwd === paths.resolve(params.homedir ?? homedir()) ? null : cwd;
+}
+
 export function listTrustedPathDirectories(params: {
   pathEnv: string | undefined;
   cwd: string;
+  homedir?: string;
   platform: NodeJS.Platform;
 }): string[] {
   const paths = runtimePath(params.platform);
   const delimiter = paths.delimiter;
-  const cwd = paths.resolve(params.cwd);
+  const projectFolder = untrustedProjectFolder(params);
   const trusted: string[] = [];
   const seen = new Set<string>();
 
@@ -219,7 +236,7 @@ export function listTrustedPathDirectories(params: {
     if (!paths.isAbsolute(entry)) continue;
 
     const resolved = paths.resolve(entry);
-    if (isPathInside(cwd, resolved, paths)) continue;
+    if (projectFolder !== null && isPathInside(projectFolder, resolved, paths)) continue;
     if (seen.has(resolved)) continue;
     seen.add(resolved);
     trusted.push(resolved);
@@ -254,7 +271,8 @@ async function fileLooksLikeExecutable(file: string): Promise<boolean> {
 
 export async function resolveAlibabaTokenPlanExecutable(params: {
   pathEnv?: string;
-  cwd?: string;
+  cwd: string;
+  homedir?: string;
   platform?: NodeJS.Platform;
 }): Promise<AlibabaTokenPlanExecutableResolution> {
   const platform = params.platform ?? process.platform;
@@ -263,10 +281,15 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
   }
 
   const paths = runtimePath(platform);
-  const cwd = paths.resolve(params.cwd ?? process.cwd());
+  const projectFolder = untrustedProjectFolder({
+    cwd: params.cwd,
+    homedir: params.homedir,
+    platform,
+  });
   const trusted = listTrustedPathDirectories({
     pathEnv: params.pathEnv ?? process.env.PATH,
-    cwd,
+    cwd: params.cwd,
+    homedir: params.homedir,
     platform,
   });
   if (trusted.length === 0) {
@@ -293,7 +316,7 @@ export async function resolveAlibabaTokenPlanExecutable(params: {
         sawShellLauncher = true;
         continue;
       }
-      if (isPathInside(cwd, resolved, paths)) {
+      if (projectFolder !== null && isPathInside(projectFolder, resolved, paths)) {
         return executableResolutionError("workspace_path_rejected");
       }
       return { ok: true, file: resolved };
@@ -590,31 +613,39 @@ function mapSpawnFailure(result: AlibabaTokenPlanSpawnResult): AlibabaTokenPlanC
   return parseAlibabaTokenPlanUsageJson(result.stdout.toString("utf8"));
 }
 
-export async function queryAlibabaTokenPlanQuota(
-  options: { requestTimeoutMs?: number; runtime?: AlibabaTokenPlanRuntime } = {},
-): Promise<AlibabaTokenPlanClosedResult> {
-  const runtime = options.runtime ?? {};
+export async function queryAlibabaTokenPlanQuota(options: {
+  requestTimeoutMs?: number;
+  runtime: AlibabaTokenPlanRuntime;
+}): Promise<AlibabaTokenPlanClosedResult> {
+  const runtime = options.runtime;
   const platform = runtime.platform ?? process.platform;
   if (!isAlibabaTokenPlanSupportedPlatform(platform)) {
     return fail("unsupported_platform");
   }
 
-  const cwd = runtimePath(platform).resolve(runtime.cwd ?? process.cwd());
+  const cwd = runtimePath(platform).resolve(runtime.cwd);
+  const home = runtime.homedir ?? homedir();
   const pathEnv = runtime.pathEnv ?? runtime.env?.PATH ?? process.env.PATH;
   const resolved = await resolveAlibabaTokenPlanExecutable({
     pathEnv,
     cwd,
+    homedir: home,
     platform,
   });
   if (!resolved.ok) {
     return { ok: false, error: resolved.error };
   }
 
-  const trustedDirectories = listTrustedPathDirectories({ pathEnv, cwd, platform });
+  const trustedDirectories = listTrustedPathDirectories({
+    pathEnv,
+    cwd,
+    homedir: home,
+    platform,
+  });
   const processCwd = resolveNonWorkspaceCwd({
     cwd,
     tmpdir: runtime.tmpdir ?? tmpdir(),
-    homedir: runtime.homedir ?? homedir(),
+    homedir: home,
     platform,
   });
   const env: NodeJS.ProcessEnv = {

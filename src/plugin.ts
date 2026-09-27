@@ -11,6 +11,7 @@ import {
   bindCredentialSource,
   createIntegrationCredentialSource,
   notifyCredentialsChanged,
+  scrubCredentialErrorText,
 } from "./lib/opencode-auth.js";
 import { reconcileDetectedProvidersInGlobalConfig } from "./lib/opencode-config-providers.js";
 import {
@@ -64,6 +65,24 @@ function withoutQuotaReports<M extends ModelMessage>(messages: M[]): M[] {
     );
     return [{ ...message, content }];
   });
+}
+
+/** An error as one line that is safe to log: tokens redacted, at most 120 characters. */
+function logReason(error: unknown): string {
+  return scrubCredentialErrorText(error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * Runs an RPC handler and logs its failure in the OpenCode service before rethrowing it.
+ * The client gets only OpenCode's `rpc.internal` error, so the reason shows only here.
+ */
+async function logRpcFailure<T>(method: string, handler: () => Promise<T>): Promise<T> {
+  try {
+    return await handler();
+  } catch (error) {
+    console.warn(`[opencode-quota] ${method} RPC failed: ${logReason(error)}`);
+    throw error;
+  }
 }
 
 export const QuotaToastPlugin = Plugin.define({
@@ -132,13 +151,18 @@ export const QuotaToastPlugin = Plugin.define({
     // Awaited so the plugin is active only once the RPC is registered: OpenCode waits for
     // activation before it routes an RPC call, so the first TUI call cannot miss it.
     await ctx.rpc.register(QuotaRpc, {
-      surface: async (input) => ({
-        quota: (await getQuotaMessage(surfaceHost, input.sessionID, input.surface)) ?? null,
-      }),
-      footer: async (input) => ({
-        lines: await getQuotaFooter(surfaceHost, input.sessionID, input.surface),
-      }),
-      writeExport: async () => ({ written: await writeQuotaExportIfEnabled(surfaceHost) }),
+      surface: (input) =>
+        logRpcFailure("surface", async () => ({
+          quota: (await getQuotaMessage(surfaceHost, input.sessionID, input.surface)) ?? null,
+        })),
+      footer: (input) =>
+        logRpcFailure("footer", async () => ({
+          lines: await getQuotaFooter(surfaceHost, input.sessionID, input.surface),
+        })),
+      writeExport: () =>
+        logRpcFailure("writeExport", async () => ({
+          written: await writeQuotaExportIfEnabled(surfaceHost),
+        })),
       command: async (input): Promise<QuotaRpcCommandOutput> => {
         try {
           return await buildOutput(input.command, input.sessionID, input.arguments, {
@@ -273,7 +297,8 @@ export const QuotaToastPlugin = Plugin.define({
       createIntegrationCredentialSource(ctx.integration),
     );
     // A login added, changed or switched in OpenCode drops cached logins and failed-login
-    // entries, so the next read asks OpenCode again.
+    // entries, so the next read asks OpenCode again. If the subscription fails, cached logins
+    // stay until they expire; the log says why. The cleanup's abort ends it silently.
     const credentialEvents = new AbortController();
     void (async () => {
       for await (const event of ctx.event.subscribe({ signal: credentialEvents.signal })) {
@@ -281,7 +306,10 @@ export const QuotaToastPlugin = Plugin.define({
           notifyCredentialsChanged();
         }
       }
-    })().catch(() => {});
+    })().catch((error) => {
+      if (credentialEvents.signal.aborted) return;
+      console.warn(`[opencode-quota] credential event subscription stopped: ${logReason(error)}`);
+    });
 
     return () => {
       credentialEvents.abort();

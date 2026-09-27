@@ -331,6 +331,62 @@ describe("alibaba token plan PATH trust", () => {
     expect(dirs).toEqual([trusted]);
   });
 
+  it("trusts PATH directories under the home folder when quota is computed for home", () => {
+    const home = "/home/user";
+    const pathEnv = [
+      "/home/user/.local/bin",
+      "/home/user/.nvm/versions/node/v22.0.0/bin",
+      "relative",
+      ".",
+      "..",
+      "/usr/bin",
+    ].join(":");
+
+    expect(
+      listTrustedPathDirectories({ platform: "linux", cwd: home, homedir: home, pathEnv }),
+    ).toEqual(["/home/user/.local/bin", "/home/user/.nvm/versions/node/v22.0.0/bin", "/usr/bin"]);
+  });
+
+  it("still ignores PATH directories inside a project folder under home", () => {
+    const pathEnv = "/home/user/project/node_modules/.bin:/home/user/.local/bin:/usr/bin";
+
+    expect(
+      listTrustedPathDirectories({
+        platform: "linux",
+        cwd: "/home/user/project",
+        homedir: "/home/user",
+        pathEnv,
+      }),
+    ).toEqual(["/home/user/.local/bin", "/usr/bin"]);
+  });
+
+  it("accepts a bl that resolves under home when quota is computed for home", async () => {
+    const target = "/home/user/.nvm/versions/node/v22.0.0/lib/node_modules/bailian-cli/bin/bl";
+    await mockExecutable("/opt/homebrew/bin/bl", target);
+
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "darwin",
+        cwd: "/home/user",
+        homedir: "/home/user",
+        pathEnv: "/opt/homebrew/bin",
+      }),
+    ).toEqual({ ok: true, file: target });
+  });
+
+  it("rejects a bl that resolves into a project folder under home", async () => {
+    await mockExecutable("/opt/homebrew/bin/bl", "/home/user/project/node_modules/.bin/bl");
+
+    expect(
+      await resolveAlibabaTokenPlanExecutable({
+        platform: "darwin",
+        cwd: "/home/user/project",
+        homedir: "/home/user",
+        pathEnv: "/opt/homebrew/bin",
+      }),
+    ).toMatchObject({ ok: false, error: { kind: "workspace_path_rejected" } });
+  });
+
   it.each([
     "bin",
     "..bin",
@@ -458,6 +514,27 @@ describe("alibaba token plan process boundary", () => {
     expect(requests[0]?.stdoutLimitBytes).toBe(ALIBABA_TOKEN_PLAN_STDOUT_LIMIT_BYTES);
     expect(requests[0]?.stderrLimitBytes).toBe(ALIBABA_TOKEN_PLAN_STDERR_LIMIT_BYTES);
     expect(requests[0]?.killGraceMs).toBe(ALIBABA_TOKEN_PLAN_KILL_GRACE_MS);
+  });
+
+  it("runs a bl from the home folder's PATH when quota is computed for home", async () => {
+    const bin = "/home/user/.local/bin";
+    await mockExecutable(`${bin}/bl`);
+    const requests: AlibabaTokenPlanSpawnRequest[] = [];
+    const result = await queryAlibabaTokenPlanQuota({
+      runtime: {
+        platform: "linux",
+        cwd: "/home/user",
+        homedir: "/home/user",
+        pathEnv: `${bin}:.`,
+        tmpdir: "/safe-tmp",
+        env: {},
+        spawn: capturedSpawn(requests),
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(requests[0]?.file).toBe(`${bin}/${ALIBABA_TOKEN_PLAN_COMMAND}`);
+    expect(requests[0]?.env.PATH).toBe(bin);
+    expect(requests[0]?.cwd).toBe("/safe-tmp");
   });
 
   it("uses the injected environment PATH when pathEnv is omitted", async () => {

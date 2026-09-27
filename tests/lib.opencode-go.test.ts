@@ -510,4 +510,27 @@ describe("queryOpenCodeGoConsoleStatus", () => {
       },
     );
   });
+
+  it.each([404, 403])("reads HTTP %s as no Go subscription", async (status) => {
+    mocks.fetchResponse.mockResolvedValueOnce({ ok: false, status });
+
+    await expect(queryOpenCodeGoConsoleStatus({ accessToken: "console-access" })).resolves.toEqual({
+      success: false,
+      error: `OpenCode Go subscription not found for this console account (${status})`,
+      notSubscribed: true,
+    });
+  });
+
+  it.each([
+    [401, false],
+    [500, true],
+  ])("keeps HTTP %s as a failed Console request", async (status, retryable) => {
+    mocks.fetchResponse.mockResolvedValueOnce({ ok: false, status });
+
+    await expect(queryOpenCodeGoConsoleStatus({ accessToken: "console-access" })).resolves.toEqual({
+      success: false,
+      error: `OpenCode Console API error ${status} (/api/go/status)`,
+      retryable,
+    });
+  });
 });

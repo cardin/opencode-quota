@@ -435,7 +435,7 @@ npm install -g bailian-cli
 bl auth login --console
 ```
 
-OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute directories on OpenCode's `PATH` that are outside its working folder. OpenCode's background service works in your home folder, so `bl` must live outside it (for example `/opt/homebrew/bin`, not `~/.local/bin` or an nvm folder). On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
+OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute directories on OpenCode's `PATH`. Relative entries are ignored, and so is anything inside the project folder quota is shown for, including a `bl` that links into it. Your home folder does not count as a project, so `~/.local/bin` and nvm folders work. On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
 
 Team plans, China-only `alibaba-token-plan-cn` runtimes, and cookie-based console scraping are out of scope. After you change the CLI's active console account, restart OpenCode or wait for the next live probe. `/quota_status` has an `alibaba_token_plan` live probe that stays separate from Alibaba Coding Plan diagnostics.
 
@@ -606,7 +606,7 @@ Project-local `opencode.json` and `opencode.jsonc` files are not read for this s
 
 ### OpenCode Go
 
-If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired or cannot be read, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. Without an API key, a failed sign-in or Console call shows as an OpenCode Go error. If the Console reports no Go subscription, no Go rows appear. OpenCode Quota automatically resolves the API key in this order:
+If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired or cannot be read, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. Without an API key, a sign-in OpenCode cannot return shows as an OpenCode Go error, and a failed Console call shows no Go quota (`/quota_status` lists `console_error`). If the Console reports no Go subscription (including HTTP 403 or 404), no Go rows appear. OpenCode Quota automatically resolves the API key in this order:
 
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`

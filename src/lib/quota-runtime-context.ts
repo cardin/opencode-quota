@@ -117,6 +117,7 @@ export function createQuotaProviderRuntimeContext(runtime: {
   config: QuotaToastConfig;
   session: QuotaRuntimeContext["session"];
   resolveRuntimeProviderIds: RuntimeProviderIdResolver;
+  workspaceRoot: string;
   configMeta?: Pick<LoadConfigMeta, "settingSources">;
   configureTelemetry?: boolean;
 }): QuotaProviderContext {
@@ -126,6 +127,7 @@ export function createQuotaProviderRuntimeContext(runtime: {
   return {
     client: runtime.client,
     resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
+    workspaceRoot: runtime.workspaceRoot,
     config: {
       anthropicBinaryPath: runtime.config.anthropicBinaryPath,
       cursorPlan: runtime.config.cursorPlan,

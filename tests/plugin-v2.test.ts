@@ -360,4 +360,43 @@ describe("V2 server plugin", () => {
     );
     await cleanup?.();
   });
+
+  it("logs why the credential event subscription stopped, without tokens", async () => {
+    const { ctx } = createContext();
+    const token = `eyJ${"a".repeat(24)}.${"b".repeat(24)}.${"c".repeat(24)}`;
+    const subscribe = vi.fn(() => ({
+      // biome-ignore lint/correctness/useYield: the stream fails before its first event
+      async *[Symbol.asyncIterator]() {
+        throw new Error(`event stream closed ${token}`);
+      },
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleanup = await plugin.setup({ ...ctx, event: { subscribe } } as never);
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        "[opencode-quota] credential event subscription stopped: event stream closed [redacted]",
+      ),
+    );
+    await cleanup?.();
+    warn.mockRestore();
+  });
+
+  it("stops the credential event subscription silently on cleanup", async () => {
+    const { ctx } = createContext();
+    const subscribe = vi.fn(({ signal }: { signal: AbortSignal }) => ({
+      async *[Symbol.asyncIterator]() {
+        await new Promise((resolve) => signal.addEventListener("abort", resolve));
+        throw new DOMException("This operation was aborted", "AbortError");
+      },
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleanup = await plugin.setup({ ...ctx, event: { subscribe } } as never);
+    await cleanup?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("credential event subscription");
+    warn.mockRestore();
+  });
 });

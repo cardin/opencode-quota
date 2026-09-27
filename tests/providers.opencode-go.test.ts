@@ -166,11 +166,13 @@ describe("opencode-go provider", () => {
     ]);
   });
 
-  it("reports a console not-subscribed state without errors", async () => {
+  it.each([
+    404, 403,
+  ])("reports a console not-subscribed state (%s) without errors", async (status) => {
     consoleConfigured();
     mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
       success: false,
-      error: "OpenCode Go subscription not found for this console account (404)",
+      error: `OpenCode Go subscription not found for this console account (${status})`,
       notSubscribed: true,
     });
 
@@ -273,11 +275,15 @@ describe("opencode-go provider", () => {
     expect(JSON.stringify(out)).not.toContain(jwt);
   });
 
-  it("shows the failed Console request as Go's error when there is no API key", async () => {
+  it.each([
+    ["a 5xx answer", "OpenCode Console API error 500 (/api/go/status)"],
+    ["a network failure", "fetch failed"],
+    ["a timeout", "Request timeout after 5s"],
+  ])("stays quiet after %s from the Console when there is no API key", async (_case, error) => {
     consoleConfigured();
     mocks.queryOpenCodeGoConsoleStatus.mockResolvedValueOnce({
       success: false,
-      error: "OpenCode Console API error 500 (/api/go/status)",
+      error,
       retryable: true,
     });
     mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValueOnce(diagnostics("none"));
@@ -286,17 +292,14 @@ describe("opencode-go provider", () => {
     const out = await runFetch();
 
     expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
-    expect(out.errors).toEqual([
-      {
-        label: "OpenCode Go",
-        message: "OpenCode Console request failed: OpenCode Console API error 500 (/api/go/status)",
-        retryable: true,
-      },
-    ]);
-    expect(out.statusDetails).toContainEqual({
-      key: "console_error",
-      value: "OpenCode Console API error 500 (/api/go/status)",
-    });
+    expectNotAttempted(out);
+    expect(out.errors).toEqual([]);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "console_auth_state", value: "configured" },
+        { key: "console_error", value: error },
+      ]),
+    );
   });
 
   it("stays quiet without a Console sign-in or an API key", async () => {

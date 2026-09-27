@@ -94,6 +94,24 @@ describe("alibaba-token-plan provider", () => {
     );
   });
 
+  it("probes bl for the project folder quota is computed for", async () => {
+    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
+    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
+      ok: true,
+      weekly: { percentRemaining: 60 },
+    });
+
+    await alibabaTokenPlanProvider.fetch({
+      workspaceRoot: "/home/user/project",
+      config: { requestTimeoutMs: 5000 },
+    } as never);
+
+    expect(queryAlibabaTokenPlanQuota).toHaveBeenLastCalledWith({
+      requestTimeoutMs: 5000,
+      runtime: { cwd: "/home/user/project" },
+    });
+  });
+
   it("returns a fixed attempted setup failure when the CLI is absent", async () => {
     const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
     vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
