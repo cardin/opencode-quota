@@ -111,26 +111,20 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "locally_derived",
     },
   ],
-  "qwen-code": [
-    {
-      resultType: "quota",
-      acquisitionMethod: "local_estimation",
-      ownership: "maintained",
-      authority: "locally_derived",
-    },
-    {
-      resultType: "rate_limit",
-      acquisitionMethod: "local_estimation",
-      ownership: "maintained",
-      authority: "locally_derived",
-    },
-  ],
   "alibaba-coding-plan": [
     {
       resultType: "quota",
       acquisitionMethod: "local_estimation",
       ownership: "maintained",
       authority: "locally_derived",
+    },
+  ],
+  "alibaba-token-plan": [
+    {
+      resultType: "quota",
+      acquisitionMethod: "local_cli",
+      ownership: "maintained",
+      authority: "provider_reported",
     },
   ],
   synthetic: [
@@ -142,14 +136,6 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
     },
   ],
   chutes: [
-    {
-      resultType: "quota",
-      acquisitionMethod: "remote_api",
-      ownership: "maintained",
-      authority: "provider_reported",
-    },
-  ],
-  "google-antigravity": [
     {
       resultType: "quota",
       acquisitionMethod: "remote_api",
@@ -219,7 +205,15 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "provider_reported",
     },
   ],
-  "kimi-for-coding": [
+  "kimi-code-plan-global": [
+    {
+      resultType: "quota",
+      acquisitionMethod: "remote_api",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+  ],
+  "kimi-code-plan-cn": [
     {
       resultType: "quota",
       acquisitionMethod: "remote_api",
@@ -274,19 +268,19 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
   opencode: [
     {
       resultType: "balance",
-      acquisitionMethod: "dashboard_scrape",
+      acquisitionMethod: "remote_api",
       ownership: "maintained",
       authority: "provider_reported",
     },
     {
       resultType: "budget",
-      acquisitionMethod: "dashboard_scrape",
+      acquisitionMethod: "remote_api",
       ownership: "maintained",
       authority: "locally_derived",
     },
     {
       resultType: "status",
-      acquisitionMethod: "dashboard_scrape",
+      acquisitionMethod: "remote_api",
       ownership: "maintained",
       authority: "provider_reported",
     },

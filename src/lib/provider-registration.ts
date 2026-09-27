@@ -18,7 +18,6 @@ export type QuotaProviderQuotaSource =
   | "local_cli_report";
 
 export interface QuotaProviderShapeSource {
-  lifecycle?: "deprecated";
   recommendedReplacementId?: string;
   autoSetup: QuotaProviderAutoSetup;
   authentication: QuotaProviderAuthentication;
@@ -115,19 +114,6 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
-    id: "qwen-code",
-    label: "Qwen",
-    runtimeIds: ["qwen-code"],
-    synonyms: ["qwen"],
-    liveLocalUsage: true,
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "local_estimation",
-      quickSetupAnchor: "qwen-code",
-    },
-  },
-  {
     id: "alibaba-coding-plan",
     label: "Alibaba Coding Plan",
     runtimeIds: ["alibaba-coding-plan"],
@@ -138,6 +124,18 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       authentication: "opencode_auth_api_key",
       authFallbacks: ["env_api_key", "global_opencode_config"],
       quota: "local_estimation",
+    },
+  },
+  {
+    id: "alibaba-token-plan",
+    label: "Alibaba Personal Token Plan",
+    runtimeIds: ["alibaba-token-plan"],
+    synonyms: [],
+    shape: {
+      autoSetup: "needs_quick_setup",
+      authentication: "local_cli_auth",
+      quota: "local_cli_report",
+      quickSetupAnchor: "alibaba-personal-token-plan",
     },
   },
   {
@@ -165,24 +163,11 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
-    id: "google-antigravity",
-    label: "Google",
-    runtimeIds: ["google-antigravity", "google", "antigravity"],
-    synonyms: [],
-    shape: {
-      autoSetup: "needs_quick_setup",
-      authentication: "companion_auth_oauth_token",
-      quota: "remote_api",
-      quickSetupAnchor: "google-antigravity",
-    },
-  },
-  {
     id: "google-gemini-cli",
     label: "Gemini CLI",
     runtimeIds: ["google-gemini-cli", "gemini-cli", "gemini", "opencode-gemini-auth", "google"],
     synonyms: ["gemini-cli", "google-gemini", "opencode-gemini-auth", "gemini"],
     shape: {
-      lifecycle: "deprecated",
       recommendedReplacementId: "google-agy",
       autoSetup: "needs_quick_setup",
       authentication: "companion_auth_oauth_token",
@@ -269,11 +254,23 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
-    id: "kimi-for-coding",
+    id: "kimi-code-plan-global",
     label: "Kimi Code",
+    runtimeIds: ["kimi-code-plan-global"],
+    synonyms: [],
+    shape: {
+      autoSetup: "yes",
+      authentication: "opencode_auth_api_key",
+      authFallbacks: ["env_api_key", "global_opencode_config"],
+      quota: "remote_api",
+    },
+  },
+  {
+    id: "kimi-code-plan-cn",
+    label: "Kimi Code (CN)",
     labelAliases: ["kimi-code"],
-    runtimeIds: ["kimi-for-coding", "kimi", "kimi-code"],
-    synonyms: ["kimi", "kimi-for-code", "kimi-code"],
+    runtimeIds: ["kimi-code-plan-cn", "kimi-for-coding", "kimi", "kimi-code"],
+    synonyms: ["kimi", "kimi-for-code", "kimi-code", "kimi-for-coding"],
     shape: {
       autoSetup: "yes",
       authentication: "opencode_auth_api_key",
@@ -346,7 +343,8 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       authentication: "state_only",
       quota: "remote_api",
       quickSetupAnchor: "opencode-zen",
-      notes: "Scrapes the OpenCode Zen billing page; requires workspaceId and authCookie",
+      notes:
+        "Reads the OpenCode Console billing and usage APIs using the active `opencode console login` session",
     },
   },
   {
@@ -359,7 +357,8 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       authentication: "opencode_auth_api_key",
       authFallbacks: ["env_api_key", "global_opencode_config"],
       quota: "remote_api",
-      notes: "Queries the Ollama Cloud usage API; reports session and weekly usage fractions",
+      notes:
+        "Queries the Ollama Cloud usage API; reports session, weekly, or monthly usage fractions",
     },
   },
   {

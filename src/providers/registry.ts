@@ -11,6 +11,7 @@ import {
   QUOTA_PROVIDER_REGISTRATION_SOURCE,
 } from "../lib/provider-registration.js";
 import { alibabaCodingPlanProvider } from "./alibaba-coding-plan.js";
+import { alibabaTokenPlanProvider } from "./alibaba-token-plan.js";
 import { anthropicProvider } from "./anthropic.js";
 import { PROVIDER_CACHE_POLICIES } from "./cache-policies.js";
 import { chutesProvider } from "./chutes.js";
@@ -18,10 +19,9 @@ import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";
 import { deepseekProvider } from "./deepseek.js";
 import { googleAgyProvider } from "./google-agy.js";
-import { googleAntigravityProvider } from "./google-antigravity.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
 import { kiloProvider } from "./kilo.js";
-import { kimiCodeProvider } from "./kimi-code.js";
+import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "./kimi-code.js";
 import { xiaomiProvider } from "./mimo.js";
 import {
   minimaxChinaCodingPlanProvider,
@@ -34,7 +34,6 @@ import { opencodeGoProvider } from "./opencode-go.js";
 import { opencodeZenProvider } from "./opencode-zen.js";
 import { openRouterProvider } from "./openrouter.js";
 import { quotaProvidersProvider } from "./quota-providers.js";
-import { qwenCodeProvider } from "./qwen-code.js";
 import { syntheticProvider } from "./synthetic.js";
 import { xaiProvider } from "./xai.js";
 import { zaiProvider } from "./zai.js";
@@ -47,11 +46,10 @@ const PROVIDERS_BY_ID = {
   openrouter: openRouterProvider,
   kilo: kiloProvider,
   cursor: cursorProvider,
-  "qwen-code": qwenCodeProvider,
   "alibaba-coding-plan": alibabaCodingPlanProvider,
+  "alibaba-token-plan": alibabaTokenPlanProvider,
   synthetic: syntheticProvider,
   chutes: chutesProvider,
-  "google-antigravity": googleAntigravityProvider,
   "google-gemini-cli": googleGeminiCliProvider,
   "google-agy": googleAgyProvider,
   zai: zaiProvider,
@@ -59,7 +57,8 @@ const PROVIDERS_BY_ID = {
   nanogpt: nanoGptProvider,
   "minimax-coding-plan": minimaxCodingPlanProvider,
   "minimax-china-coding-plan": minimaxChinaCodingPlanProvider,
-  "kimi-for-coding": kimiCodeProvider,
+  "kimi-code-plan-global": kimiCodePlanGlobalProvider,
+  "kimi-code-plan-cn": kimiCodePlanCnProvider,
   deepseek: deepseekProvider,
   xai: xaiProvider,
   xiaomi: xiaomiProvider,

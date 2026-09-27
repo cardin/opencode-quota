@@ -3,9 +3,8 @@
 import { Plugin } from "@opencode/plugin/tui";
 import type { RGBA } from "@opentui/core";
 import type { JSX } from "@opentui/solid";
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, Index, onCleanup, Show } from "solid-js";
 import {
-  formatDisplayedPercentLabel,
   formatQuotaModeHeading,
   formatResetCountdown,
   isResetTimeDecimals,
@@ -17,8 +16,6 @@ import {
   type QuotaDialogCommandId,
   type QuotaDialogCommandSpec,
 } from "./lib/quota-dialog-commands.js";
-import { extractSingleWindowWindowLabel } from "./lib/quota-entry-display.js";
-import { formatQuotaRunway } from "./lib/quota-exhaustion-projection.js";
 import type { SessionTokenError } from "./lib/quota-status.js";
 import { disposeQuotaTelemetryOwner } from "./lib/quota-telemetry.js";
 import type { TuiHost } from "./lib/tui-host.js";
@@ -39,6 +36,11 @@ import {
   shouldRenderHomeBottom,
   shouldRenderSidebarPanel,
 } from "./lib/tui-panel-state.js";
+import {
+  formatPromptBarPercentMeta,
+  PROMPT_BAR_WIDTH,
+  resolvePromptBarLabel,
+} from "./lib/tui-prompt-bar-format.js";
 import { createTuiRefreshLifecycle } from "./lib/tui-refresh-lifecycle.js";
 import {
   createTuiQuotaClient,
@@ -52,6 +54,7 @@ import {
   type TuiSurfaceRegistration,
   writeTuiQuotaExportIfEnabled,
 } from "./lib/tui-runtime.js";
+import { buildSidebarContentRows, type SidebarContentRow } from "./lib/tui-sidebar-content.js";
 import { startTuiToastRuntime } from "./lib/tui-toast-bridge.js";
 import type { TuiCommandDisplay } from "./lib/types.js";
 
@@ -379,33 +382,47 @@ function SidebarContentView(props: {
     return collapsed() ? lines() : getSidebarPanelLinesExpanded(panel());
   };
 
-  const toggleIcon = () => (collapsed() ? "▶" : "▼");
-  const providerCount = () => panel().providerCount ?? 0;
-  const headerText = () => {
+  const contentRows = (): SidebarContentRow[] => {
     const heading = panel().headerPercentMode
       ? formatQuotaModeHeading(panel().headerPercentMode)
       : "Quota";
-    return hasDetailLines() ? `${toggleIcon()} ${heading}` : heading;
+    return buildSidebarContentRows({
+      collapsed: collapsed(),
+      heading,
+      hasDetailLines: hasDetailLines(),
+      providerCount: panel().providerCount ?? 0,
+      lines: displayLines(),
+    });
   };
 
   return (
     <Show when={shouldRenderSidebarPanel(panel())}>
-      <box gap={0}>
-        <box flexDirection="row">
-          <text fg={props.host.theme.current.text} onMouseDown={toggleCollapsed}>
-            <b>{headerText()}</b>
-          </text>
-          <Show when={collapsed() && providerCount() > 0}>
-            <text fg={props.host.theme.current.textMuted}> ({providerCount()} providers)</text>
-          </Show>
-        </box>
-        <box gap={0}>
-          {displayLines().map((line) => (
-            <text fg={getSidebarBodyLineColor(line, props.host.theme.current)} wrapMode="none">
-              {line || " "}
+      <box gap={0} width="100%">
+        <Index each={contentRows()}>
+          {(row: () => SidebarContentRow) => (
+            <text
+              fg={
+                row().kind === "header"
+                  ? props.host.theme.current.text
+                  : getSidebarBodyLineColor(row().text, props.host.theme.current)
+              }
+              wrapMode="none"
+              width="100%"
+              onMouseDown={row().kind === "header" ? toggleCollapsed : undefined}
+            >
+              {row().kind === "header"
+                ? row().segments.map((segment) =>
+                    segment.style === "muted" ? (
+                      // @ts-expect-error -- SpanProps omits `fg`; TextNodeRenderable supports it at runtime.
+                      <span fg={props.host.theme.current.textMuted}>{segment.text}</span>
+                    ) : (
+                      <b>{segment.text}</b>
+                    ),
+                  )
+                : row().text || " "}
             </text>
-          ))}
-        </box>
+          )}
+        </Index>
       </box>
     </Show>
   );
@@ -453,8 +470,6 @@ function SessionCompactStatus(props: {
 
   return <CompactStatusLine host={props.host} panel={panel} justifyContent="flex-end" />;
 }
-
-const PROMPT_BAR_WIDTH = 12;
 
 function shouldRenderPromptBar(
   bar: PromptBarState,
@@ -511,31 +526,20 @@ function buildPromptBarParts(params: {
   if (!shouldRenderPromptBar(bar)) return undefined;
   const entry = bar.entry;
   if (!entry) return undefined;
-  const reset = entry.resetTimeIso
-    ? formatResetCountdown(
-        entry.resetTimeIso,
-        isResetTimeDecimals(bar.resetTimeDecimals)
-          ? { compactRounded: true, decimals: bar.resetTimeDecimals }
-          : { spaced: bar.resetTimeSpaced },
-      )
-    : "";
-  const runway = formatQuotaRunway(entry.runway);
 
   const hasPercent = Number.isFinite(entry.percentRemaining);
   if (entry.semanticSegment && !hasPercent) {
-    return { label: entry.semanticSegment, barText: "", meta: reset };
+    const reset = entry.resetTimeIso
+      ? formatResetCountdown(
+          entry.resetTimeIso,
+          isResetTimeDecimals(bar.resetTimeDecimals)
+            ? { compactRounded: true, decimals: bar.resetTimeDecimals }
+            : { spaced: bar.resetTimeSpaced },
+        )
+      : "";
+    return { label: resolvePromptBarLabel(entry), barText: "", meta: reset };
   }
 
-  const windowLabel =
-    entry.semanticSegment ??
-    extractSingleWindowWindowLabel(entry.label ?? "") ??
-    extractSingleWindowWindowLabel(entry.name ?? "") ??
-    "Quota";
-  const percent = formatDisplayedPercentLabel(
-    entry.percentRemaining ?? 0,
-    bar.percentDisplayMode ?? "remaining",
-    "bare",
-  );
   const p = Math.min(
     100,
     resolveDisplayedPercent(entry.percentRemaining ?? 0, bar.percentDisplayMode ?? "remaining"),
@@ -554,11 +558,16 @@ function buildPromptBarParts(params: {
     barText = cells.join("") + "░".repeat(empty);
   }
   return {
-    label: windowLabel,
+    label: resolvePromptBarLabel(entry),
     barText,
-    meta: entry.semanticSegment
-      ? [reset, runway ? `r/o ${runway}` : ""].filter(Boolean).join(" | ")
-      : [percent, reset, runway ? `r/o ${runway}` : ""].filter(Boolean).join(" | "),
+    meta: formatPromptBarPercentMeta({
+      percentRemaining: entry.percentRemaining ?? 0,
+      percentDisplayMode: bar.percentDisplayMode,
+      resetTimeIso: entry.resetTimeIso,
+      resetTimeDecimals: bar.resetTimeDecimals,
+      resetTimeSpaced: bar.resetTimeSpaced,
+      runway: entry.runway,
+    }),
   };
 }
 
@@ -727,12 +736,6 @@ function getCommandPromptCopy(spec: QuotaDialogCommandSpec): {
         title: "OpenCode Quota Token Range",
         placeholder: "YYYY-MM-DD YYYY-MM-DD",
         description: "Enter start and end dates, for example: 2026-01-01 2026-01-15",
-      };
-    case "quota_status":
-      return {
-        title: "OpenCode Quota Status Options",
-        placeholder: 'Optional JSON, e.g. {"refreshGoogleTokens":true}',
-        description: "Leave blank for normal diagnostics, or enter one JSON options object.",
       };
     default:
       return {

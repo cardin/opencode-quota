@@ -7,11 +7,14 @@ import { resolveChutesApiKey } from "../lib/chutes-config.js";
 import { resolveCopilotAuthIdentity } from "../lib/copilot.js";
 import { resolveDeepSeekApiKey } from "../lib/deepseek-auth.js";
 import type { QuotaProviderCachePolicy } from "../lib/entries.js";
-import { resolveGoogleAntigravityAuthIdentity } from "../lib/google.js";
 import { resolveGoogleAgyAuthIdentity } from "../lib/google-agy.js";
 import { resolveGeminiCliAuthIdentity } from "../lib/google-gemini-cli.js";
 import { resolveKiloApiKey } from "../lib/kilo-config.js";
-import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "../lib/kimi-auth.js";
+import {
+  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+  resolveKimiCnAuthCached,
+  resolveKimiGlobalAuthCached,
+} from "../lib/kimi-auth.js";
 import {
   DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
   resolveMimoConfigCached,
@@ -28,10 +31,7 @@ import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
   resolveOpenCodeGoAuthCached,
 } from "../lib/opencode-go-auth.js";
-import {
-  DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-  resolveOpenCodeZenConfigCached,
-} from "../lib/opencode-zen-config.js";
+import { resolveOpenCodeZenAccountCached } from "../lib/opencode-zen-config.js";
 import { resolveOpenRouterAuthIdentity } from "../lib/openrouter.js";
 import type { CanonicalQuotaProviderId } from "../lib/provider-registration.js";
 import type {
@@ -139,7 +139,7 @@ export const PROVIDER_CACHE_POLICIES = {
     return resolved ? { credential: resolved.key } : null;
   }),
   cursor: UNCACHED,
-  "qwen-code": UNCACHED,
+  "alibaba-token-plan": UNCACHED,
   "alibaba-coding-plan": resolvedCredentialPolicy("alibaba-coding-plan", async () => {
     const resolved = await resolveAlibabaCodingPlanAuthCached({
       maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
@@ -156,10 +156,6 @@ export const PROVIDER_CACHE_POLICIES = {
     const resolved = await resolveChutesApiKey();
     return resolved ? { credential: resolved.key } : null;
   }),
-  "google-antigravity": {
-    kind: "resolved-auth",
-    resolveIdentity: () => resolveGoogleAntigravityAuthIdentity(),
-  },
   "google-gemini-cli": {
     kind: "resolved-auth",
     resolveIdentity: (ctx) => resolveGeminiCliAuthIdentity(ctx.client),
@@ -198,9 +194,21 @@ export const PROVIDER_CACHE_POLICIES = {
       ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
       : null;
   }),
-  "kimi-for-coding": resolvedCredentialPolicy("kimi-for-coding", async () => {
-    const resolved = await resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS });
-    return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
+  "kimi-code-plan-global": resolvedCredentialPolicy("kimi-code-plan-global", async () => {
+    const resolved = await resolveKimiGlobalAuthCached({
+      maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+    });
+    return resolved.state === "configured"
+      ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
+      : null;
+  }),
+  "kimi-code-plan-cn": resolvedCredentialPolicy("kimi-code-plan-cn", async () => {
+    const resolved = await resolveKimiCnAuthCached({
+      maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+    });
+    return resolved.state === "configured"
+      ? { credential: resolved.apiKey, qualifiers: [resolved.endpoint] }
+      : null;
   }),
   deepseek: resolvedCredentialPolicy("deepseek", async () => {
     const resolved = await resolveDeepSeekApiKey();
@@ -223,15 +231,15 @@ export const PROVIDER_CACHE_POLICIES = {
     return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
   }),
   opencode: resolvedCredentialPolicy("opencode", async () => {
-    const resolved = await resolveOpenCodeZenConfigCached({
-      maxAgeMs: DEFAULT_OPENCODE_ZEN_CONFIG_CACHE_MAX_AGE_MS,
-    });
-    return resolved.state === "configured"
-      ? {
-          credential: resolved.config.workspaceId,
-          principalKind: "stable-id",
-        }
-      : null;
+    const resolved = await resolveOpenCodeZenAccountCached();
+    if (resolved.state !== "configured") return null;
+    // Org ids can collide across self-hosted Console URLs, so the cache
+    // identity is the (org id, console URL) tuple.
+    return {
+      credential: resolved.account.activeOrgId,
+      principalKind: "stable-id",
+      qualifiers: [resolved.account.baseUrl],
+    };
   }),
   "ollama-cloud": resolvedCredentialPolicy("ollama-cloud", async () => {
     const resolved = await resolveOllamaCloudApiKey();

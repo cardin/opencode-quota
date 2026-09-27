@@ -1,12 +1,18 @@
 import { lstat, readFile, realpath, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 
-import { writeTextAtomic } from "./atomic-json.js";
 import {
   type ConfigFileFormat,
   findGitWorktreeRoot,
   resolveExistingConfigPath,
 } from "./config-file-utils.js";
+import {
+  assertSameConfigWriteTarget,
+  ConfigWriteTargetError,
+  type ConfigWriteTargetSnapshot,
+  resolveConfigWriteTarget,
+  writeResolvedConfigText,
+} from "./config-write-target.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { editConfigDocumentPaths, parseConfigDocument } from "./opencode-config-editor.js";
 import {
@@ -26,7 +32,10 @@ import {
 } from "./scoped-update-migration.js";
 
 export const QUOTA_PACKAGE_NAME = "@cardinal4/opencode-quota";
-export const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
+// This fork is v5-only and requires OpenCode 2, so bare/latest/legacy specs pin to the v5 line.
+export const QUOTA_V4_SPEC = `${QUOTA_PACKAGE_NAME}@5`;
+const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
+const V4_PIN_REASON = "Pinned to @5 because this fork requires OpenCode 2.";
 const GITHUB_REPO_URL = "https://github.com/cardin/opencode-quota";
 
 const EXACT_SEMVER =
@@ -50,6 +59,7 @@ export interface ScopedUpdateConfigSnapshot {
   updated: string;
   changed: boolean;
   roles: ScopedUpdateConfigRole[];
+  writeTarget: ConfigWriteTargetSnapshot;
   migrationBoundary?: ScopedUpdateMigrationBoundary;
 }
 
@@ -59,7 +69,7 @@ export interface ScopedUpdatePlan {
   configPaths: string[];
   foundSpecs: string[];
   cacheCandidates: string[];
-  authoritativeLatest: boolean;
+  authoritativeV4: boolean;
   safeActions: ScopedUpdateSafeAction[];
   manualFindings: ScopedUpdateManualFinding[];
 }
@@ -81,9 +91,13 @@ export class ScopedUpdateError extends Error {
 }
 
 export function isCanonicalQuotaUpdateSpec(spec: string): boolean {
-  if (spec === QUOTA_PACKAGE_NAME || spec === QUOTA_LATEST_SPEC) return true;
+  if (spec === QUOTA_PACKAGE_NAME || spec === QUOTA_LATEST_SPEC || spec === QUOTA_V4_SPEC) {
+    return true;
+  }
   const prefix = `${QUOTA_PACKAGE_NAME}@`;
-  return spec.startsWith(prefix) && EXACT_SEMVER.test(spec.slice(prefix.length));
+  if (!spec.startsWith(prefix)) return false;
+  const version = spec.slice(prefix.length);
+  return EXACT_SEMVER.test(version) && Number(version.split(".")[0]) <= 5;
 }
 
 export function sanitizeOpenCodePackageSpec(
@@ -157,10 +171,10 @@ function updateConfig(
             : null;
       if (spec === null || !isCanonicalQuotaUpdateSpec(spec)) continue;
       specs.push(spec);
-      if (spec === QUOTA_LATEST_SPEC) continue;
+      if (spec === QUOTA_V4_SPEC) continue;
       const targetPath =
         typeof entry === "string" ? [...array.path, index] : [...array.path, index, 0];
-      edits.push({ path: targetPath, value: QUOTA_LATEST_SPEC });
+      edits.push({ path: targetPath, value: QUOTA_V4_SPEC });
       replacements++;
     }
   }
@@ -303,7 +317,6 @@ export async function planScopedUpdate(
     ...(await auditObsoleteUpdateSources({
       env,
       configDirs: runtime.configDirs,
-      primaryConfigDir: primaryRuntime.configDir,
     })),
   );
 
@@ -311,6 +324,15 @@ export async function planScopedUpdate(
   const configSnapshots: ScopedUpdateConfigSnapshot[] = [];
   for (const document of workingDocuments.values()) {
     const changed = document.updated !== document.original;
+    let writeTarget: ConfigWriteTargetSnapshot;
+    try {
+      writeTarget = await resolveConfigWriteTarget(document.path);
+    } catch (error) {
+      if (error instanceof ConfigWriteTargetError) {
+        throw new ScopedUpdateError(error.message, { path: document.path });
+      }
+      throw error;
+    }
     configSnapshots.push({
       path: document.path,
       originalBytes: document.originalBytes,
@@ -318,6 +340,7 @@ export async function planScopedUpdate(
       updated: document.updated,
       changed,
       roles: CONFIG_ROLE_ORDER.filter((role) => document.roles.has(role)),
+      writeTarget,
       ...(document.migrationBoundary ? { migrationBoundary: document.migrationBoundary } : {}),
     });
     if (changed) {
@@ -333,7 +356,7 @@ export async function planScopedUpdate(
   }
 
   const uniqueSpecs = [...new Set(foundSpecs)];
-  const cacheSpecs = [...new Set([...uniqueSpecs, QUOTA_LATEST_SPEC])];
+  const cacheSpecs = [...new Set([...uniqueSpecs, QUOTA_V4_SPEC])];
   const cacheCandidates = runtime.cacheDirs.flatMap((cacheDir) =>
     cacheSpecs.map((spec) =>
       join(cacheDir, "packages", sanitizeOpenCodePackageSpec(spec, params.platform)),
@@ -346,7 +369,7 @@ export async function planScopedUpdate(
     configPaths,
     foundSpecs: uniqueSpecs,
     cacheCandidates: [...new Set(cacheCandidates)],
-    authoritativeLatest: uniqueSpecs.length > 0,
+    authoritativeV4: uniqueSpecs.length > 0,
     safeActions: sortScopedUpdateSafeActions(safeActions),
     manualFindings: sortScopedUpdateManualFindings(manualFindings),
   };
@@ -397,7 +420,7 @@ function formatSafeAction(action: ScopedUpdateSafeAction): string {
   const path = displayUpdatePath(action.path);
   if (action.kind === "package-spec") {
     const noun = action.replacements === 1 ? "replacement" : "replacements";
-    return `  edit ${path} (${action.replacements} package ${noun})`;
+    return `  edit ${path} (${action.replacements} package ${noun} to ${QUOTA_V4_SPEC})`;
   }
 
   switch (action.outcome) {
@@ -413,17 +436,19 @@ function formatSafeAction(action: ScopedUpdateSafeAction): string {
 const OBSOLETE_GO_GUIDANCE =
   "OpenCode Go no longer uses this workspace/cookie source, and it cannot be converted into the official API key. Configure OPENCODE_API_KEY, trusted global provider.opencode-go.options.apiKey, fallback provider.opencode.options.apiKey, or run opencode auth login -p opencode-go. This updater will not read, copy, or delete credentials; remove the old variable/file manually after the supported key works.";
 
+const ZEN_CONSOLE_GUIDANCE =
+  "OpenCode Zen now uses the OpenCode Console session: run opencode console login (and opencode console switch to pick an organization), then verify with opencode-quota status.";
+
 function formatManualFinding(finding: ScopedUpdateManualFinding): string {
   switch (finding.kind) {
     case "obsolete-go-env":
       return `  ${finding.name}: ${OBSOLETE_GO_GUIDANCE}`;
     case "obsolete-go-file":
       return `  ${displayUpdatePath(finding.path)}: ${OBSOLETE_GO_GUIDANCE}`;
-    case "ambiguous-zen-env": {
-      const names = finding.names.join(" and ");
-      const suggestedPath = displayUpdatePath(finding.suggestedPath);
-      return `  ${names}: These environment names may be from an older OpenCode Zen setup, but they may also belong to OpenCode's workspace feature. Current quota code ignores them, and no supported global opencode-quota/opencode.json was found. Review the variables, then create and protect the supported file manually only if they are Zen credentials. Suggested path: ${suggestedPath}. This updater will not read, print, or move their values.`;
-    }
+    case "ambiguous-zen-env":
+      return `  ${finding.names.join(" and ")}: These environment names may be from an older OpenCode Zen setup, but they may also belong to OpenCode's workspace feature. Current quota code ignores them. ${ZEN_CONSOLE_GUIDANCE} If they held Zen credentials, remove them manually after Zen works; if they belong to OpenCode's workspace feature, leave them. This updater will not read, print, or move their values.`;
+    case "obsolete-zen-file":
+      return `  ${displayUpdatePath(finding.path)}: OpenCode Zen no longer reads this workspace/cookie file. ${ZEN_CONSOLE_GUIDANCE} This updater will not read, copy, or delete credentials; remove the old file manually after Zen works.`;
     case "display-migration-manual": {
       const path = displayUpdatePath(finding.path);
       switch (finding.reason) {
@@ -466,7 +491,7 @@ export function formatScopedUpdatePreview(plan: ScopedUpdatePlan): string[] {
     lines.push(...plan.manualFindings.map(formatManualFinding));
   }
 
-  if (plan.authoritativeLatest && plan.cacheCandidates.length > 0) {
+  if (plan.authoritativeV4 && plan.cacheCandidates.length > 0) {
     lines.push("", "Package-cache candidates (removed only after verification):");
     lines.push(...plan.cacheCandidates.map((path) => `  ${displayUpdatePath(path)}`));
   }
@@ -489,7 +514,7 @@ export async function applyScopedUpdatePlan(
   }
 
   const readBytes = options.readBytes ?? ((path: string) => readFile(path));
-  const writeText = options.writeText ?? writeTextAtomic;
+  const writeText = options.writeText;
   const writtenPaths: string[] = [];
   const failure = (action: string, path: string): ScopedUpdateError => {
     const changed =
@@ -506,9 +531,20 @@ export async function applyScopedUpdatePlan(
   };
 
   for (const snapshot of plan.configSnapshots) {
+    try {
+      assertSameConfigWriteTarget(
+        snapshot.writeTarget,
+        await resolveConfigWriteTarget(snapshot.path),
+      );
+    } catch (error) {
+      if (error instanceof ConfigWriteTargetError) {
+        throw failure("Config write target changed since preview:", snapshot.path);
+      }
+      throw error;
+    }
     let current: Buffer;
     try {
-      current = await readBytes(snapshot.path);
+      current = await readBytes(snapshot.writeTarget.writePath);
     } catch {
       throw failure("Failed reading", snapshot.path);
     }
@@ -519,9 +555,19 @@ export async function applyScopedUpdatePlan(
 
   for (const snapshot of plan.configSnapshots) {
     if (!snapshot.changed) continue;
+    let currentTarget: ConfigWriteTargetSnapshot;
+    try {
+      currentTarget = await resolveConfigWriteTarget(snapshot.path);
+      assertSameConfigWriteTarget(snapshot.writeTarget, currentTarget);
+    } catch (error) {
+      if (error instanceof ConfigWriteTargetError) {
+        throw failure("Config write target changed since preview:", snapshot.path);
+      }
+      throw error;
+    }
     let current: Buffer;
     try {
-      current = await readBytes(snapshot.path);
+      current = await readBytes(currentTarget.writePath);
     } catch {
       throw failure("Failed re-reading before write", snapshot.path);
     }
@@ -536,7 +582,7 @@ export async function applyScopedUpdatePlan(
           rootDir: snapshot.migrationBoundary.rootDir,
           expectedRealPath: snapshot.migrationBoundary.realPath,
           expectedRealRoot: snapshot.migrationBoundary.realRoot,
-          writePath: snapshot.path,
+          writePath: currentTarget.writePath,
         });
       } catch {
         throw failure("Failed revalidating migration boundary for", snapshot.path);
@@ -546,7 +592,11 @@ export async function applyScopedUpdatePlan(
       }
     }
     try {
-      await writeText(snapshot.path, snapshot.updated);
+      if (writeText) {
+        await writeText(currentTarget.writePath, snapshot.updated);
+      } else {
+        await writeResolvedConfigText(currentTarget, snapshot.updated);
+      }
       writtenPaths.push(snapshot.path);
     } catch {
       throw failure("Failed writing", snapshot.path);
@@ -565,11 +615,11 @@ export async function applyScopedUpdatePlan(
     });
   }
 
-  let authoritativeLatest = false;
+  let authoritativeV4 = false;
   for (const snapshot of plan.configSnapshots) {
     let current: Buffer;
     try {
-      current = await readBytes(snapshot.path);
+      current = await readBytes(snapshot.writeTarget.writePath);
     } catch {
       throw failure("Failed re-reading", snapshot.path);
     }
@@ -578,12 +628,12 @@ export async function applyScopedUpdatePlan(
     }
     if (!snapshot.roles.includes("package-authority")) continue;
     const currentPlan = updateConfig(current.toString("utf8"), snapshot.path);
-    if (currentPlan.specs.includes(QUOTA_LATEST_SPEC)) authoritativeLatest = true;
+    if (currentPlan.specs.includes(QUOTA_V4_SPEC)) authoritativeV4 = true;
   }
 
   const removedCachePaths: string[] = [];
   const skippedCachePaths: string[] = [];
-  if (authoritativeLatest) {
+  if (authoritativeV4) {
     for (const candidate of plan.cacheCandidates) {
       const result = await removeVerifiedCacheCandidate(candidate);
       (result === "removed" ? removedCachePaths : skippedCachePaths).push(candidate);
@@ -615,7 +665,7 @@ export async function runScopedUpdateCommand(
     for (const line of formatScopedUpdatePreview(plan)) log(line);
 
     const hasConfigChanges = plan.configSnapshots.some((snapshot) => snapshot.changed);
-    const hasAutomaticWork = hasConfigChanges || plan.authoritativeLatest;
+    const hasAutomaticWork = hasConfigChanges || plan.authoritativeV4;
 
     if (dryRun) {
       log(
@@ -656,6 +706,7 @@ export async function runScopedUpdateCommand(
 
     const result = await applyScopedUpdatePlan(plan);
     for (const path of result.writtenPaths) log(`Updated ${displayUpdatePath(path)}`);
+    if (plan.safeActions.some((action) => action.kind === "package-spec")) log(V4_PIN_REASON);
     for (const path of result.removedCachePaths) log(`Removed ${displayUpdatePath(path)}`);
     for (const path of result.skippedCachePaths) {
       log(`Skipped unverified cache candidate ${displayUpdatePath(path)}`);

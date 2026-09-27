@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { isolatedGitEnv } from "./helpers/isolated-git-env.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageScript = fileURLToPath(
@@ -29,12 +31,12 @@ function run(script: string, args: string[] = [], env: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, [script, ...args], {
     cwd: repoRoot,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: { ...isolatedGitEnv(), ...env },
   });
 }
 
 function git(cwd: string, args: string[]): string {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", env: isolatedGitEnv() });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
   }
@@ -75,6 +77,12 @@ async function createHistoryRepo(root: string): Promise<string> {
   git(root, ["config", "user.name", "Release Gate Test"]);
   git(root, ["config", "user.email", "release-gate@example.invalid"]);
   await writeFile(path.join(root, "README.md"), "allowed\n", "utf8");
+  await mkdir(path.join(root, "images"), { recursive: true });
+  await writeFile(
+    path.join(root, "images/opencode-quota-logo-dark.svg"),
+    "public image fixture\n",
+    "utf8",
+  );
   await writeFile(
     path.join(root, ".gitignore"),
     [
@@ -88,14 +96,14 @@ async function createHistoryRepo(root: string): Promise<string> {
       "/references/*",
       "/prompt-exports/",
       "/opencode-quota/",
-      "/images/",
+      "/local-live-tests/",
       "opencode.json",
       "tui.json",
       "",
     ].join("\n"),
     "utf8",
   );
-  git(root, ["add", "README.md", ".gitignore"]);
+  git(root, ["add", "README.md", ".gitignore", "images/opencode-quota-logo-dark.svg"]);
   git(root, ["commit", "-qm", "base"]);
   return git(root, ["rev-parse", "HEAD"]);
 }
@@ -128,6 +136,41 @@ describe("v4 release gates", () => {
     expect(history.stdout).toContain("V4 history privacy verified");
   });
 
+  it("keeps temp-repo git away from the repository named by a git hook's GIT_DIR", async () => {
+    const hookRepo = path.join(tempDir, "hook-repo");
+    await mkdir(hookRepo);
+    git(hookRepo, ["init", "-q"]);
+    git(hookRepo, [
+      "-c",
+      "user.name=Hook Repo",
+      "-c",
+      "user.email=hook-repo@example.invalid",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "hook repo head",
+    ]);
+    const hookRepoHead = git(hookRepo, ["rev-parse", "HEAD"]);
+    const hookGitDir = path.join(hookRepo, ".git");
+
+    vi.stubEnv("GIT_DIR", hookGitDir);
+    vi.stubEnv("GIT_INDEX_FILE", path.join(hookGitDir, "index"));
+    const historyRepo = path.join(tempDir, "history-under-hook");
+    const base = await createHistoryRepo(historyRepo);
+    const history = run(historyScript, [], {
+      V4_HISTORY_BASE: base,
+      V4_HISTORY_REPO: historyRepo,
+    });
+    vi.unstubAllEnvs();
+
+    expect(history.status).toBe(0);
+    expect(git(historyRepo, ["log", "-1", "--format=%H %s"])).toBe(`${base} base`);
+    expect(git(hookRepo, ["rev-parse", "HEAD"])).toBe(hookRepoHead);
+    expect(git(hookRepo, ["config", "--get", "core.bare"])).toBe("false");
+    expect(git(hookRepo, ["config", "--local", "--list"])).not.toContain("user.");
+    expect(git(hookRepo, ["ls-files"])).toBe("");
+  });
+
   it("rejects every forced-added private path from temporary commit history", async () => {
     const historyRepo = path.join(tempDir, "history");
     const base = await createHistoryRepo(historyRepo);
@@ -154,6 +197,9 @@ describe("v4 release gates", () => {
       "prompt-exports/session.md",
       "opencode-quota/auth.json",
       "images/private-smoke.png",
+      "local-live-tests/google-agy/account.json",
+      "local-live-tests/openai/account.json",
+      "local-live-tests/notes.txt",
       "opencode.json",
       "tui.json",
     ];
@@ -218,8 +264,12 @@ describe("v4 release gates", () => {
       "opencode-quota/auth.json",
       "tests/package-manifest.test.ts",
       "scripts/verify-release-version.mjs",
-      "opencode-quota-logo-dark.svg",
-      "opencode-quota-logo-light.svg",
+      "images/opencode-quota-logo-dark.svg",
+      "images/opencode-quota-logo-light.svg",
+      "images/opencode-quota_opencode-quota-sidebar.webp",
+      "images/opencode-quota_opencode-quota-statusbar.webp",
+      "images/opencode-quota_opencode-quota-toast.webp",
+      "images/opencode-quota_opencode-quota-tokens-command.webp",
     ];
     const manifestPath = path.join(tempDir, "forbidden.json");
     await writeFile(

@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isolatedGitEnv, stubIsolatedGitEnv } from "./helpers/isolated-git-env.js";
+
 const execFileAsync = promisify(execFile);
 
 const testState = vi.hoisted(() => ({
@@ -35,12 +37,12 @@ describe("upstream-plugin-lock", () => {
       `${JSON.stringify(
         {
           plugins: {
-            "opencode-antigravity-auth": {
-              npmUrl: "https://www.npmjs.com/package/opencode-antigravity-auth/v/1.0.0",
-              packageName: "opencode-antigravity-auth",
+            "opencode-gemini-auth": {
+              npmUrl: "https://www.npmjs.com/package/opencode-gemini-auth/v/1.0.0",
+              packageName: "opencode-gemini-auth",
               publishedAt: "2026-03-01T00:00:00.000Z",
-              referenceDir: "references/upstream-plugins/opencode-antigravity-auth",
-              repo: "NoeFabris/opencode-antigravity-auth",
+              referenceDir: "references/upstream-plugins/opencode-gemini-auth",
+              repo: "jenslys/opencode-gemini-auth",
               version: "1.0.0",
             },
           },
@@ -72,9 +74,10 @@ describe("upstream-plugin-lock", () => {
       `${JSON.stringify({ plugins: { "opencode-cursor-oauth": previousEntry } }, null, 2)}\n`,
       "utf8",
     );
-    await execFileAsync("git", ["init"], { cwd: testState.repoRoot });
+    await execFileAsync("git", ["init"], { cwd: testState.repoRoot, env: isolatedGitEnv() });
     await execFileAsync("git", ["add", "references/upstream-plugins/lock.json"], {
       cwd: testState.repoRoot,
+      env: isolatedGitEnv(),
     });
     await execFileAsync(
       "git",
@@ -89,7 +92,7 @@ describe("upstream-plugin-lock", () => {
         "-m",
         "baseline",
       ],
-      { cwd: testState.repoRoot },
+      { cwd: testState.repoRoot, env: isolatedGitEnv() },
     );
 
     const currentEntry = {
@@ -110,6 +113,8 @@ describe("upstream-plugin-lock", () => {
     const { buildChangedPluginSummaries } = await import(
       "../scripts/lib/upstream-plugin-review.mjs"
     );
+    // readCommittedUpstreamPluginLock runs `git show` with the inherited process.env.
+    stubIsolatedGitEnv();
     const committedLock = await readCommittedUpstreamPluginLock({
       repositoryRoot: testState.repoRoot,
       lockPath,
@@ -140,12 +145,12 @@ describe("upstream-plugin-lock", () => {
           repo: "PoolPirate/opencode-cursor",
           version: "2.0.0",
         },
-        "opencode-antigravity-auth": {
-          npmUrl: "https://www.npmjs.com/package/opencode-antigravity-auth/v/2.0.0",
-          packageName: "opencode-antigravity-auth",
+        "opencode-gemini-auth": {
+          npmUrl: "https://www.npmjs.com/package/opencode-gemini-auth/v/2.0.0",
+          packageName: "opencode-gemini-auth",
           publishedAt: "2026-03-20T00:00:00.000Z",
-          referenceDir: "references/upstream-plugins/opencode-antigravity-auth",
-          repo: "NoeFabris/opencode-antigravity-auth",
+          referenceDir: "references/upstream-plugins/opencode-gemini-auth",
+          repo: "jenslys/opencode-gemini-auth",
           version: "2.0.0",
         },
       },

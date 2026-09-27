@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("solid-js", () => ({
   Show: (props: { children?: unknown }) => props.children,
+  Index: (props: { children?: unknown }) => props.children,
   createEffect: vi.fn(),
   createSignal: <T>(value: T) => [() => value, vi.fn()],
   onCleanup: vi.fn(),
@@ -49,6 +50,9 @@ describe("tui dist packaging", () => {
     expect(source).toContain("prompt.footer");
     expect(source).toContain("home.footer");
     expect(source).toContain('from "@opencode/plugin/tui"');
+    expect(source).toContain("buildSidebarContentRows");
+    expect(source).toContain("Index");
+    expect(source).not.toContain("displayLines().map");
     expect(source).toContain("loadTuiSessionQuotaSurfaces");
     expect(source).toContain("resolveTuiSurfaceRegistration");
     expect(source).toContain("TuiQuotaPlugin");

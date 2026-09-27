@@ -146,3 +146,65 @@ console.log("source:", (await getOpenCodeGoAuthDiagnostics({ maxAgeMs: 0 })).sou
 
 Expected: `state: configured`, key prefix `oc_`, `quota: 200`, and source
 `opencode.db` (after #196) or `opencode.credentials` (current fork patch).
+
+---
+
+# Merge 4.10.5 into the fork (`merge/upstream-4.10.5`)
+
+Merged `upstream/main` at `9ce7bcf` (`chore(release): sync package version to 4.10.5`),
+51 commits ahead of the previous sync `a26c8ff`. 28 conflicts across 26 files were
+resolved.
+
+## Correction to the premise above
+
+The section above predicted upstream PR #196 would move provider auth to
+`opencode.db`. That **never landed**. As of `9ce7bcf`:
+
+- `src/lib/opencode-auth.ts` still reads `auth.json` (`getAuthPaths`,
+  `readAuthFile`); there is no credential-table reader.
+- `opencode.db` appears only in `opencode-storage.ts` for session/message storage.
+- `api-key-resolver.ts` has no credential-DB integration.
+
+So the fork **keeps** `src/lib/opencode-credential-store.ts` and its layered
+v2-first resolver (`opencode.db` credential store → `auth.json` fallback). The
+`| OpenCodeCredentialSource` unions and `…AuthSource` aliases stay in the auth
+modules; upstream's `kimi-auth.ts` endpoint refactor was adopted and the union
+was re-added on top.
+
+## What upstream changed in this range
+
+- **Breaking removals:** Google Antigravity and Qwen Code providers were removed
+  (17 files). The fork adopted the removals: deleted the provider/module/tests,
+  dropped them from docs and the package description, and switched the ~12
+  references to Alibaba Coding Plan / Google AGY.
+- OpenCode Zen → Console CLI auth; new Alibaba token-plan provider; TUI V2
+  stabilization (sidebar content rows, prompt bar); updater now pins OpenCode 1
+  installs to upstream's `@4` line.
+- Upstream still targets OpenCode 1 (`@opencode-ai/plugin` 1.x); the fork's
+  OpenCode 2 port (`@opencode/plugin` 2.x) remains the differentiator.
+
+## Fork-specific resolution
+
+- **Package identity:** `@cardinal4/opencode-quota`, version `5.1.0`, no
+  `@opencode-ai/plugin` peer, no `oc-plugin` field.
+- **Updater pin:** `isCanonicalQuotaUpdateSpec` accepts major `<= 5` and
+  `QUOTA_V4_SPEC` is `${QUOTA_PACKAGE_NAME}@5`; the reason string is
+  `Pinned to @5 because this fork requires OpenCode 2.` (the fork publishes no
+  `@4` line).
+- **V2 API shape won in `plugin.ts`/`tui.tsx`/`tui-runtime.ts`;** upstream's
+  logic/features were folded in. `quota_status` no longer takes arguments
+  (matching upstream), so its V2 JSON-schema input is empty.
+- **`src/tui.tsx` sidebar** keeps upstream's `text`/`b`/`span` tree; the
+  `span`'s runtime-supported `fg` is missing from `@opentui`'s `SpanProps`, so a
+  single `@ts-expect-error` documents it rather than restoring the removed V1 shim.
+- **Docs:** upstream content plus fork notice, `@cardinal4` badges/links, local
+  logos, `OpenCode >= 2.0.7`, and bare package specs (no `@4`/`@3`).
+- **Test robustness:** `tests/lib.alibaba-token-plan.test.ts`'s POSIX
+  process-group test raised its spawned-command `timeoutMs` from 80 to 400 so a
+  loaded CI box can install the child's SIGTERM handler before the grace window.
+
+## Verification
+
+`pnpm verify` passes (check, typescript-version, v4-history, typecheck, build,
+full vitest suite, four-surface suite, package contents). `pnpm test`:
+199 files / 2574 passing, 1 skipped.

@@ -5,7 +5,7 @@
 The guided installer is easier and safer:
 
 ```bash
-npx @cardinal4/opencode-quota@latest init
+npx @cardinal4/opencode-quota init
 ```
 
 Use this guide only if you want to edit OpenCode files yourself.
@@ -111,8 +111,8 @@ See [Configuration](configuration.md) for more examples and every setting.
 Close OpenCode, preview the update, then apply it:
 
 ```bash
-npx @cardinal4/opencode-quota@latest update --dry-run
-npx @cardinal4/opencode-quota@latest update
+npx @cardinal4/opencode-quota update --dry-run
+npx @cardinal4/opencode-quota update
 ```
 
 The updater preserves unrelated settings, comments, and plugins where targeted editing is safe. Its preview can include recognized file-backed display migration and report-only credential findings; it never moves or deletes secrets. Restart OpenCode when it finishes. See [Updating safely](updating.md) for the complete workflow.

@@ -9,7 +9,6 @@ import {
   createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  createQwenAuthModuleMock,
   createSessionTokensModuleMock,
   getSyntheticText,
   seedDefaultPluginBootstrapMocks,
@@ -25,13 +24,11 @@ const mocks = vi.hoisted(() => ({
   getRuntimePricingSnapshotPath: vi.fn(),
   setPricingSnapshotAutoRefresh: vi.fn(),
   setPricingSnapshotSelection: vi.fn(),
-  resolveQwenLocalPlanCached: vi.fn(),
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
   collectQuotaStatusLiveProbes: vi.fn(),
   buildQuotaStatusReport: vi.fn(),
   inspectTuiConfig: vi.fn(),
-  refreshGoogleTokensForAllAccounts: vi.fn(),
 }));
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
@@ -44,10 +41,6 @@ vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks))
 
 vi.mock("../src/lib/session-tokens.js", () =>
   createSessionTokensModuleMock(mocks.fetchSessionTokensForDisplay),
-);
-
-vi.mock("../src/lib/qwen-auth.js", () =>
-  createQwenAuthModuleMock(mocks.resolveQwenLocalPlanCached),
 );
 
 vi.mock("../src/lib/alibaba-auth.js", () =>
@@ -68,10 +61,6 @@ vi.mock("../src/lib/quota-status.js", () => ({
 
 vi.mock("../src/lib/tui-config-diagnostics.js", () => ({
   inspectTuiConfig: mocks.inspectTuiConfig,
-}));
-
-vi.mock("../src/lib/google.js", () => ({
-  refreshGoogleTokensForAllAccounts: mocks.refreshGoogleTokensForAllAccounts,
 }));
 
 async function setupPlugin() {
@@ -104,7 +93,6 @@ describe("/quota_status command behavior", () => {
       resetPluginState: true,
     });
     mocks.inspectTuiConfig.mockResolvedValue(createPluginTuiConfigInspection(process.cwd()));
-    mocks.refreshGoogleTokensForAllAccounts.mockResolvedValue({ attempted: false });
     mocks.collectQuotaStatusLiveProbes.mockResolvedValue([
       {
         providerId: "openai",
@@ -277,7 +265,6 @@ describe("/quota_status command behavior", () => {
         workspaceConfigPaths: [],
         settingSources: {},
         configIssues: [],
-        googleModels: ["CLAUDE"],
         providerLiveProbes: [
           {
             providerId: "openai",

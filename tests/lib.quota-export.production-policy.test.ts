@@ -6,12 +6,11 @@ const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-export-production-policy-tests";
 const RESOLVED_AUTH_PROVIDER_IDS = [
   "anthropic",
   "copilot",
-  "google-antigravity",
   "google-gemini-cli",
   "openrouter",
   "xai",
 ] as const;
-const UNCACHED_CANONICAL_PROVIDER_IDS = ["cursor", "qwen-code"] as const;
+const UNCACHED_CANONICAL_PROVIDER_IDS = ["cursor", "alibaba-token-plan"] as const;
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
   getOpencodeRuntimeDirCandidates: () => ({
@@ -37,7 +36,6 @@ function createTestContext() {
       },
     },
     config: {
-      googleModels: ["CLAUDE"],
       anthropicBinaryPath: "claude",
       cursorPlan: "none",
       onlyCurrentModel: false,

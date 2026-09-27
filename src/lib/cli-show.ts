@@ -4,7 +4,11 @@ import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils
 import { sanitizeQuotaRenderData } from "./display-sanitize.js";
 import { formatQuotaRows } from "./format.js";
 import { formatQuotaModeHeading } from "./format-utils.js";
-import { DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS, resolveKimiAuthCached } from "./kimi-auth.js";
+import {
+  DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
+  resolveKimiCnAuthCached,
+  resolveKimiGlobalAuthCached,
+} from "./kimi-auth.js";
 import {
   loadConfiguredOpenCodeConfig,
   loadConfiguredProviderIds,
@@ -128,7 +132,6 @@ function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
     enabledProviders: Array.isArray(config.enabledProviders)
       ? [...config.enabledProviders]
       : config.enabledProviders,
-    googleModels: [...config.googleModels],
     opencodeGoWindows: [...config.opencodeGoWindows],
     pricingSnapshot: { ...config.pricingSnapshot },
     layout: { ...config.layout },
@@ -162,14 +165,16 @@ async function loadCliAuthenticatedProviderIds(config: Record<string, unknown>):
     typeof quotaToast?.anthropicBinaryPath === "string"
       ? quotaToast.anthropicBinaryPath
       : undefined;
-  const [anthropicConfigured, kimiAuth] = await Promise.all([
+  const [anthropicConfigured, kimiGlobalAuth, kimiCnAuth] = await Promise.all([
     hasAnthropicCredentialsConfigured({ binaryPath: anthropicBinaryPath }),
-    resolveKimiAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS }),
+    resolveKimiGlobalAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS }),
+    resolveKimiCnAuthCached({ maxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS }),
   ]);
 
   return [
     ...(anthropicConfigured ? ["anthropic"] : []),
-    ...(kimiAuth.state === "configured" ? ["kimi-for-coding"] : []),
+    ...(kimiGlobalAuth.state === "configured" ? ["kimi-code-plan-global"] : []),
+    ...(kimiCnAuth.state === "configured" ? ["kimi-code-plan-cn"] : []),
   ];
 }
 

@@ -35,7 +35,10 @@ export type ScopedUpdateManualFinding =
   | {
       kind: "ambiguous-zen-env";
       names: Array<"OPENCODE_WORKSPACE_ID" | "OPENCODE_AUTH_COOKIE">;
-      suggestedPath: string;
+    }
+  | {
+      kind: "obsolete-zen-file";
+      path: string;
     }
   | {
       kind: "display-migration-manual";
@@ -71,7 +74,8 @@ export const OBSOLETE_GO_ENV_NAMES = [
 export const AMBIGUOUS_ZEN_ENV_NAMES = ["OPENCODE_WORKSPACE_ID", "OPENCODE_AUTH_COOKIE"] as const;
 
 export const OBSOLETE_GO_FILE = "opencode-quota/opencode-go.json";
-export const SUPPORTED_ZEN_FILE = "opencode-quota/opencode.json";
+/** OpenCode Zen workspace/cookie file, replaced by the `opencode console login` session. */
+export const OBSOLETE_ZEN_FILE = "opencode-quota/opencode.json";
 
 export interface ScopedUpdateMigrationCandidate {
   path: string;
@@ -431,7 +435,6 @@ async function knownPathExists(path: string, action: string): Promise<boolean> {
 export async function auditObsoleteUpdateSources(params: {
   env: NodeJS.ProcessEnv;
   configDirs: string[];
-  primaryConfigDir: string;
 }): Promise<ScopedUpdateManualFinding[]> {
   const findings: ScopedUpdateManualFinding[] = [];
 
@@ -443,13 +446,13 @@ export async function auditObsoleteUpdateSources(params: {
 
   const configDirs = [...new Set(params.configDirs)];
   const goPaths = configDirs.map((dir) => join(dir, OBSOLETE_GO_FILE));
-  const zenPaths = configDirs.map((dir) => join(dir, SUPPORTED_ZEN_FILE));
+  const zenPaths = configDirs.map((dir) => join(dir, OBSOLETE_ZEN_FILE));
   const [goPresence, zenPresence] = await Promise.all([
     Promise.all(
       goPaths.map((path) => knownPathExists(path, "inspect obsolete OpenCode Go source")),
     ),
     Promise.all(
-      zenPaths.map((path) => knownPathExists(path, "inspect supported OpenCode Zen source")),
+      zenPaths.map((path) => knownPathExists(path, "inspect obsolete OpenCode Zen source")),
     ),
   ]);
 
@@ -460,14 +463,15 @@ export async function auditObsoleteUpdateSources(params: {
     }
   }
 
-  if (!zenPresence.some(Boolean)) {
-    const names = AMBIGUOUS_ZEN_ENV_NAMES.filter((name) => Object.hasOwn(params.env, name));
-    if (names.length > 0) {
-      findings.push({
-        kind: "ambiguous-zen-env",
-        names: [...names],
-        suggestedPath: join(params.primaryConfigDir, SUPPORTED_ZEN_FILE),
-      });
+  const zenNames = AMBIGUOUS_ZEN_ENV_NAMES.filter((name) => Object.hasOwn(params.env, name));
+  if (zenNames.length > 0) {
+    findings.push({ kind: "ambiguous-zen-env", names: [...zenNames] });
+  }
+
+  for (let index = 0; index < zenPaths.length; index++) {
+    const path = zenPaths[index];
+    if (zenPresence[index] && path) {
+      findings.push({ kind: "obsolete-zen-file", path });
     }
   }
 
@@ -492,7 +496,9 @@ function manualFindingSortKey(finding: ScopedUpdateManualFinding): string {
     case "obsolete-go-file":
       return `${finding.kind}\u0000${finding.path}`;
     case "ambiguous-zen-env":
-      return `${finding.kind}\u0000${finding.suggestedPath}\u0000${finding.names.join("\u0000")}`;
+      return `${finding.kind}\u0000${finding.names.join("\u0000")}`;
+    case "obsolete-zen-file":
+      return `${finding.kind}\u0000${finding.path}`;
     case "display-migration-manual":
       return `${finding.kind}\u0000${finding.path}\u0000${finding.container}\u0000${finding.reason}`;
     case "migration-file-uninspectable":

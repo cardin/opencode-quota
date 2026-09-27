@@ -210,36 +210,12 @@ export const QuotaToastPlugin = Plugin.define({
           "Diagnostics for toast + TUI + pricing + local storage (includes unknown pricing report).",
         input: {
           type: "object",
-          properties: {
-            refreshGoogleTokens: {
-              type: "boolean",
-              description: "If true, refresh Google Antigravity access tokens before reporting",
-            },
-            skewMs: {
-              type: "number",
-              minimum: 0,
-              description: "Refresh tokens expiring within this window (ms). Default: 120000",
-            },
-            force: {
-              type: "boolean",
-              description: "If true, refresh even if cached token looks valid",
-            },
-          },
+          properties: {},
           additionalProperties: false,
         },
-        execute: async (input, tool) => {
-          const args = input as {
-            refreshGoogleTokens?: boolean;
-            skewMs?: number;
-            force?: boolean;
-          };
+        execute: async (_input, tool) => {
           const result = await buildQuotaDialogCommandOutput({
             command: "quota_status",
-            arguments: JSON.stringify({
-              refreshGoogleTokens: args.refreshGoogleTokens,
-              skewMs: args.skewMs,
-              force: args.force,
-            }),
             client: quotaClient,
             roots: getPluginRuntimeRootHints(),
             sessionID: tool.sessionID,

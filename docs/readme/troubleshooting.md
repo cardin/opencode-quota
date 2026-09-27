@@ -34,14 +34,14 @@ If every provider is missing, confirm OpenCode Quota is listed in `opencode.json
 2. Preview the update:
 
    ```bash
-   npx @cardinal4/opencode-quota@latest update --dry-run
+   npx @cardinal4/opencode-quota update --dry-run
    ```
 
 3. Inspect both safe changes and manual findings. Do not paste credential values into command output or issue reports.
 4. Apply the plan:
 
    ```bash
-   npx @cardinal4/opencode-quota@latest update
+   npx @cardinal4/opencode-quota update
    ```
 
 5. Restart OpenCode.
@@ -52,7 +52,7 @@ The updater preserves unrelated settings, comments, and plugins where targeted e
 | Update result | What to do |
 | --- | --- |
 | Obsolete OpenCode Go source | Configure `OPENCODE_API_KEY`, trusted global `provider.opencode-go.options.apiKey`, fallback `provider.opencode.options.apiKey`, or `opencode auth login -p opencode-go`. Verify it, then manually remove the reported old variable/file. Workspace/cookie material cannot become an API key. |
-| Ambiguous OpenCode Zen environment names | Decide whether the names belong to Zen or OpenCode's workspace feature. If they are Zen credentials, create and protect the supported global `opencode-quota/opencode.json` manually. Never paste the values into output or reports. |
+| Old OpenCode Zen file or environment names | Run `opencode console login` and verify Zen works. Then remove the reported old `opencode-quota/opencode.json` file manually. Remove `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` only if they held Zen credentials; they may belong to OpenCode's workspace feature. Never paste the values into output or reports. |
 | Unsupported display migration | Fix the reported invalid, duplicate, or ambiguous config manually. Use root `accountingDetail: "summary"` or `"detailed"`; do not share the rejected value. |
 | Update race or partial-write failure | No package cache was deleted. Read the error's exact changed-path list, inspect those files, fix the cause, and rerun `update --dry-run` for a fresh plan. Do not restore over concurrent edits blindly. |
 
@@ -138,20 +138,6 @@ Run `/quota_status` and check the Cursor section.
 </details>
 
 <details>
-<summary><strong>Qwen Code</strong></summary>
-
-Run `/quota_status` and check `qwen_oauth_source`, `qwen_local_plan`, and the `qwen_code` live probe section.
-
-| Symptom              | Fix                                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Qwen not detected    | Put `opencode-qwencode-auth` before `@cardinal4/opencode-quota` in `opencode.json`.                            |
-| Auth missing         | Complete the Qwen companion plugin auth flow.                                                                |
-| Counters do not move | Confirm the current model is `qwen-code/*`; Qwen quota is local request estimation for matching model usage. |
-| Usage looks stale    | Check the local state file path shown by `/quota_status`.                                                    |
-
-</details>
-
-<details>
 <summary><strong>Alibaba Coding Plan</strong></summary>
 
 Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, and `alibaba_coding_plan` live probe section.
@@ -166,7 +152,21 @@ Run `/quota_status` and check the Alibaba auth, resolved tier, state-file path, 
 </details>
 
 <details>
-<summary><strong>MiniMax, Kimi, Chutes AI, Synthetic, Z.ai, Zhipu, NanoGPT, and DeepSeek</strong></summary>
+<summary><strong>Alibaba Personal Token Plan</strong></summary>
+
+Run `/quota_status` and check the `alibaba_token_plan` live probe. This source is separate from Alibaba Coding Plan API-key diagnostics.
+
+| Symptom                 | Fix                                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI not detected        | Install official `bailian-cli` so `bl` is on an absolute PATH directory outside the workspace. On Windows, run this from WSL. Native `bl.exe` and `.cmd` shims are not supported. |
+| Console session expired | Run `bl auth login --console`. A Coding Plan API key cannot authenticate this provider.                                                                             |
+| Weekly row only         | The official CLI may omit the five-hour window. OpenCode Quota does not invent a missing window.                                                                    |
+| JSON export empty       | `show --json` is cache-only. This provider is uncached, so a separate CLI process reports it unavailable instead of running `bl`.                                   |
+
+</details>
+
+<details>
+<summary><strong>MiniMax, Kimi, Chutes AI, Synthetic, Z.ai, Zhipu, NanoGPT, DeepSeek, and OpenRouter</strong></summary>
 
 These providers use trusted env vars, trusted user/global OpenCode config, or native OpenCode auth. Run `/quota_status` and check the provider-specific API-key diagnostics.
 
@@ -174,29 +174,19 @@ These providers use trusted env vars, trusted user/global OpenCode config, or na
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | MiniMax Token Plan       | Use `MINIMAX_CODING_PLAN_API_KEY` or `MINIMAX_API_KEY` for the international endpoint. Runtime/config ids like `minimax` and `minimax-coding-plan` use this provider. Repo-local provider secrets are ignored.                        |
 | MiniMax Token Plan (CN)  | Use `MINIMAX_CHINA_CODING_PLAN_API_KEY` or trusted user/global OpenCode config under `minimax-china-coding-plan`, `minimax-cn-coding-plan`, `minimax-cn`, or `minimax-china`. Runtime id `minimax-cn-coding-plan` uses this provider. |
-| Kimi Code                | Use `KIMI_API_KEY` or `KIMI_CODE_API_KEY`; repo-local provider secrets are ignored.                                                                                                                                                   |
+| Kimi Code                | Check `kimi:`. Use `KIMI_GLOBAL_API_KEY`, trusted global `provider.kimi-code-plan-global.options.apiKey`, or strict `kimi-code-plan-global` auth. Requests go only to `api.kimi.ai`; repo-local secrets are ignored.                     |
+| Kimi Code (CN)           | Check `kimi_cn:`. Use `KIMI_CN_API_KEY`, then `KIMI_API_KEY` or `KIMI_CODE_API_KEY`, or trusted CN/legacy config/auth ids. Requests go only to `api.kimi.com`; repo-local secrets are ignored.                                          |
 | Chutes AI                | Use `CHUTES_API_KEY`, trusted user/global config, or OpenCode auth.                                                                                                                                                                   |
 | Synthetic                | Use `SYNTHETIC_API_KEY`, trusted user/global config, or OpenCode auth.                                                                                                                                                                |
 | Z.ai Coding Plan         | Use `ZAI_API_KEY` or `ZAI_CODING_PLAN_API_KEY`; malformed fallback auth is surfaced as an auth error.                                                                                                                                 |
 | Zhipu Coding Plan        | Use `ZHIPU_API_KEY` or `ZHIPU_CODING_PLAN_API_KEY`; malformed fallback auth is surfaced as an auth error.                                                                                                                             |
 | NanoGPT                  | Use `NANOGPT_API_KEY`, `NANO_GPT_API_KEY`, trusted user/global config, or OpenCode auth.                                                                                                                                              |
 | DeepSeek                 | Use `DEEPSEEK_API_KEY`, trusted user/global config under `provider.deepseek.options.apiKey`, or OpenCode auth. This provider shows balance only because DeepSeek does not expose a quota reset window.                                |
+| OpenRouter               | Use `OPENROUTER_API_KEY`, trusted user/global config, or OpenCode auth. `/quota_status` has an `openrouter:` section with the trusted key source and the live probe, including errors such as HTTP 401.                               |
+
+If Synthetic is authenticated and the quota endpoint returns HTTP 200 `{}`, `/quota` and `/quota_status` report `Synthetic returned no quota data for this account.` That is not an invalid API key or a Clerk/browser requirement. The plugin does not invent 5h or Weekly rows. `/quota_status` shows it on `live_error_*`.
 
 For security, repo-local `opencode.json` / `opencode.jsonc` is ignored for provider secrets in these integrations. Put secrets in environment variables or trusted user/global config. OpenCode auth fallbacks for API-key providers require `{ "type": "api", "key": "..." }` entries.
-
-</details>
-
-<details>
-<summary><strong>Google Antigravity</strong></summary>
-
-Run `/quota_status` and check the `google_antigravity` section. The toast diagnostics also show the effective `googleModels` value and `googleModels_source` (`default` or the configuration file path).
-
-| Symptom                  | Fix                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------ |
-| Companion missing        | Put `opencode-antigravity-auth` before `@cardinal4/opencode-quota` in `opencode.json`. |
-| Accounts not found       | Check the selected `antigravity-accounts.json` path shown by `/quota_status`.        |
-| Refresh tokens invalid   | Re-authenticate with the companion plugin.                                           |
-| Provider returns no rows | Check `live_probe`, `live_entry_*`, and `live_error_*` in `/quota_status`.           |
 
 </details>
 
@@ -216,9 +206,9 @@ Run `/quota_status` and check the `google_agy` section.
 </details>
 
 <details>
-<summary><strong>Gemini CLI (deprecated)</strong></summary>
+<summary><strong>Gemini CLI</strong></summary>
 
-This section is only for repairing an existing setup. Gemini CLI quota support is deprecated in v4.1 and planned for removal in v5.0.0. Existing configuration and authentication continue to work; OpenCode Quota does not switch either one automatically. For new choices, see [Gemini CLI in the provider guide](providers.md#gemini-cli).
+Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Google ended personal accounts on 2026-06-18, so personal Google users should use [Google AGY](providers.md#google-agy-quick-setup) instead.
 
 Run `/quota_status` and check the Gemini CLI live probe rows.
 

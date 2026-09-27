@@ -8,6 +8,30 @@ const AGY_UNREDACTED_CREDENTIAL_PATTERNS = Object.freeze([
   /\b\d{10,}-[a-z0-9]+\.apps\.googleusercontent\.com\b/i,
   /GOCSPX-[A-Za-z0-9_-]+/,
 ]);
+const GEMINI_BUNDLE_REPLACEMENTS = Object.freeze([
+  {
+    label: "GEMINI_CLIENT_ID",
+    pattern: /(var GEMINI_CLIENT_ID = )(["'])[^"']+\2;/,
+    replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$2;`,
+  },
+  {
+    label: "GEMINI_CLIENT_SECRET",
+    pattern: /(var GEMINI_CLIENT_SECRET = )(["'])[^"']+\2;/,
+    replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$2;`,
+  },
+]);
+const GEMINI_SOURCE_MAP_REPLACEMENTS = Object.freeze([
+  {
+    label: "GEMINI_CLIENT_ID_SOURCE_MAP",
+    pattern: /(export const GEMINI_CLIENT_ID = \\")([^\\"]+)(\\";)/,
+    replacement: `$1${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$3`,
+  },
+  {
+    label: "GEMINI_CLIENT_SECRET_SOURCE_MAP",
+    pattern: /(export const GEMINI_CLIENT_SECRET = \\")([^\\"]+)(\\";)/,
+    replacement: `$1${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$3`,
+  },
+]);
 const CURSOR_SAFE_MODELS_BLOCK = `export async function getCursorModels(apiKey) {
     if (cachedModels)
         return cachedModels;
@@ -50,38 +74,6 @@ function deriveConversationKey(messages) {
 }`;
 
 const SNAPSHOT_SANITIZERS = Object.freeze({
-  "opencode-antigravity-auth": Object.freeze([
-    {
-      relativePath: "dist/src/constants.d.ts",
-      replacements: [
-        {
-          label: "ANTIGRAVITY_CLIENT_ID",
-          pattern: /(export declare const ANTIGRAVITY_CLIENT_ID = )"[^"]+";/,
-          replacement: `$1"${REDACTED_GOOGLE_OAUTH_CLIENT_ID}";`,
-        },
-        {
-          label: "ANTIGRAVITY_CLIENT_SECRET",
-          pattern: /(export declare const ANTIGRAVITY_CLIENT_SECRET = )"[^"]+";/,
-          replacement: `$1"${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}";`,
-        },
-      ],
-    },
-    {
-      relativePath: "dist/src/constants.js",
-      replacements: [
-        {
-          label: "ANTIGRAVITY_CLIENT_ID",
-          pattern: /(export const ANTIGRAVITY_CLIENT_ID = )"[^"]+";/,
-          replacement: `$1"${REDACTED_GOOGLE_OAUTH_CLIENT_ID}";`,
-        },
-        {
-          label: "ANTIGRAVITY_CLIENT_SECRET",
-          pattern: /(export const ANTIGRAVITY_CLIENT_SECRET = )"[^"]+";/,
-          replacement: `$1"${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}";`,
-        },
-      ],
-    },
-  ]),
   "opencode-agy-auth": Object.freeze([
     {
       relativePath: "dist/src/constants.d.ts",
@@ -162,34 +154,22 @@ const SNAPSHOT_SANITIZERS = Object.freeze({
     {
       relativePath: "dist/index.js",
       optional: true,
-      replacements: [
-        {
-          label: "GEMINI_CLIENT_ID",
-          pattern: /(var GEMINI_CLIENT_ID = )(["'])[^"']+\2;/,
-          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$2;`,
-        },
-        {
-          label: "GEMINI_CLIENT_SECRET",
-          pattern: /(var GEMINI_CLIENT_SECRET = )(["'])[^"']+\2;/,
-          replacement: `$1$2${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$2;`,
-        },
-      ],
+      replacements: GEMINI_BUNDLE_REPLACEMENTS,
     },
     {
       relativePath: "dist/index.js.map",
       optional: true,
-      replacements: [
-        {
-          label: "GEMINI_CLIENT_ID_SOURCE_MAP",
-          pattern: /(export const GEMINI_CLIENT_ID = \\")([^\\"]+)(\\";)/,
-          replacement: `$1${REDACTED_GOOGLE_OAUTH_CLIENT_ID}$3`,
-        },
-        {
-          label: "GEMINI_CLIENT_SECRET_SOURCE_MAP",
-          pattern: /(export const GEMINI_CLIENT_SECRET = \\")([^\\"]+)(\\";)/,
-          replacement: `$1${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$3`,
-        },
-      ],
+      replacements: GEMINI_SOURCE_MAP_REPLACEMENTS,
+    },
+    {
+      relativePath: "dist/server.js",
+      optional: true,
+      replacements: GEMINI_BUNDLE_REPLACEMENTS,
+    },
+    {
+      relativePath: "dist/server.js.map",
+      optional: true,
+      replacements: GEMINI_SOURCE_MAP_REPLACEMENTS,
     },
   ]),
   "opencode-cursor-oauth": Object.freeze([

@@ -19,6 +19,35 @@ const BASE_ANNOUNCEMENT = {
   url: "https://github.blog/example",
 } satisfies MaintainerAnnouncement;
 
+const ecosystemAnnouncement = {
+  id: "opencode-ecosystem-listing-support",
+  message: "Support OpenCode Quota's ecosystem listing: review the issue and add a thumbs-up.",
+  url: "https://github.com/anomalyco/opencode/issues/38281",
+  startsAt: "2026-07-22T00:00:00.000Z",
+  endsAt: "2026-08-22T00:00:00.000Z",
+} satisfies MaintainerAnnouncement;
+const openCode2FeedbackAnnouncement = {
+  id: "opencode-2-feedback",
+  message:
+    "OpenCode 2 support is coming in OpenCode Quota 5.0. Tell us what you want from the OpenCode 2 version.",
+  url: "https://github.com/slkiser/opencode-quota/issues/293",
+  startsAt: "2026-09-25T00:00:00.000Z",
+  endsAt: "2026-11-25T00:00:00.000Z",
+} satisfies MaintainerAnnouncement;
+const openCode1StayOn4xAnnouncement = {
+  id: "opencode-1-stay-on-4x",
+  message: 'On OpenCode 1? Run "npx @slkiser/opencode-quota@4 update" to stay on 4.x.',
+  url: "https://github.com/slkiser/opencode-quota#updating",
+  startsAt: "2026-09-26T00:00:00.000Z",
+  endsAt: "2026-11-26T00:00:00.000Z",
+} satisfies MaintainerAnnouncement;
+const geminiAnnouncement = {
+  id: "google-gemini-cli-org-only",
+  message:
+    "Gemini CLI quota support stays. It only works with Gemini Code Assist Standard or Enterprise (organization) accounts because Google ended personal accounts on 2026-06-18. Personal Google users should use Google AGY.",
+  providerIds: ["google-gemini-cli"],
+} satisfies MaintainerAnnouncement;
+
 describe("maintainer announcements", () => {
   it("filters active announcements by date, validation, and provider ids", () => {
     const evaluations = evaluateMaintainerAnnouncements({
@@ -146,25 +175,17 @@ describe("maintainer announcements", () => {
   });
 
   it("preserves the global OpenCode ecosystem announcement beside the Gemini notice", () => {
-    const ecosystemAnnouncement = {
-      id: "opencode-ecosystem-listing-support",
-      message: "Support OpenCode Quota's ecosystem listing: review the issue and add a thumbs-up.",
-      url: "https://github.com/anomalyco/opencode/issues/38281",
-      startsAt: "2026-07-22T00:00:00.000Z",
-      endsAt: "2026-08-22T00:00:00.000Z",
-    } satisfies MaintainerAnnouncement;
-    const geminiAnnouncement = {
-      id: "google-gemini-cli-deprecated",
-      message:
-        "Gemini CLI quota support in OpenCode Quota is deprecated, with removal planned for v5.0.0. Existing v4 configurations continue to work. Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. OpenCode Quota's Google integrations are independent and are not endorsed by Google.",
-      providerIds: ["google-gemini-cli"],
-    } satisfies MaintainerAnnouncement;
     const active = getActiveMaintainerAnnouncements({
       nowMs: BUNDLED_NOW_MS,
       enabledProviders: "auto",
     });
 
-    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([ecosystemAnnouncement, geminiAnnouncement]);
+    expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([
+      ecosystemAnnouncement,
+      openCode2FeedbackAnnouncement,
+      openCode1StayOn4xAnnouncement,
+      geminiAnnouncement,
+    ]);
     expect(active).toEqual([
       {
         announcement: ecosystemAnnouncement,
@@ -174,7 +195,7 @@ describe("maintainer announcements", () => {
     ]);
   });
 
-  it("targets the Gemini deprecation notice to Gemini configurations and aliases", () => {
+  it("targets the Gemini CLI organization-only notice to Gemini configurations and aliases", () => {
     const getActiveIds = (enabledProviders: string[]) =>
       getActiveMaintainerAnnouncements({
         nowMs: BUNDLED_NOW_MS,
@@ -183,14 +204,70 @@ describe("maintainer announcements", () => {
 
     expect(getActiveIds(["google-gemini-cli"])).toEqual([
       "opencode-ecosystem-listing-support",
-      "google-gemini-cli-deprecated",
+      "google-gemini-cli-org-only",
     ]);
     expect(getActiveIds(["gemini-cli"])).toEqual([
       "opencode-ecosystem-listing-support",
-      "google-gemini-cli-deprecated",
+      "google-gemini-cli-org-only",
     ]);
-    expect(getActiveIds(["google-antigravity"])).toEqual(["opencode-ecosystem-listing-support"]);
     expect(getActiveIds(["google-agy"])).toEqual(["opencode-ecosystem-listing-support"]);
+  });
+
+  it("shows the OpenCode 2 feedback notice to everyone only during its two-month window", () => {
+    const evaluateAt = (iso: string, enabledProviders: string[] | "auto" = "auto") =>
+      evaluateMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).find(
+        (item) => item.announcement.id === "opencode-2-feedback",
+      );
+    const getActiveIds = (iso: string, enabledProviders: string[] | "auto") =>
+      getActiveMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).map(
+        (item) => item.announcement.id,
+      );
+
+    expect(evaluateAt("2026-09-24T23:59:59.999Z")?.reasons).toEqual(["not_started"]);
+    expect(evaluateAt("2026-09-25T00:00:00.000Z")).toEqual({
+      announcement: openCode2FeedbackAnnouncement,
+      active: true,
+      reasons: [],
+    });
+    expect(evaluateAt("2026-11-24T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
+    expect(evaluateAt("2026-11-25T00:00:00.000Z")?.reasons).toEqual(["ended"]);
+
+    expect(getActiveIds("2026-10-15T12:00:00.000Z", "auto")).toEqual([
+      "opencode-2-feedback",
+      "opencode-1-stay-on-4x",
+    ]);
+    expect(getActiveIds("2026-10-15T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
+      "opencode-2-feedback",
+      "opencode-1-stay-on-4x",
+      "google-gemini-cli-org-only",
+    ]);
+    expect(getActiveIds("2026-11-25T00:00:00.000Z", "auto")).toEqual(["opencode-1-stay-on-4x"]);
+  });
+
+  it("tells OpenCode 1 users to pin 4.x to everyone only during its two-month window", () => {
+    const evaluateAt = (iso: string, enabledProviders: string[] | "auto" = "auto") =>
+      evaluateMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).find(
+        (item) => item.announcement.id === "opencode-1-stay-on-4x",
+      );
+
+    expect(evaluateAt("2026-09-25T23:59:59.999Z")?.reasons).toEqual(["not_started"]);
+    expect(evaluateAt("2026-09-26T00:00:00.000Z")).toEqual({
+      announcement: openCode1StayOn4xAnnouncement,
+      active: true,
+      reasons: [],
+    });
+    expect(evaluateAt("2026-11-25T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
+    expect(evaluateAt("2026-11-26T00:00:00.000Z")?.reasons).toEqual(["ended"]);
+    expect(openCode1StayOn4xAnnouncement.message.split(/\s+/).length).toBeLessThanOrEqual(15);
+    expect(
+      getMaintainerAnnouncementsSummary({
+        nowMs: Date.parse("2026-10-15T12:00:00.000Z"),
+        enabledProviders: "auto",
+      }).activeCount,
+    ).toBe(2);
+    expect(formatMaintainerAnnouncementHomeCountLine(2)).toBe(
+      "Notice: 2 maintainer announcements available. Run /quota_announcements.",
+    );
   });
 
   it("sorts active announcements before inactive, then by end date and id", () => {

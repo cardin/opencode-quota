@@ -2,12 +2,6 @@ export const UPSTREAM_PLUGIN_REFERENCE_ROOT = "references/upstream-plugins";
 
 const RAW_UPSTREAM_PLUGIN_SPECS = [
   {
-    pluginId: "opencode-antigravity-auth",
-    packageName: "opencode-antigravity-auth",
-    repoOwner: "NoeFabris",
-    repoName: "opencode-antigravity-auth",
-  },
-  {
     pluginId: "opencode-cursor-oauth",
     packageName: "@playwo/opencode-cursor-oauth",
     repoOwner: "PoolPirate",
@@ -18,12 +12,6 @@ const RAW_UPSTREAM_PLUGIN_SPECS = [
     packageName: "opencode-gemini-auth",
     repoOwner: "jenslys",
     repoName: "opencode-gemini-auth",
-  },
-  {
-    pluginId: "opencode-qwencode-auth",
-    packageName: "opencode-qwencode-auth",
-    repoOwner: "gustavodiasdev",
-    repoName: "opencode-qwencode-auth",
   },
   {
     pluginId: "opencode-agy-auth",

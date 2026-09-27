@@ -1129,8 +1129,8 @@ describe("init installer planning and merge behavior", () => {
     expect(logError).toHaveBeenCalledWith(expect.stringMatching(/plugin is not an array/i));
   });
 
-  it("writes @latest for a new install and is idempotent", async () => {
-    const projectDir = join(tempDir, "project-latest");
+  it("writes @4 for a new install and is idempotent", async () => {
+    const projectDir = join(tempDir, "project-v4");
     mkdirSync(projectDir, { recursive: true });
     const selections = installerSelections();
 

@@ -77,7 +77,6 @@ function createMockContext(): any {
       },
     },
     config: {
-      googleModels: ["CLAUDE"],
       anthropicBinaryPath: "claude",
       cursorPlan: "none",
       onlyCurrentModel: false,
@@ -237,6 +236,74 @@ describe("buildQuotaExport", () => {
     }
   });
 
+  it("keeps Global and CN Kimi cached results separate without changing export v2", async () => {
+    mockReadCachedProviderResult
+      .mockResolvedValueOnce({
+        hit: true,
+        result: {
+          attempted: true,
+          entries: [
+            {
+              accounting: QUOTA_ACCOUNTING,
+              name: "Kimi Code Weekly limit",
+              percentRemaining: 80,
+              label: "Weekly:",
+            },
+          ],
+          errors: [],
+        },
+        timestamp: Date.now(),
+      })
+      .mockResolvedValueOnce({
+        hit: true,
+        result: {
+          attempted: true,
+          entries: [
+            {
+              accounting: QUOTA_ACCOUNTING,
+              name: "Kimi Code (CN) Weekly limit",
+              percentRemaining: 60,
+              label: "Weekly:",
+            },
+          ],
+          errors: [],
+        },
+        timestamp: Date.now(),
+      });
+
+    const exportData = await buildQuotaExport({
+      providers: [
+        createMockProvider("kimi-code-plan-global"),
+        createMockProvider("kimi-code-plan-cn"),
+      ],
+      ctx: createMockContext(),
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+
+    expect(exportData.version).toBe(2);
+    expect(Object.keys(exportData.providers)).toEqual([
+      "kimi-code-plan-global",
+      "kimi-code-plan-cn",
+    ]);
+    expect(exportData.providers["kimi-code-plan-global"]).toMatchObject({
+      status: "ok",
+      entries: [
+        expect.objectContaining({
+          name: "Kimi Code Weekly limit",
+          resultType: "quota",
+          acquisitionMethod: "remote_api",
+          ownership: "maintained",
+          authority: "provider_reported",
+        }),
+      ],
+    });
+    expect(exportData.providers["kimi-code-plan-cn"]).toMatchObject({
+      status: "ok",
+      entries: [expect.objectContaining({ name: "Kimi Code (CN) Weekly limit" })],
+    });
+  });
+
   it("exports semantic availability booleans with generic wording and the raw name", async () => {
     mockReadCachedProviderResult.mockResolvedValue({
       hit: true,
@@ -284,7 +351,7 @@ describe("buildQuotaExport", () => {
     }
   });
 
-  it("preserves raw Antigravity family names when display projections suppress them", async () => {
+  it("preserves raw family names when display projections suppress them", async () => {
     mockReadCachedProviderResult.mockResolvedValue({
       hit: true,
       result: {
@@ -292,7 +359,7 @@ describe("buildQuotaExport", () => {
         entries: [
           {
             accounting: { ...QUOTA_ACCOUNTING, sourceId: "alice@example.com" },
-            name: "Antigravity (ali…): Claude",
+            name: "Example (ali…): Claude",
             percentRemaining: 0,
           },
           {
@@ -312,17 +379,17 @@ describe("buildQuotaExport", () => {
     });
 
     const actual = await buildQuotaExport({
-      providers: [createMockProvider("google-antigravity")],
+      providers: [createMockProvider("example-family")],
       ctx: createMockContext(),
       ttlMs: 60_000,
       fromCache: true,
     });
-    const provider = actual.providers["google-antigravity"];
+    const provider = actual.providers["example-family"];
     expect(provider).toMatchObject({
       status: "partial",
       entries: [
         {
-          name: "Antigravity (ali…): Claude",
+          name: "Example (ali…): Claude",
           sourceId: "alice@example.com",
           renderType: "percent",
           percentRemaining: 0,
@@ -390,6 +457,54 @@ describe("buildQuotaExport", () => {
       expect(JSON.stringify(provider.entries)).not.toContain("$2.00");
       expect(JSON.stringify(provider.entries)).not.toContain("overage");
     }
+  });
+
+  it("omits OpenRouter API-key diagnostics from export data", async () => {
+    const secretCanary = "sk-or-export-secret-canary";
+    mockReadCachedProviderResult.mockResolvedValue({
+      hit: true,
+      result: {
+        attempted: true,
+        entries: [
+          {
+            accounting: {
+              resultType: "budget",
+              acquisitionMethod: "remote_api",
+              ownership: "maintained",
+              authority: "provider_reported",
+            },
+            name: "OpenRouter budget",
+            percentRemaining: 80,
+          },
+        ],
+        errors: [],
+        statusDetails: [
+          { key: "api_key_configured", value: "true" },
+          { key: "api_key_source", value: "env" },
+          { key: "api_key_checked_paths", value: "env:OPENROUTER_API_KEY" },
+          { key: "api_key_auth_paths", value: "/tmp/auth.json" },
+          { key: "secret_canary", value: secretCanary },
+        ],
+      },
+      timestamp: Date.now(),
+    });
+
+    const actual = await buildQuotaExport({
+      providers: [createMockProvider("openrouter")],
+      ctx: createMockContext(),
+      ttlMs: 60_000,
+      fromCache: true,
+    });
+
+    expect(actual.providers.openrouter).toMatchObject({
+      status: "ok",
+      entries: [{ name: "OpenRouter budget", percentRemaining: 80 }],
+    });
+    const serialized = JSON.stringify(actual);
+    expect(serialized).not.toContain("api_key_");
+    expect(serialized).not.toContain("statusDetails");
+    expect(serialized).not.toContain(secretCanary);
+    expect(actual.providers.openrouter).not.toHaveProperty("statusDetails");
   });
 
   it("matches the v2 all-result-types JSON golden", async () => {

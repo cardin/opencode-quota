@@ -2,7 +2,6 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { basename, join } from "path";
 
-import { writeJsonAtomic } from "./atomic-json.js";
 import {
   getQuotaToastConfigPath,
   QUOTA_TOAST_CONFIG_RELATIVE_PATH,
@@ -19,6 +18,7 @@ import {
   resolveEditableConfigPath,
   resolvePluginConfigKey,
 } from "./config-file-utils.js";
+import { writeConfiguredJsonAtomic } from "./config-write-target.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
 import {
   applyConfigDocumentEdit,
@@ -910,7 +910,7 @@ function getCanonicalQuotaPackageSpecForRemoval(entry: unknown): string | undefi
       : Array.isArray(entry) && typeof entry[0] === "string"
         ? entry[0]
         : undefined;
-  if (spec === "@cardinal4/opencode-quota") return spec;
+  if (spec === "@cardinal4/opencode-quota" || spec === QUOTA_PLUGIN_SPEC) return spec;
   if (
     spec !== undefined &&
     /^@cardinal4\/opencode-quota@(?:v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|[A-Za-z][0-9A-Za-z._-]*)$/.test(
@@ -1220,7 +1220,7 @@ export async function applyInitInstallerPlan(
       if (edit.documentEdit) {
         await applyConfigDocumentEdit(edit.documentEdit);
       } else {
-        await writeJsonAtomic(edit.path, edit.nextData, { trailingNewline: true });
+        await writeConfiguredJsonAtomic(edit.path, edit.nextData, { trailingNewline: true });
       }
       writtenPaths.push(edit.path);
     } catch (error) {

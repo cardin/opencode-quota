@@ -4,7 +4,7 @@
 
 ## What the command does
 
-`npx @cardinal4/opencode-quota@latest update` first asks npm to resolve and run the published `@latest` CLI package. That npm resolution and execution begins before the updater can print its preview. The preview guarantee covers changes owned by the updater: OpenCode configuration files and OpenCode Quota package-cache directories.
+`npx @cardinal4/opencode-quota update` first asks npm to resolve and run the newest published 4.x CLI package. That npm resolution and execution begins before the updater can print its preview. The preview guarantee covers changes owned by the updater: OpenCode configuration files and OpenCode Quota package-cache directories.
 
 The updater builds one plan, prints it in full, and then either stops or applies that same plan. It does not add runtime compatibility fallbacks.
 
@@ -14,19 +14,19 @@ The updater builds one plan, prints it in full, and then either stops or applies
 2. Preview without changing configuration or package caches:
 
    ```bash
-   npx @cardinal4/opencode-quota@latest update --dry-run
+   npx @cardinal4/opencode-quota update --dry-run
    ```
 
 3. Read every section. If the plan is correct, apply it:
 
    ```bash
-   npx @cardinal4/opencode-quota@latest update
+   npx @cardinal4/opencode-quota update
    ```
 
    The interactive command asks once before safe work begins. For a noninteractive run, use:
 
    ```bash
-   npx @cardinal4/opencode-quota@latest update --yes
+   npx @cardinal4/opencode-quota update --yes
    ```
 
    `--yes` still prints the full preview. It authorizes only deterministic config edits and manifest-verified cache cleanup, never secret changes.
@@ -59,14 +59,14 @@ Manual findings do not make the command fail. They remain your responsibility.
 
 The updater can:
 
-- change supported OpenCode Quota plugin package specs to `@latest`;
+- pin supported OpenCode Quota plugin package specs (bare, `@latest`, or an exact 4.x-or-older version) to `@4`, because OpenCode Quota 5 needs OpenCode 2;
 - remove only package-cache directories that pass path, symlink, containment, and exact package-manifest checks;
 - migrate recognized `opencodeZenDisplay` values in known file-backed quota config locations:
   - `"default"` becomes root `accountingDetail: "summary"`;
   - `"detailed"` becomes root `accountingDetail: "detailed"`;
 - keep an existing valid `accountingDetail` value and remove the obsolete ignored key, even when the two values differ.
 
-Targeted JSON/JSONC edits preserve unrelated settings, plugins, comments, trailing commas, and tuple options where the document can be edited safely.
+Targeted JSON/JSONC edits preserve unrelated settings, plugins, comments, trailing commas, and tuple options where the document can be edited safely. When the configured path is a supported symlink, the updater keeps that link and writes the verified regular-file target.
 
 Unsupported or invalid display values, invalid replacement values, duplicate keys, ambiguous structures, malformed files, unsupported roots, and newly discovered symlinks are left unchanged for manual review. SDK-only config is diagnostic-only because it has no safe file path for the updater to edit.
 
@@ -96,18 +96,14 @@ Workspace/cookie material cannot be converted into the official API key. Do not 
 
 ### OpenCode Zen findings
 
-`OPENCODE_WORKSPACE_ID` and `OPENCODE_AUTH_COOKIE` are ambiguous names: they may come from an older Zen setup, but they may instead belong to OpenCode's workspace feature. Current quota code ignores them. The updater reports them only when it finds no supported global `opencode-quota/opencode.json` path, and it does not read or move their values.
+OpenCode Zen now uses the OpenCode Console session: run `opencode console login` (and `opencode console switch` to pick an organization), then verify with `/quota_status` or terminal `opencode-quota status`. OpenCode Quota reads that session read-only from OpenCode's local database; it never refreshes or writes tokens.
 
-First decide whether those variables really contain Zen credentials. If they do, create the supported file under your global OpenCode config directory. The usual path is `~/.config/opencode/opencode-quota/opencode.json`:
+The updater reports two leftovers from the old workspace/cookie setup without reading or moving their values:
 
-```json
-{
-  "workspaceId": "your-workspace-id",
-  "authCookie": "your-auth-cookie"
-}
-```
+- A global `opencode-quota/opencode.json` file: it is no longer read. Remove it manually after Zen works.
+- `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE`: current quota code ignores them. They may come from an older Zen setup or belong to OpenCode's workspace feature. Remove them only if they held Zen credentials.
 
-Use placeholders while documenting or sharing the setup; never share the real values. Restrict file access to your user account, verify with `/quota_status` or terminal `opencode-quota status`, and only then remove obsolete environment declarations manually. If the variables belong to OpenCode's workspace feature, leave them with that feature instead of treating them as Zen credentials.
+Never share the real values.
 
 ## Cancellation, failures, and reruns
 
@@ -115,4 +111,4 @@ Before updating, back up the OpenCode config files you use. This is especially i
 
 Cancelling the interactive prompt changes nothing. Dry-run also changes nothing. A successful migration is idempotent: rerunning does not repeat a completed display edit, though manual findings remain until you resolve their sources.
 
-The updater checks every planned file again before writing and writes each changed file atomically. It does not claim that several files form one transaction and it does not overwrite concurrent edits with an automatic rollback. If a later file changes or a write fails after earlier files were written, the error lists the files changed before failure and deletes no package cache. Fix the reported cause, inspect those paths, and rerun the dry-run command to build a fresh plan.
+The updater checks every planned file again before writing and writes each changed file atomically. Supported configuration symlinks stay in place: the updater snapshots the link chain during planning, revalidates it immediately before writing, and updates the verified regular-file target. It fails closed on dangling links, loops, chains longer than 40 hops, non-regular targets, permission errors, retargeted links, destination-byte races, and JSON-to-JSONC conversions that would delete a symlink. It does not claim that several files form one transaction and it does not overwrite concurrent edits with an automatic rollback. If a later file changes or a write fails after earlier files were written, the error lists the files changed before failure and deletes no package cache. Fix the reported cause, inspect those paths, and rerun the dry-run command to build a fresh plan.

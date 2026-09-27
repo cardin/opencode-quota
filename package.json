@@ -1,8 +1,8 @@
 {
   "name": "@cardinal4/opencode-quota",
-  "version": "5.0.2",
+  "version": "5.1.0",
   "packageManager": "pnpm@11.0.0",
-  "description": "OpenCode 2 quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Qwen Code, Chutes AI, Synthetic, Google Antigravity, Z.ai coding plan and more.",
+  "description": "OpenCode 2 quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Chutes AI, Synthetic, Google AGY, Z.ai coding plan and more.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -52,6 +52,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:stabilization:tui": "node scripts/test-stabilization-connected.mjs --tui",
+    "test:stabilization:tui:prompt-bar": "node scripts/test-stabilization-connected.mjs --tui --prompt-bar",
+    "test:stabilization:web": "node scripts/test-stabilization-connected.mjs --web",
+    "test:stabilization:fixtures": "node scripts/test-stabilization-fixtures.mjs",
     "verify": "pnpm run check && pnpm run verify:typescript-version && pnpm run verify:v4-history && pnpm run typecheck && pnpm run build && pnpm test && pnpm run test:four-surfaces && pnpm run verify:package-contents",
     "prepublishOnly": "pnpm run build",
     "prepare": "lefthook install"
@@ -64,7 +68,6 @@
     "github",
     "copilot",
     "google",
-    "antigravity",
     "gemini",
     "claude"
   ],

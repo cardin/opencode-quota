@@ -41,6 +41,16 @@ const syntheticMocks = vi.hoisted(() => ({
   querySyntheticQuota: vi.fn(async () => null),
 }));
 
+const openrouterMocks = vi.hoisted(() => ({
+  hasOpenRouterApiKeyConfigured: vi.fn(async () => false),
+  queryOpenRouterQuota: vi.fn(async () => null),
+  resolveOpenRouterApiKey: vi.fn(async () => ({
+    source: null,
+    checkedPaths: [],
+    authPaths: [],
+  })),
+}));
+
 vi.mock("fs/promises", () => ({
   stat: fsPromiseMocks.stat,
 }));
@@ -68,22 +78,21 @@ vi.mock("../src/lib/synthetic.js", () => ({
   querySyntheticQuota: syntheticMocks.querySyntheticQuota,
 }));
 
-vi.mock("../src/lib/qwen-local-quota.js", () => ({
-  QWEN_LOCAL_QUOTA_STATE_VERSION: 1,
+vi.mock("../src/lib/openrouter.js", () => ({
+  hasOpenRouterApiKeyConfigured: openrouterMocks.hasOpenRouterApiKeyConfigured,
+  queryOpenRouterQuota: openrouterMocks.queryOpenRouterQuota,
+  resolveOpenRouterApiKey: openrouterMocks.resolveOpenRouterApiKey,
+}));
+
+vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", () => ({
   ALIBABA_CODING_PLAN_STATE_VERSION: 1,
-  computeQwenQuota: () => ({
-    day: { used: 0, limit: 1000 },
-    rpm: { used: 0, limit: 60 },
-  }),
   computeAlibabaCodingPlanQuota: () => ({
     tier: "lite",
     fiveHour: { used: 0, limit: 1200 },
     weekly: { used: 0, limit: 9000 },
     monthly: { used: 0, limit: 18000 },
   }),
-  getQwenLocalQuotaPath: () => "/tmp/qwen-state.json",
   getAlibabaCodingPlanQuotaPath: () => "/tmp/alibaba-state.json",
-  readQwenLocalQuotaState: vi.fn(async () => ({})),
   readAlibabaCodingPlanQuotaState: vi.fn(async () => ({})),
 }));
 
@@ -119,6 +128,8 @@ vi.mock("../src/providers/registry.js", () => ({
     { id: "deepseek" },
     { id: "opencode-go" },
     { id: "xiaomi" },
+    { id: "kimi-code-plan-global" },
+    { id: "kimi-code-plan-cn" },
     { id: "kimi-for-coding" },
     { id: "kimi-code" },
   ],
@@ -217,56 +228,6 @@ describe("buildQuotaStatusReport", () => {
     );
   });
 
-  it("reports effective googleModels and whether they came from defaults or a config file", async () => {
-    const defaultsReport = await buildQuotaStatusReportForTest({
-      configSource: "defaults",
-      googleModels: ["CLAUDE"],
-    });
-    expect(defaultsReport).toContain("- googleModels: CLAUDE");
-    expect(defaultsReport).toContain("- googleModels_source: default");
-
-    const configPath =
-      "/tmp/config/opencode-quota/quota-toast.json (opencode-quota/quota-toast.json)";
-    const configuredReport = await buildQuotaStatusReportForTest({
-      configSource: "files",
-      googleModels: ["CLAUDE", "G3PRO"],
-      settingSources: { googleModels: configPath },
-    });
-    expect(configuredReport).toContain("- googleModels: CLAUDE,G3PRO");
-    expect(configuredReport).toContain(`- googleModels_source: configuration file (${configPath})`);
-  });
-
-  it("keeps the raw Antigravity family in live quota diagnostics", async () => {
-    const report = await buildProviderStatusReport("google-antigravity", {
-      providerLiveProbes: [
-        makeProviderSuccessProbe(
-          "google-antigravity",
-          {},
-          {
-            entries: [
-              {
-                accounting: QUOTA_ACCOUNTING,
-                name: "Antigravity (ali…): Claude",
-                group: "[Antigravity (ali…)]",
-                label: "Claude:",
-                metricLabel: "Claude",
-                percentRemaining: 64,
-              },
-            ],
-            presentation: {
-              classicStrategy: "preserve",
-              redundantQuotaFamily: "Claude",
-            },
-          },
-        ),
-      ],
-    });
-
-    const section = getReportSection(report, "google_antigravity:");
-    expect(section).toContain("- live_entry_1: Claude: percent_remaining=64");
-    expect(section).not.toContain("- live_entry_1: Quota:");
-  });
-
   it("renders only safe quota-provider identity and diagnostic fields", async () => {
     const report = await buildQuotaStatusReportForTest({
       enabledProviders: ["quota-providers"],
@@ -348,19 +309,10 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("401");
   });
 
-  it("uses maintained Qwen and Alibaba probes and state paths for tuning diagnostics", async () => {
+  it("uses maintained Alibaba probes and state paths for tuning diagnostics", async () => {
     const report = await buildQuotaStatusReportForTest({
-      enabledProviders: ["qwen-code", "alibaba-coding-plan"],
+      enabledProviders: ["alibaba-coding-plan"],
       quotaProviders: [
-        {
-          id: "qwen-code",
-          providerId: "qwen-code",
-          mode: "local-estimate",
-          windows: [
-            { id: "daily", type: "utc-day", requestLimit: 900 },
-            { id: "rpm", type: "rolling", durationMinutes: 1, requestLimit: 50 },
-          ],
-        },
         {
           id: "alibaba-coding-plan",
           providerId: "alibaba-coding-plan",
@@ -373,27 +325,6 @@ describe("buildQuotaStatusReport", () => {
         },
       ],
       providerLiveProbes: [
-        {
-          providerId: "qwen-code",
-          result: {
-            attempted: true,
-            entries: [
-              {
-                accounting: QUOTA_ACCOUNTING,
-                name: "Qwen Free Daily",
-                percentRemaining: 90,
-              },
-            ],
-            errors: [{ label: "Qwen", message: "one local row failed" }],
-            statusDetails: makeStatusDetails({
-              local_state_path: "/tmp/qwen-state.json",
-              local_state_exists: "true",
-              local_state_health: "valid",
-              local_state_version: "1",
-              local_state_last_update: "2026-03-12T12:00:00.000Z",
-            }),
-          },
-        },
         {
           providerId: "alibaba-coding-plan",
           result: {
@@ -420,16 +351,10 @@ describe("buildQuotaStatusReport", () => {
 
     const section = getReportSection(report, "quota_providers:");
     expect(section).toContain(
-      "provider_qwen-code: provider_id=qwen-code mode=local-estimate coverage=all_models outcome=partial",
-    );
-    expect(section).toContain("limits=daily:900,rpm:50");
-    expect(section).toContain("state_path=/tmp/qwen-state.json");
-    expect(section).toContain(
       "provider_alibaba-coding-plan: provider_id=alibaba-coding-plan mode=local-estimate coverage=all_models outcome=success",
     );
     expect(section).toContain("limits=five-hour:1000,weekly:8000,monthly:16000");
     expect(section).toContain("state_path=/tmp/alibaba-state.json");
-    expect(section).not.toContain("quota-providers/qwen-code.json");
     expect(section).not.toContain("quota-providers/alibaba-coding-plan.json");
   });
 
@@ -630,6 +555,12 @@ describe("buildQuotaStatusReport", () => {
       "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",
     );
     expect(report).toContain(
+      "- kimi-code-plan-global: pricing=no (request quota via Kimi Code API (not token-priced))",
+    );
+    expect(report).toContain(
+      "- kimi-code-plan-cn: pricing=no (request quota via Kimi Code API (not token-priced))",
+    );
+    expect(report).toContain(
       "- kimi-for-coding: pricing=no (request quota via Kimi Code API (not token-priced))",
     );
     expect(report).toContain(
@@ -715,15 +646,45 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- live_probe: no_data");
   });
 
+  it("renders Synthetic empty-object success as a live error without quota rows or auth inference", async () => {
+    const report = await buildSyntheticStatusReport({
+      providerLiveProbes: [
+        makeProviderSuccessProbe(
+          "synthetic",
+          { "synthetic api key": "configured=true source=env:SYNTHETIC_API_KEY" },
+          {
+            errors: [
+              {
+                label: "Synthetic",
+                message: "Synthetic returned no quota data for this account.",
+              },
+            ],
+          },
+        ),
+      ],
+    });
+
+    const section = getReportSection(report, "synthetic:");
+    expect(section).toContain("- synthetic api key: configured=true source=env:SYNTHETIC_API_KEY");
+    expect(section).toContain("- live_probe: error");
+    expect(section).toContain("- live_error_1: Synthetic returned no quota data for this account.");
+    expect(section).not.toContain("live_entry_");
+    expect(section).not.toContain("5h:");
+    expect(section).not.toContain("Weekly:");
+    expect(section).not.toContain("Clerk");
+    expect(section).not.toContain("invalid");
+    expect(section).not.toContain("subscription");
+    expect(syntheticMocks.querySyntheticQuota).not.toHaveBeenCalled();
+  });
+
   it("renders compact live probes in mapped and probe-only provider sections", async () => {
     const report = await buildQuotaStatusReportForTest({
       enabledProviders: [
         "openai",
-        "qwen-code",
         "alibaba-coding-plan",
+        "alibaba-token-plan",
         "minimax-coding-plan",
         "copilot",
-        "google-antigravity",
         "google-gemini-cli",
         "chutes",
       ],
@@ -740,19 +701,20 @@ describe("buildQuotaStatusReport", () => {
             },
           ],
         }),
-        makeProviderProbe("qwen-code", {
+        makeProviderProbe("alibaba-coding-plan"),
+        makeProviderProbe("alibaba-token-plan", {
           attempted: true,
           entries: [
             {
-              label: "Daily",
-              name: "Qwen Code Daily",
-              percentRemaining: 88,
-              right: "120/1000",
-              resetTimeIso: "2026-04-22T00:00:00.000Z",
+              label: "5h",
+              name: "Alibaba Personal Token Plan 5h",
+              percentUsed: 20,
+              percentRemaining: 80,
+              right: "20%",
+              resetTimeIso: "2026-04-22T05:00:00.000Z",
             },
           ],
         }),
-        makeProviderProbe("alibaba-coding-plan"),
         makeProviderSuccessProbe(
           "minimax-coding-plan",
           { auth_state: "none" },
@@ -769,7 +731,6 @@ describe("buildQuotaStatusReport", () => {
           },
         ),
         makeProviderSafeFailureProbe("copilot", {}, "Billing endpoint unavailable"),
-        makeProviderProbe("google-antigravity"),
         makeProviderSuccessProbe(
           "google-gemini-cli",
           { auth_state: "missing", companion_package_state: "missing" },
@@ -799,14 +760,15 @@ describe("buildQuotaStatusReport", () => {
       "- live_entry_1: Pro 91/100 percent_remaining=91 reset_at=2026-04-22T00:00:00.000Z",
     );
 
-    const qwenSection = getReportSection(report, "qwen_code:");
-    expect(qwenSection).toContain("- live_probe: success");
-    expect(qwenSection).toContain(
-      "- live_entry_1: Daily 120/1000 percent_remaining=88 reset_at=2026-04-22T00:00:00.000Z",
-    );
+    expect(report).not.toContain("qwen_code:");
 
     const alibabaSection = getReportSection(report, "alibaba_coding_plan:");
     expect(alibabaSection).toContain("- live_probe: no_data");
+    expect(alibabaSection).not.toContain("alibaba-token-plan");
+
+    const alibabaTokenPlanSection = getReportSection(report, "alibaba_token_plan:");
+    expect(alibabaTokenPlanSection).toContain("- live_probe: success");
+    expect(alibabaTokenPlanSection).not.toContain("alibaba-coding-plan");
 
     const minimaxSection = getReportSection(report, "minimax:");
     expect(minimaxSection).toContain("- auth_state: none");
@@ -819,8 +781,7 @@ describe("buildQuotaStatusReport", () => {
     expect(copilotSection).toContain("- live_probe: error");
     expect(copilotSection).toContain("- live_error_1: Billing endpoint unavailable");
 
-    const googleSection = getReportSection(report, "google_antigravity:");
-    expect(googleSection).toContain("- live_probe: no_data");
+    expect(report).not.toContain("google_antigravity:");
 
     const geminiCliSection = getReportSection(report, "google_gemini_cli:");
     expect(geminiCliSection).toContain("- auth_state: missing");
@@ -1055,6 +1016,89 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- deepseek: pricing=no (account balance only (not token-priced))");
   });
 
+  it("reports OpenRouter API key diagnostics from the live probe", async () => {
+    const report = await buildProviderStatusReport("openrouter", {
+      providerLiveProbes: [
+        makeProviderSuccessProbe("openrouter", {
+          api_key_configured: "true",
+          api_key_source: "env",
+          api_key_checked_paths: "env:OPENROUTER_API_KEY",
+          api_key_auth_paths: "/tmp/auth.json",
+        }),
+      ],
+    });
+
+    const section = getReportSection(report, "openrouter:");
+    expect(section).toContain("- api_key_configured: true");
+    expect(section).toContain("- api_key_source: env");
+    expect(section).toContain("- api_key_checked_paths: env:OPENROUTER_API_KEY");
+    expect(section).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(openrouterMocks.resolveOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(openrouterMocks.queryOpenRouterQuota).not.toHaveBeenCalled();
+    expect(openrouterMocks.hasOpenRouterApiKeyConfigured).not.toHaveBeenCalled();
+  });
+
+  it("reports the OpenRouter live probe error", async () => {
+    const report = await buildProviderStatusReport("openrouter", {
+      providerLiveProbes: [
+        makeProviderSuccessProbe(
+          "openrouter",
+          {
+            api_key_configured: "true",
+            api_key_source: "auth.json",
+          },
+          {
+            errors: [{ label: "OpenRouter", message: "HTTP 401" }],
+          },
+        ),
+      ],
+    });
+
+    const section = getReportSection(report, "openrouter:");
+    expect(section).toContain("- api_key_configured: true");
+    expect(section).toContain("- api_key_source: auth.json");
+    expect(section).toContain("- live_probe: error");
+    expect(section).toContain("- live_error_1: HTTP 401");
+    expect(openrouterMocks.resolveOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(openrouterMocks.queryOpenRouterQuota).not.toHaveBeenCalled();
+  });
+
+  it("keeps an empty OpenRouter section when the live probe is absent", async () => {
+    const report = await buildProviderStatusReport("openrouter");
+
+    expect(getReportSection(report, "openrouter:")).toBe("openrouter:\n");
+    expect(report).not.toContain("live_probe");
+    expect(openrouterMocks.resolveOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(openrouterMocks.queryOpenRouterQuota).not.toHaveBeenCalled();
+    expect(openrouterMocks.hasOpenRouterApiKeyConfigured).not.toHaveBeenCalled();
+  });
+
+  it("does not leak OpenRouter secret canaries in quota_status", async () => {
+    const secret = "sk-or-status-secret-canary";
+    const report = await buildProviderStatusReport("openrouter", {
+      providerLiveProbes: [
+        makeProviderSuccessProbe(
+          "openrouter",
+          {
+            api_key_configured: "true",
+            api_key_source: "env",
+            api_key_checked_paths: "env:OPENROUTER_API_KEY",
+            api_key_auth_paths: "/tmp/auth.json",
+          },
+          {
+            errors: [{ label: "OpenRouter", message: "HTTP 401" }],
+          },
+        ),
+      ],
+    });
+
+    const section = getReportSection(report, "openrouter:");
+    expect(section).toContain("- api_key_source: env");
+    expect(section).toContain("- live_error_1: HTTP 401");
+    expect(report).not.toContain(secret);
+    expect(section).not.toContain("sk-or-");
+  });
+
   it("reports the xAI live quota probe", async () => {
     const report = await buildProviderStatusReport("xai", {
       providerLiveProbes: [
@@ -1191,26 +1235,24 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("workspace/private");
   });
 
-  it("reports OpenCode Zen config and live billing details without exposing credentials", async () => {
+  it("reports OpenCode Zen console account and live billing details without exposing credentials", async () => {
     const report = await buildOpenCodeZenStatusReport({
       providerLiveProbes: [
         makeProviderSuccessProbe("opencode", {
-          config_state: "configured",
-          config_source: "env(OPENCODE_*)",
+          account_state: "configured",
+          console_url: "https://opencode.ai/console",
           balance_usd: "$42.50",
           monthly_limit_usd: "$50.00",
-          last_payment_usd: "$20.00",
         }),
       ],
     });
 
     expect(report).toContain("opencode_zen:");
-    expect(report).toContain("- config_state: configured");
-    expect(report).toContain("- config_source: env(OPENCODE_*)");
+    expect(report).toContain("- account_state: configured");
+    expect(report).toContain("- console_url: https://opencode.ai/console");
     expect(report).toContain("- balance_usd: $42.50");
     expect(report).toContain("- monthly_limit_usd: $50.00");
-    expect(report).toContain("- last_payment_usd: $20.00");
-    expect(report).not.toContain("wrk-secret");
+    expect(report).not.toContain("st-secret-token");
   });
 
   it("does not retry a failed OpenCode Zen live probe", async () => {
@@ -1223,8 +1265,8 @@ describe("buildQuotaStatusReport", () => {
             entries: [],
             errors: [{ label: "OpenCode", message: "Request timeout after 10s" }],
             statusDetails: makeStatusDetails({
-              config_state: "configured",
-              config_source: "env(OPENCODE_*)",
+              account_state: "configured",
+              console_url: "https://opencode.ai/console",
             }),
           },
         },
@@ -1234,21 +1276,21 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- live_probe: error");
   });
 
-  it("reports a fixed OpenCode Zen parse error without attempting a live fetch", async () => {
+  it("reports a fixed OpenCode Zen auth error without attempting a live fetch", async () => {
     const report = await buildOpenCodeZenStatusReport({
       providerLiveProbes: [
         makeProviderProbe("opencode", {
           statusDetails: makeStatusDetails({
-            config_state: "invalid",
-            config_error: "Failed to parse JSON",
+            account_state: "expired",
+            account_error: "OpenCode Console session expired",
           }),
         }),
       ],
     });
 
     expect(report).toContain("opencode_zen:");
-    expect(report).toContain("- config_state: invalid");
-    expect(report).toContain("- config_error: Failed to parse JSON");
+    expect(report).toContain("- account_state: expired");
+    expect(report).toContain("- account_error: OpenCode Console session expired");
   });
 
   it("reports safe Xiaomi config and partial live summaries without exposing cookie data", async () => {
@@ -1411,11 +1453,6 @@ describe("buildQuotaStatusReport", () => {
     const report = await buildProviderStatusReport("copilot", {
       configSource: "defaults",
       providerLiveProbes: [
-        makeProviderSuccessProbe("qwen-code", {
-          "qwen oauth auth configured": "false",
-          qwen_oauth_source: "(none)",
-          qwen_local_plan: "(none)",
-        }),
         makeProviderSuccessProbe("alibaba-coding-plan", {
           "alibaba auth configured": "false",
           alibaba_api_key_source: "(none)",
@@ -1455,7 +1492,7 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(blank).toBe("");
 
-    const excerpt = body.slice(0, 48).join("\n");
+    const excerpt = body.slice(0, 47).join("\n");
     expect(excerpt).toMatchInlineSnapshot(`
       "toast:
       - configSource: defaults
@@ -1465,8 +1502,6 @@ describe("buildQuotaStatusReport", () => {
       - workspace_config_paths: (none)
       - setting_sources: (none)
       - enabledProviders: copilot
-      - googleModels: CLAUDE
-      - googleModels_source: default
       - onlyCurrentModel: false
       - currentModel: (unknown)
       - providers:
@@ -1475,9 +1510,7 @@ describe("buildQuotaStatusReport", () => {
       paths:
       - opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state
       - auth.json: preferred=/tmp/auth.json present=(none) candidates=/tmp/auth.json
-      - qwen oauth auth configured: false
-      - qwen_oauth_source: (none)
-      - qwen_local_plan: (none)
+      - opencode db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db
       - alibaba auth configured: false
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
@@ -1504,7 +1537,10 @@ describe("buildQuotaStatusReport", () => {
       cursor:
       - plan: none
       - included_api_usd: (none)
-      - billing_cycle_start_day: (calendar month)"
+      - billing_cycle_start_day: (calendar month)
+
+      minimax:
+      "
     `);
 
     const titles = report
@@ -1520,6 +1556,7 @@ cursor:
 minimax:
 minimax_china:
 kimi:
+kimi_cn:
 opencode_go:
 opencode_zen:
 xiaomi:
@@ -1530,8 +1567,8 @@ chutes:
 deepseek:
 xai:
 nanogpt:
+openrouter:
 copilot_quota_auth:
-google_antigravity:
 google_gemini_cli:
 google_agy:
 storage:

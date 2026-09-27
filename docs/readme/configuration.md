@@ -101,7 +101,7 @@ The estimate is a straight-line average since the confirmed fixed window began: 
 
 The provider's exact reset countdown stays separate from the estimate. If the calculated exhaustion is before reset, full displays use **Runs out ≈ 1h 50m**; Compact status and the prompt bar use **r/o ≈ 1h 50m**, where `r/o` means “runs out.” The approximation marker always has one following space, duration units are spaced, and partial minutes round up. If current use would last through the reset, displays say **lasts past reset**.
 
-Availability is deliberately narrow. A row needs a finite percentage, its original observation time, a nonzero elapsed interval, and explicit fixed-window start, end/reset, and full-reset evidence. OpenAI's known API rate-limit windows, xAI periods with explicit `currentPeriod.start` and `currentPeriod.end`, Cursor cycles with `cursorBillingCycleStartDay`, Qwen's maintained UTC-day window, and configured `local-estimate` `utc-day` windows can qualify. Rolling windows, RPM rows, balance/status/unlimited rows, Cursor's calendar-month fallback, and windows inferred only from labels do not. Unsupported rows are simply unchanged.
+Availability is deliberately narrow. A row needs a finite percentage, its original observation time, a nonzero elapsed interval, and explicit fixed-window start, end/reset, and full-reset evidence. OpenAI's known API rate-limit windows, xAI periods with explicit `currentPeriod.start` and `currentPeriod.end`, Cursor cycles with `cursorBillingCycleStartDay`, and configured `local-estimate` `utc-day` windows can qualify. Rolling windows, RPM rows, balance/status/unlimited rows, Cursor's calendar-month fallback, and windows inferred only from labels do not. Unsupported rows are simply unchanged.
 
 This option changes human presentation only. It reuses cached provider snapshots without another provider request, preserves the provider observation time, and does not add fields to JSON export v2.
 
@@ -151,7 +151,7 @@ A custom provider connects OpenCode Quota to a provider that is not built in, or
 Use the guided command:
 
 ```bash
-npx @cardinal4/opencode-quota@latest provider add
+npx @cardinal4/opencode-quota provider add
 ```
 
 It asks what kind of provider you have, previews the complete canonical merged global config, and asks before writing. It never asks for a response body, credential, or secret value. For `json-v1`, it guides you through the optional rows path and each mapping one field at a time. The same schema validator used at startup checks the constructed adapter before the preview.
@@ -237,7 +237,7 @@ The command writes the `experimental.quotaToast.quotaProviders` section. Configu
 - If any request cannot be priced, request counts stay visible and the budget percentage is reported unavailable.
 - Credentials resolve from `apiKeyEnv`, trusted global `provider.<providerId>.options.apiKey`, then API-key entries in OpenCode `auth.json`.
 - Definitions run automatically with `enabledProviders: "auto"`. A manual list must include `quota-providers` and every built-in provider you still want.
-- To tune maintained estimates, use the reserved `qwen-code` or `alibaba-coding-plan` ID and its maintained window shape. Do not add a duplicate normal provider block.
+- To tune maintained estimates, use the reserved `alibaba-coding-plan` ID and its maintained window shape. Do not add a duplicate normal provider block. Alibaba Personal Token Plan uses the reserved `alibaba-token-plan` ID and is not a local-estimate tuning target.
 - Project secrets, scripts, custom headers, executable mappings, regular expressions, and JSONPath are not accepted.
 
 Run `/quota_status` to see the exact state path and safe authentication source without exposing secrets.
@@ -435,7 +435,7 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | `tuiCompactStatus.suppressWhenNativeProviderQuota` | `true`               | Hide the Compact status line when OpenCode exposes native provider-quota support.                                                                                                                             |
 | `tuiCompactStatus.maxWidth`                        | `96`                 | Maximum Compact status line text width.                                                                                                                                                                       |
 | `tuiCompactStatus.formatStyle`                     | (root `formatStyle`) | Override `formatStyle` for the Compact status line only. Useful when you want `singleWindow` on the compact line while the sidebar shows `allWindows`.                                                        |
-| `tuiPromptBar.enabled`                             | `false`              | Show one opt-in primary quota/accounting result below the TUI prompt and replace the Compact line there. Rich results use the first projected primary row; legacy-only results keep the existing 5h percentage preference. Basis and supplementary rows are omitted. |
+| `tuiPromptBar.enabled`                             | `false`              | Show one opt-in primary quota/accounting result below the TUI prompt and replace the Compact line there. Percentage rows use a provider plus window label such as `OpenAI 5h`. The fill is a fixed 12-cell bar with no width setting; long labels truncate with an ellipsis instead of dropping the provider name. Rich results use the first projected primary row; legacy-only results keep the existing 5h percentage preference. Basis and supplementary rows are omitted. |
 
 ### Maintainer announcement settings
 
@@ -449,12 +449,18 @@ Existing `experimental.quotaToast` settings remain supported. Quota settings do 
 | Option                       | Default                            | Meaning                                                                                              |
 | ---------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `anthropicBinaryPath`        | `"claude"`                         | Command/path used for local Claude CLI probing.                                                      |
-| `googleModels`               | `["CLAUDE"]`                       | Google model keys to query: `CLAUDE`, `G3PRO`, `G3FLASH`, `G3IMAGE`, `GPTOSS`.                       |
 | `opencodeGoWindows`          | `["rolling", "weekly", "monthly"]` | Choose which validated OpenCode Go API results are available across surfaces and in the expanded sidebar: Five-hour, Weekly, and Monthly. |
 | `opencodeMonthlyLimit`       | unset                              | Override the OpenCode Zen monthly budget in USD.                                                     |
 | `cursorPlan`                 | `"none"`                           | Cursor included API budget preset: `none`, `pro`, `pro-plus`, `ultra`.                               |
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor monthly included API budget in USD.                                                  |
 | `cursorBillingCycleStartDay` | unset                              | Local billing-cycle anchor day `1..28`; when unset, Cursor usage resets on the local calendar month. |
+
+Kimi has no `quota-toast.json` credential setting. Each regional plan resolves its own key:
+
+- **Kimi Code (Global):** `KIMI_GLOBAL_API_KEY` → trusted user/global `provider.kimi-code-plan-global.options.apiKey` → strict `kimi-code-plan-global` API-key entry in OpenCode `auth.json`.
+- **Kimi Code (CN):** `KIMI_CN_API_KEY` → `KIMI_API_KEY` → `KIMI_CODE_API_KEY` → trusted user/global config under `kimi-code-plan-cn`, `kimi-for-coding`, `kimi-code`, or `kimi` → strict API-key auth entry under those same ids.
+
+Project-local `opencode.json` and `opencode.jsonc` are never read for these secrets. Global credentials are sent only to `api.kimi.ai`; CN and legacy credentials are sent only to `api.kimi.com`. A failed request is not retried against the other host.
 
 Kilo Gateway has no `quota-toast.json` credential setting. Use `KILO_API_KEY`, trusted user/global `provider.kilo.options.apiKey`, or a strict `kilo` API-key entry in OpenCode `auth.json`; project-local OpenCode config is not read for this secret. See [Kilo Gateway setup](providers.md#kilo-gateway).
 

@@ -14,9 +14,10 @@ import {
   LEGACY_DISPLAY_MAPPINGS,
   OBSOLETE_GO_ENV_NAMES,
   OBSOLETE_GO_FILE,
+  OBSOLETE_ZEN_FILE,
+  resolveScopedUpdateMigrationBoundary,
   type ScopedUpdateManualFinding,
   type ScopedUpdateSafeAction,
-  SUPPORTED_ZEN_FILE,
   sortScopedUpdateManualFindings,
   sortScopedUpdateSafeActions,
 } from "../src/lib/scoped-update-migration.js";
@@ -453,12 +454,45 @@ describe("migration candidate discovery", () => {
   });
 });
 
+describe("resolveScopedUpdateMigrationBoundary writePath", () => {
+  it("allows a matching contained writePath", async () => {
+    const root = tempDir();
+    const path = join(root, "opencode-quota", "quota-toast.jsonc");
+    write(path, "{}");
+    const [realPath, realRoot] = await Promise.all([realpath(path), realpath(root)]);
+
+    await expect(
+      resolveScopedUpdateMigrationBoundary({
+        path,
+        rootDir: root,
+        writePath: path,
+      }),
+    ).resolves.toEqual({ path, rootDir: root, realPath, realRoot });
+  });
+
+  it("rejects a divergent writePath even when it stays inside the root", async () => {
+    const root = tempDir();
+    const path = join(root, "opencode-quota", "quota-toast.jsonc");
+    const other = join(root, "opencode.json");
+    write(path, "{}");
+    write(other, "{}");
+
+    await expect(
+      resolveScopedUpdateMigrationBoundary({
+        path,
+        rootDir: root,
+        writePath: other,
+      }),
+    ).resolves.toBeNull();
+  });
+});
+
 describe("obsolete source audit", () => {
   it("locks exact historical source registries", () => {
     expect(OBSOLETE_GO_ENV_NAMES).toEqual(["OPENCODE_GO_WORKSPACE_ID", "OPENCODE_GO_AUTH_COOKIE"]);
     expect(AMBIGUOUS_ZEN_ENV_NAMES).toEqual(["OPENCODE_WORKSPACE_ID", "OPENCODE_AUTH_COOKIE"]);
     expect(OBSOLETE_GO_FILE).toBe("opencode-quota/opencode-go.json");
-    expect(SUPPORTED_ZEN_FILE).toBe("opencode-quota/opencode.json");
+    expect(OBSOLETE_ZEN_FILE).toBe("opencode-quota/opencode.json");
   });
 
   it.each([
@@ -473,7 +507,6 @@ describe("obsolete source audit", () => {
     const findings = await auditObsoleteUpdateSources({
       env,
       configDirs: [root],
-      primaryConfigDir: root,
     });
 
     expect(findings.filter((finding) => finding.kind === "obsolete-go-env")).toEqual(
@@ -491,7 +524,6 @@ describe("obsolete source audit", () => {
     const findings = await auditObsoleteUpdateSources({
       env: {},
       configDirs,
-      primaryConfigDir: configDirs[0] ?? root,
     });
 
     expect(findings).toEqual(paths.map((path) => ({ kind: "obsolete-go-file", path })));
@@ -506,7 +538,6 @@ describe("obsolete source audit", () => {
     const findings = await auditObsoleteUpdateSources({
       env: {},
       configDirs: [globalRoot],
-      primaryConfigDir: globalRoot,
     });
 
     expect(findings).toEqual([]);
@@ -524,36 +555,18 @@ describe("obsolete source audit", () => {
     const findings = await auditObsoleteUpdateSources({
       env,
       configDirs: [root],
-      primaryConfigDir: root,
     });
 
-    expect(findings).toEqual([
-      {
-        kind: "ambiguous-zen-env",
-        names,
-        suggestedPath: join(root, SUPPORTED_ZEN_FILE),
-      },
-    ]);
+    expect(findings).toEqual([{ kind: "ambiguous-zen-env", names }]);
     expect(JSON.stringify(findings)).not.toContain("zen-secret-canary");
   });
 
-  it.each([
-    "malformed",
-    "incomplete",
-    "symlink",
-  ])("suppresses ambiguous Zen findings when any supported file path exists: %s", async (kind) => {
+  it("reports every obsolete Zen file path and still reports ambiguous Zen names", async () => {
     const root = tempDir();
     const first = join(root, "first");
     const second = join(root, "second");
-    const supportedPath = join(second, SUPPORTED_ZEN_FILE);
-    if (kind === "symlink") {
-      const target = join(root, "target.json");
-      write(target, "supported-file-secret-canary");
-      mkdirSync(dirname(supportedPath), { recursive: true });
-      symlinkSync(target, supportedPath);
-    } else {
-      write(supportedPath, kind === "malformed" ? "{" : "{}");
-    }
+    const secondPath = join(second, OBSOLETE_ZEN_FILE);
+    write(secondPath, "zen-file-secret-canary");
 
     const findings = await auditObsoleteUpdateSources({
       env: {
@@ -561,10 +574,13 @@ describe("obsolete source audit", () => {
         OPENCODE_AUTH_COOKIE: "zen-cookie-secret",
       },
       configDirs: [first, second],
-      primaryConfigDir: first,
     });
 
-    expect(findings).toEqual([]);
+    expect(findings).toEqual([
+      { kind: "ambiguous-zen-env", names: ["OPENCODE_WORKSPACE_ID", "OPENCODE_AUTH_COOKIE"] },
+      { kind: "obsolete-zen-file", path: secondPath },
+    ]);
+    expect(JSON.stringify(findings)).not.toMatch(/secret/u);
   });
 
   it("deduplicates config paths while preserving first config-dir order", async () => {
@@ -577,7 +593,6 @@ describe("obsolete source audit", () => {
     const findings = await auditObsoleteUpdateSources({
       env: {},
       configDirs: [first, first, second],
-      primaryConfigDir: first,
     });
 
     expect(findings).toEqual([

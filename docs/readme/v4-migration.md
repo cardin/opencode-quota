@@ -24,13 +24,13 @@ v4 adds clearer quota results, guided custom-provider setup, and JSON export v2.
 Preview the changes first:
 
 ```bash
-npx @cardinal4/opencode-quota@latest update --dry-run
+npx @cardinal4/opencode-quota update --dry-run
 ```
 
 If the preview looks right, apply them:
 
 ```bash
-npx @cardinal4/opencode-quota@latest update
+npx @cardinal4/opencode-quota update
 ```
 
 Restart OpenCode, then run `/quota` and `/quota_status`.
@@ -44,18 +44,16 @@ v4 replaces the old `customSources` setting with `quotaProviders`. The old setti
 Use the guided command to add each custom provider:
 
 ```bash
-npx @cardinal4/opencode-quota@latest provider add
+npx @cardinal4/opencode-quota provider add
 ```
 
 It previews the exact global config change and asks before writing. See the [Provider setup guide](providers.md#custom-providers) for full details.
 
-### Gemini CLI in v4.1
+### Gemini CLI
 
-Existing `google-gemini-cli` configurations continue to work unchanged in v4.1. The integration is deprecated for new installs and is planned for removal in v5.0.0. OpenCode Quota does not migrate your configuration or authentication and does not silently switch providers.
+Existing `google-gemini-cli` configurations continue to work, but only with Gemini Code Assist Standard or Enterprise (organization) accounts. Google ended personal accounts on 2026-06-18. OpenCode Quota does not migrate your configuration or authentication and does not silently switch providers.
 
-Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. Within OpenCode Quota, `google-agy` is the suggested successor for quota reporting, but OpenCode Quota's Google integrations are independent and are not endorsed by Google.
-
-If you choose `google-agy`, configure and verify it separately before removing your existing Gemini CLI setup. See [Gemini CLI in the provider guide](providers.md#gemini-cli).
+Personal Google users should configure and verify `google-agy` separately, then remove their Gemini CLI setup. See [Gemini CLI in the provider guide](providers.md#gemini-cli).
 
 ### Apps that read quota JSON
 
@@ -63,9 +61,9 @@ v4 JSON uses schema `version: 2`. It clearly labels quota, usage, spend, budget,
 
 Update any app or script that reads the JSON before depending on v4 output. See [External integration](external-integration.md).
 
-### Alibaba and Qwen custom limits
+### Alibaba custom limits
 
-Built-in limits continue to work. If you changed Alibaba or Qwen limits, add those changes through `quotaProviders`. See [Custom providers](configuration.md#custom-providers).
+Built-in limits continue to work. If you changed Alibaba limits, add those changes through `quotaProviders`. See [Custom providers](configuration.md#custom-providers).
 
 ## Check the update
 
@@ -80,7 +78,7 @@ After restarting OpenCode:
 
 1. Close OpenCode.
 2. Restore the config backup you made before updating.
-3. Pin both the server and TUI plugin entries to v3, for example `@cardinal4/opencode-quota@3`.
+3. Pin both the server and TUI plugin entries to v3, for example `@cardinal4/opencode-quota`.
 4. Remove v4 `quotaProviders` entries because v3 does not understand them.
 5. Restart OpenCode and run `/quota`.
 

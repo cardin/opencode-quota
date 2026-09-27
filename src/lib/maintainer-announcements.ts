@@ -50,9 +50,24 @@ export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[]
     endsAt: "2026-08-22T00:00:00.000Z",
   },
   {
-    id: "google-gemini-cli-deprecated",
+    id: "opencode-2-feedback",
     message:
-      "Gemini CLI quota support in OpenCode Quota is deprecated, with removal planned for v5.0.0. Existing v4 configurations continue to work. Google's official Antigravity CLI replaces the individual Gemini CLI experience. Google AI Studio or Vertex AI are the supported choices for third-party access. OpenCode Quota's Google integrations are independent and are not endorsed by Google.",
+      "OpenCode 2 support is coming in OpenCode Quota 5.0. Tell us what you want from the OpenCode 2 version.",
+    url: "https://github.com/slkiser/opencode-quota/issues/293",
+    startsAt: "2026-09-25T00:00:00.000Z",
+    endsAt: "2026-11-25T00:00:00.000Z",
+  },
+  {
+    id: "opencode-1-stay-on-4x",
+    message: 'On OpenCode 1? Run "npx @slkiser/opencode-quota@4 update" to stay on 4.x.',
+    url: "https://github.com/slkiser/opencode-quota#updating",
+    startsAt: "2026-09-26T00:00:00.000Z",
+    endsAt: "2026-11-26T00:00:00.000Z",
+  },
+  {
+    id: "google-gemini-cli-org-only",
+    message:
+      "Gemini CLI quota support stays. It only works with Gemini Code Assist Standard or Enterprise (organization) accounts because Google ended personal accounts on 2026-06-18. Personal Google users should use Google AGY.",
     providerIds: ["google-gemini-cli"],
   },
 ];

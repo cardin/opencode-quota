@@ -81,22 +81,31 @@ After installation:
 
 ## Updating
 
+OpenCode 1 users stay on 4.x: OpenCode Quota 5 needs OpenCode 2. The updater pins your plugin to `@4`.
+
 1. Close OpenCode.
 2. Preview the update:
 
    ```bash
-   npx @cardinal4/opencode-quota@latest update --dry-run
+   npx @cardinal4/opencode-quota update --dry-run
    ```
 
 3. Inspect the safe setting/cache changes and manual credential findings, then apply:
 
    ```bash
-   npx @cardinal4/opencode-quota@latest update
+   npx @cardinal4/opencode-quota update
    ```
 
 4. Restart OpenCode.
 
 The updater prints the complete preview before its own config or cache changes. `--yes` authorizes only the previewed safe config edits and manifest-verified cache cleanup; it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md) for detailed behavior and manual credential steps.
+
+**Breaking changes since 4.10.3:**
+
+- Qwen Code was removed because Qwen ended its OAuth free tier; use Alibaba Coding Plan.
+- Google Antigravity was removed because its companion plugin is archived and Google rejects it; use Google AGY.
+- Personal Google accounts can no longer use Gemini CLI because Google ended them on 2026-06-18; use Google AGY.
+- OpenCode Zen now uses your `opencode console login` session; the copied Console cookie file is no longer read. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
 
 ## Choose your setup
 
@@ -163,13 +172,13 @@ Use the CLI for setup, updates, terminal checks, and custom providers.
 
 | Command                                                  | What it does                                |
 | -------------------------------------------------------- | ------------------------------------------- |
-| `npx @cardinal4/opencode-quota@latest init`                | Set up OpenCode Quota                       |
-| `npx @cardinal4/opencode-quota@latest provider add`        | Add or update a custom provider             |
-| `npx @cardinal4/opencode-quota@latest show`                | Show current quota                          |
-| `npx @cardinal4/opencode-quota@latest status`              | Check configuration and provider problems  |
-| `npx @cardinal4/opencode-quota@latest update`              | Update an existing installation             |
+| `npx @cardinal4/opencode-quota init`                | Set up OpenCode Quota                       |
+| `npx @cardinal4/opencode-quota provider add`        | Add or update a custom provider             |
+| `npx @cardinal4/opencode-quota show`                | Show current quota                          |
+| `npx @cardinal4/opencode-quota status`              | Check configuration and provider problems  |
+| `npx @cardinal4/opencode-quota update`              | Update an existing installation             |
 
-Run `npx @cardinal4/opencode-quota@latest --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
+Run `npx @cardinal4/opencode-quota --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
 
 ## Providers
 
@@ -185,13 +194,12 @@ Run `npx @cardinal4/opencode-quota@latest --help` for command options. See [Exte
 | Cursor             | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |
 | GitHub Copilot     | Automatic                                                      | Remote API         | Budget and usage   |
 | Google AGY         | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
-| Google Antigravity | [Needs setup](docs/readme/providers.md#google-antigravity)     | Remote API         | Quota              |
 | Kilo Gateway       | Automatic                                                      | Remote API         | Quota and balance  |
 | NanoGPT            | Automatic                                                      | Remote API         | Quota and balance  |
 | Ollama Cloud       | Automatic                                                      | Remote API         | Quota and usage    |
 | OpenAI             | Automatic                                                      | Remote API         | Quota              |
 | OpenCode Go        | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen       | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenCode Zen       | [Needs setup](docs/readme/providers.md#opencode-zen)           | Remote API         | Budget and balance |
 | OpenRouter         | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok      | Automatic                                                      | Remote API         | Quota              |
@@ -206,18 +214,17 @@ Run `npx @cardinal4/opencode-quota@latest --help` for command options. See [Exte
 | Anthropic (Claude)      | [Needs setup](docs/readme/providers.md#anthropic-claude)       | Local CLI/OAuth    | Quota              |
 | Chutes AI               | Automatic                                                      | Remote API         | Quota              |
 | Cursor                  | [Needs setup](docs/readme/providers.md#cursor)                 | Local estimate     | Budget and spend   |
-| Gemini CLI (deprecated) | [Existing setups only](docs/readme/providers.md#gemini-cli)    | Remote API         | Quota              |
+| Gemini CLI              | [Needs setup](docs/readme/providers.md#gemini-cli)             | Remote API         | Quota              |
 | GitHub Copilot          | [Needs setup](docs/readme/providers.md#github-copilot)         | Remote API         | Budget and usage   |
 | Google AGY              | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
-| Google Antigravity      | [Needs setup](docs/readme/providers.md#google-antigravity)     | Remote API         | Quota              |
 | NanoGPT                 | Automatic                                                      | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen            | [Needs setup](docs/readme/providers.md#opencode-zen)           | Dashboard scraping | Budget and balance |
+| OpenCode Zen            | [Needs setup](docs/readme/providers.md#opencode-zen)           | Remote API         | Budget and balance |
 | OpenRouter              | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok           | Automatic                                                      | Remote API         | Quota              |
 
-Gemini CLI quota support is deprecated for new installs. Existing v4 configurations still work, with removal planned for v5.0.0. See the [provider guide](docs/readme/providers.md#gemini-cli) before choosing a replacement.
+Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Personal Google users should use Google AGY.
 
 </details>
 
@@ -226,17 +233,18 @@ Gemini CLI quota support is deprecated for new installs. Existing v4 configurati
 <details open>
 <summary><strong>Personal</strong></summary>
 
-| Provider                 | Auth/setup                                          | Data from      | Reports            |
-| ------------------------ | --------------------------------------------------- | -------------- | ------------------ |
-| Alibaba Coding Plan      | Automatic                                           | Local estimate | Quota              |
-| DeepSeek                 | Automatic                                           | Remote API     | Balance and status |
-| Kimi Code                | Automatic                                           | Remote API     | Quota              |
-| MiniMax Token Plan       | Automatic                                           | Remote API     | Quota              |
-| MiniMax Token Plan (CN)  | Automatic                                           | Remote API     | Quota              |
-| Qwen Code                | [Needs setup](docs/readme/providers.md#qwen-code)   | Local estimate | Quota              |
-| Xiaomi MiMo              | [Needs setup](docs/readme/providers.md#xiaomi-mimo) | Dashboard API  | Quota and balance  |
-| Z.ai Coding Plan         | Automatic                                           | Remote API     | Quota              |
-| Zhipu Coding Plan        | Automatic                                           | Remote API     | Quota              |
+| Provider                      | Auth/setup                                                                   | Data from      | Reports            |
+| ----------------------------- | ---------------------------------------------------------------------------- | -------------- | ------------------ |
+| Alibaba Coding Plan           | Automatic                                                                    | Local estimate | Quota              |
+| Alibaba Personal Token Plan   | [Needs setup](docs/readme/providers.md#alibaba-personal-token-plan)          | Official CLI   | Quota              |
+| DeepSeek                      | Automatic                                                                    | Remote API     | Balance and status |
+| Kimi Code                     | Automatic                                                                    | Remote API     | Quota              |
+| Kimi Code (CN)                | Automatic                                                                    | Remote API     | Quota              |
+| MiniMax Token Plan            | Automatic                                                                    | Remote API     | Quota              |
+| MiniMax Token Plan (CN)       | Automatic                                                                    | Remote API     | Quota              |
+| Xiaomi MiMo                   | [Needs setup](docs/readme/providers.md#xiaomi-mimo)                          | Dashboard API  | Quota and balance  |
+| Z.ai Coding Plan              | Automatic                                                                    | Remote API     | Quota              |
+| Zhipu Coding Plan             | Automatic                                                                    | Remote API     | Quota              |
 
 </details>
 
@@ -246,6 +254,7 @@ Gemini CLI quota support is deprecated for new installs. Existing v4 configurati
 | Provider                 | Auth/setup | Data from  | Reports |
 | ------------------------ | ---------- | ---------- | ------- |
 | Kimi Code                | Automatic  | Remote API | Quota   |
+| Kimi Code (CN)           | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan       | Automatic  | Remote API | Quota   |
 | MiniMax Token Plan (CN)  | Automatic  | Remote API | Quota   |
 | Zhipu Coding Plan        | Automatic  | Remote API | Quota   |
@@ -259,7 +268,7 @@ These vendors offer team or business plans, but the current integrations report 
 Add a provider that uses a remote quota API or tracks a local usage estimate:
 
 ```bash
-npx @cardinal4/opencode-quota@latest provider add
+npx @cardinal4/opencode-quota provider add
 ```
 
 The guided setup previews the change before saving. See the [custom-provider guide](docs/readme/providers.md#custom-providers) for details.
@@ -297,8 +306,8 @@ External references:
 
 Thanks to everyone who has contributed to OpenCode Quota.
 
-<a href="https://github.com/slkiser/opencode-quota/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=slkiser/opencode-quota" />
+<a href="https://github.com/cardin/opencode-quota/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=cardin/opencode-quota" />
 </a>
 
 ## License
@@ -311,4 +320,4 @@ OpenCode Quota is not built by the OpenCode team and is not affiliated with Open
 
 ## Star history
 
-![Star History Chart](https://shawnkiser.com/opencode-quota/star-history-2026813.svg)
+[![Star History Chart](https://api.star-history.com/svg?repos=cardin/opencode-quota&type=date&legend=top-left)](https://www.star-history.com/#cardin/opencode-quota&Date)
