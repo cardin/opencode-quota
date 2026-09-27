@@ -45,6 +45,7 @@ export async function resolveAnthropicOAuthCached(params?: {
 }): Promise<ResolvedAnthropicOAuth> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_ANTHROPIC_AUTH_CACHE_MAX_AGE_MS),
+    integrationIds: ["anthropic"],
   });
   return resolveAnthropicOAuth(auth);
 }

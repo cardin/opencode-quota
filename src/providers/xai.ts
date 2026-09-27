@@ -8,7 +8,11 @@ import type {
   QuotaProviderMatchContext,
   QuotaProviderResult,
 } from "../lib/entries.js";
-import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
+import {
+  credentialRowAuthEntry,
+  formatCredentialDisplayNames,
+  readCredentialRows,
+} from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderMatchesRuntimeId } from "../lib/provider-model-matching.js";
 import type { AuthData } from "../lib/types.js";
@@ -43,11 +47,14 @@ export const xaiProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const credentials = (await readCredentialRows()).flatMap((row) => {
-      if (row.integrationId !== "xai") return [];
-      const auth = resolveXaiOAuth({ xai: row.value } as AuthData);
-      return auth.state === "configured" ? [{ row, auth }] : [];
-    });
+    // A failed login stays in the list so it shows as its own error row.
+    const credentials = (await readCredentialRows(["xai"], { methods: ["oauth"] })).flatMap(
+      (row) => {
+        if (row.integrationId !== "xai") return [];
+        const auth = resolveXaiOAuth({ xai: credentialRowAuthEntry(row) } as AuthData);
+        return auth.state === "none" ? [] : [{ row, auth }];
+      },
+    );
     if (credentials.length > 0) {
       const results = await Promise.all(
         credentials.map(async ({ row, auth }) => ({

@@ -42,7 +42,7 @@ describe("ollama-cloud API key config", () => {
     vi.clearAllMocks();
   });
 
-  it("uses only the documented API key and trusted Ollama Cloud sources", () => {
+  it("uses only the documented API key and trusted Ollama Cloud sources", async () => {
     expect(mocks.config).toMatchObject({
       envVars: [{ name: "OLLAMA_API_KEY", source: "env:OLLAMA_API_KEY" }],
       providerKeys: ["ollama-cloud"],
@@ -51,11 +51,14 @@ describe("ollama-cloud API key config", () => {
       configJsoncSource: "opencode.jsonc",
       getConfigCandidates: mocks.getGlobalOpencodeConfigCandidatePaths,
       auth: {
-        readAuth: mocks.readAuthFile,
+        readAuth: expect.any(Function),
         getCredentialDatabasePaths: mocks.getCredentialDatabasePaths,
         authSource: "opencode.db",
       },
     });
+    const auth = mocks.config?.auth as { readAuth: () => Promise<unknown> };
+    await auth.readAuth();
+    expect(mocks.readAuthFile).toHaveBeenCalledWith({ integrationIds: ["ollama-cloud"] });
     expect(JSON.stringify(mocks.config)).not.toContain("OLLAMA_USAGE_COOKIE");
     expect(JSON.stringify(mocks.config)).not.toContain("ollama-usage");
     expect(getOpencodeConfigCandidatePaths()).toEqual([

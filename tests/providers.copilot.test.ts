@@ -14,6 +14,7 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/lib/copilot.js", () => ({
+  COPILOT_AUTH_KEYS: ["github-copilot", "copilot", "copilot-chat", "github-copilot-chat"],
   hasCopilotQuotaRuntimeAvailable: vi.fn(async () => false),
   queryCopilotQuota: vi.fn(),
   getCopilotQuotaAuthDiagnostics: vi.fn(() => ({

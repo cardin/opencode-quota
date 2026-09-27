@@ -1,5 +1,9 @@
 import type { QuotaProvider, QuotaProviderContext } from "../lib/entries.js";
-import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
+import {
+  credentialRowAuthEntry,
+  formatCredentialDisplayNames,
+  readCredentialRows,
+} from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import type { CanonicalQuotaProviderId } from "../lib/provider-metadata.js";
 import type { AuthData } from "../lib/types.js";
@@ -74,19 +78,27 @@ export function createGlmCodingPlanProvider(params: {
       const diagnostics = await params.getAuthDiagnostics({ maxAgeMs: params.authCacheMaxAgeMs });
       const authDetails = apiKeyStatusDetails(diagnostics);
       if (diagnostics.source === "opencode.db") {
-        const credentials = (await readCredentialRows()).flatMap((row) => {
+        const credentials = (
+          await readCredentialRows(params.credentialIntegrationIds, { methods: ["key"] })
+        ).flatMap((row) => {
           if (!params.credentialIntegrationIds.includes(row.integrationId)) return [];
-          const auth = params.resolveCredentialAuth({ [row.integrationId]: row.value } as AuthData);
-          return auth.state === "configured" ? [{ row, auth }] : [];
+          const auth = params.resolveCredentialAuth({
+            [row.integrationId]: credentialRowAuthEntry(row),
+          } as AuthData);
+          // An invalid login stays in the list so it shows as its own error row.
+          return auth.state === "none" ? [] : [{ row, auth }];
         });
         if (credentials.length > 0) {
           const results = await Promise.all(
             credentials.map(async ({ row, auth }) => ({
               row,
-              result: await params.queryQuota({
-                requestTimeoutMs: ctx.config?.requestTimeoutMs,
-                apiKey: auth.apiKey,
-              }),
+              result:
+                auth.state === "invalid"
+                  ? { success: false as const, error: auth.error }
+                  : await params.queryQuota({
+                      requestTimeoutMs: ctx.config?.requestTimeoutMs,
+                      apiKey: auth.apiKey,
+                    }),
             })),
           );
           const names = formatCredentialDisplayNames(

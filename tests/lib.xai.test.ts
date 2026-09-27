@@ -113,6 +113,30 @@ describe("queryXaiQuota", () => {
     await expect(queryXaiQuota()).resolves.toBeNull();
   });
 
+  it("reports a login OpenCode could not return without fetching, and keeps it present", async () => {
+    const { readAuthFile, readAuthFileCached } = await import("../src/lib/opencode-auth.js");
+    const failed = { xai: { type: "oauth", resolveError: "refresh_failed: HTTP 401" } };
+    (readAuthFile as any).mockResolvedValue(failed);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(resolveXaiOAuth(failed)).toEqual({
+      state: "failed",
+      error: "refresh_failed: HTTP 401",
+    });
+    expect(hasXaiOAuth(failed)).toBe(true);
+    await expect(queryXaiQuota()).resolves.toEqual({
+      success: false,
+      error:
+        "xAI sign-in could not be refreshed: refresh_failed: HTTP 401. Run `opencode auth login xai`.",
+    });
+    await expect(resolveXaiAuthIdentity()).resolves.toBeNull();
+    expect(readAuthFile).toHaveBeenCalledWith({ integrationIds: ["xai"] });
+    expect(readAuthFileCached).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deriveResolvedAuthIdentity).not.toHaveBeenCalled();
+  });
+
   it("does not refresh, fetch, or write an expired token", async () => {
     const { readAuthFile, readAuthFileCached } = await import("../src/lib/opencode-auth.js");
     (readAuthFile as any).mockResolvedValueOnce({

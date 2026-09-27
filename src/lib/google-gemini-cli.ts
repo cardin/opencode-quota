@@ -29,7 +29,7 @@ import type {
 
 export const DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
-const GEMINI_CLI_AUTH_KEYS = [
+export const GEMINI_CLI_AUTH_KEYS = [
   "google-gemini-cli",
   "gemini-cli",
   "opencode-gemini-auth",
@@ -153,7 +153,7 @@ export function resolveGeminiCliAccounts(
 
   for (const sourceKey of GEMINI_CLI_AUTH_KEYS) {
     const entry = getAuthEntry(auth, sourceKey);
-    if (!entry || entry.type !== "oauth") {
+    if (!entry || entry.type !== "oauth" || entry.resolveError !== undefined) {
       continue;
     }
 
@@ -207,6 +207,18 @@ function firstGeminiCliAuthKey(
   return GEMINI_CLI_AUTH_KEYS.find((sourceKey) => getAuthEntry(auth, sourceKey)?.type === "oauth");
 }
 
+function firstFailedGeminiCliAuthKey(
+  auth: AuthData | null | undefined,
+): GeminiCliAuthSourceKey | undefined {
+  if (!auth) {
+    return undefined;
+  }
+  return GEMINI_CLI_AUTH_KEYS.find((sourceKey) => {
+    const entry = getAuthEntry(auth, sourceKey);
+    return entry?.type === "oauth" && entry.resolveError !== undefined;
+  });
+}
+
 function getCompanionQuotaError(state: "missing" | "invalid"): string {
   return state === "missing"
     ? "Gemini CLI requires the opencode-gemini-auth plugin"
@@ -232,7 +244,10 @@ export async function resolveGeminiCliConfiguredProjectId(): Promise<string | un
 
 export async function inspectGeminiCliAuthPresence(): Promise<GeminiCliAuthPresence> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: GEMINI_CLI_AUTH_KEYS,
+    }),
     resolveGeminiCliConfiguredProjectId(),
   ]);
   const accountCount = countGeminiCliAuthEntries(auth);
@@ -242,7 +257,9 @@ export async function inspectGeminiCliAuthPresence(): Promise<GeminiCliAuthPrese
 
   const accounts = resolveGeminiCliAccounts(auth, configuredProjectId);
   const sourceKey = accounts[0]?.sourceKey ?? firstGeminiCliAuthKey(auth);
-  if (accounts.length === 0) {
+  // A login OpenCode could not return still counts as present, so its error row shows.
+  const presentSourceKey = accounts[0]?.sourceKey ?? firstFailedGeminiCliAuthKey(auth);
+  if (!presentSourceKey) {
     return {
       state: "invalid",
       ...(sourceKey ? { sourceKey } : {}),
@@ -254,7 +271,7 @@ export async function inspectGeminiCliAuthPresence(): Promise<GeminiCliAuthPrese
 
   return {
     state: "present",
-    sourceKey: accounts[0]!.sourceKey,
+    sourceKey: presentSourceKey,
     accountCount,
     validAccountCount: accounts.length,
   };
@@ -266,16 +283,15 @@ export async function hasGeminiCliQuotaRuntimeAvailable(): Promise<boolean> {
     inspectGeminiCliCompanionPresence(),
   ]);
 
-  return (
-    authPresence.state === "present" &&
-    authPresence.validAccountCount > 0 &&
-    companionPresence.state === "present"
-  );
+  return authPresence.state === "present" && companionPresence.state === "present";
 }
 
 export async function resolveGeminiCliAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
   const [auth, configuredProjectId, credentials] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: GEMINI_CLI_AUTH_KEYS,
+    }),
     resolveGeminiCliConfiguredProjectId(),
     resolveGeminiCliClientCredentials(),
   ]);
@@ -615,7 +631,11 @@ export async function queryGeminiCliQuota(
   options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<GeminiCliResult> {
   const [auth, configuredProjectId] = await Promise.all([
-    options.authData ?? readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
+    options.authData ??
+      readAuthFileCached({
+        maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: GEMINI_CLI_AUTH_KEYS,
+      }),
     resolveGeminiCliConfiguredProjectId(),
   ]);
   const accounts = resolveGeminiCliAccounts(auth, configuredProjectId);

@@ -12,8 +12,6 @@ import { openOpenCodeSqliteReadOnly, type SqliteConn } from "./opencode-sqlite.j
 
 import type { AuthData } from "./types.js";
 
-const DEFAULT_AUTH_CACHE_MAX_AGE_MS = 5_000;
-
 type AuthCacheEntry = {
   timestamp: number;
   value: AuthData | null;
@@ -26,6 +24,23 @@ export type CredentialRow = {
   label: string;
   active: boolean;
   value: Record<string, unknown>;
+  /**
+   * Why OpenCode could not return this login (for example a failed token
+   * refresh). A failed row keeps its id, label and position, but its `value`
+   * is only `{ type: "api" | "oauth" }`; consumers show `resolveError` as a
+   * per-account error. The SQLite reader never sets it.
+   */
+  resolveError?: string;
+};
+
+/** OpenCode 2 connection methods: a stored API key or an OAuth sign-in. */
+export type CredentialMethod = "key" | "oauth";
+
+export type ReadCredentialRowsOptions = {
+  /** Keep only rows whose stored credential uses one of these methods. */
+  methods?: readonly CredentialMethod[];
+  /** Keep only the first (active) row of each integration id. */
+  firstOnly?: boolean;
 };
 
 /**
@@ -64,7 +79,8 @@ export function formatCredentialDisplayNames(
   });
 }
 
-let authCache: AuthCacheEntry | null = null;
+/** Cached auth maps keyed by the sorted, joined integration id list. */
+const authCache = new Map<string, AuthCacheEntry>();
 
 /**
  * OpenCode credential database paths: the one resolved database, or none when
@@ -75,18 +91,61 @@ export function getCredentialDatabasePaths(): string[] {
   return path === ":memory:" ? [] : [path];
 }
 
-export async function readAuthFile(): Promise<AuthData | null> {
-  const rows = await readCredentialRows();
+/**
+ * The auth entry resolvers read for a row: its value, plus `resolveError`
+ * when OpenCode could not return the login.
+ */
+export function credentialRowAuthEntry(row: CredentialRow): Record<string, unknown> {
+  return row.resolveError === undefined
+    ? row.value
+    : { ...row.value, resolveError: row.resolveError };
+}
+
+/** Map of the first (active) login per requested integration id. */
+export async function readAuthFile(params: {
+  integrationIds: readonly string[];
+}): Promise<AuthData | null> {
+  const rows = await readCredentialRows(params.integrationIds, { firstOnly: true });
   const auth: Record<string, unknown> = {};
   for (const row of rows) {
-    if (!(row.integrationId in auth)) auth[row.integrationId] = row.value;
+    if (!(row.integrationId in auth)) auth[row.integrationId] = credentialRowAuthEntry(row);
   }
   return Object.keys(auth).length > 0 ? (auth as AuthData) : null;
 }
 
-export async function readCredentialRows(): Promise<CredentialRow[]> {
+/** The OpenCode 2 method of a parsed credential value (the reader maps a stored `key` to `api`). */
+function credentialMethod(value: Record<string, unknown>): CredentialMethod | undefined {
+  if (value.type === "oauth") return "oauth";
+  if (value.type === "api" || value.type === "key") return "key";
+  return undefined;
+}
+
+/**
+ * Credential rows of the requested integration ids, in database order
+ * (active first, then most recently updated).
+ */
+export async function readCredentialRows(
+  integrationIds: readonly string[],
+  options: ReadCredentialRowsOptions = {},
+): Promise<CredentialRow[]> {
   const [path] = getCredentialDatabasePaths();
-  return path ? readCredentialDatabase(path) : [];
+  const rows = (path ? await readCredentialDatabase(path) : []).filter((row) =>
+    integrationIds.includes(row.integrationId),
+  );
+  const seenIntegrationIds = new Set<string>();
+  const firstRows = options.firstOnly
+    ? rows.filter((row) => {
+        if (seenIntegrationIds.has(row.integrationId)) return false;
+        seenIntegrationIds.add(row.integrationId);
+        return true;
+      })
+    : rows;
+  const methods = options.methods;
+  if (!methods) return firstRows;
+  return firstRows.filter((row) => {
+    const method = credentialMethod(row.value);
+    return method !== undefined && methods.includes(method);
+  });
 }
 
 function canonicalCredentialValueKey(value: unknown): string {
@@ -193,40 +252,46 @@ function parseCredentialValue(value: string): Record<string, unknown> | null {
  * Cached auth reader for frequently triggered code paths (e.g. per-question hooks).
  * This avoids repeated filesystem reads while keeping auth updates visible quickly.
  */
-export async function readAuthFileCached(params?: { maxAgeMs?: number }): Promise<AuthData | null> {
-  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_AUTH_CACHE_MAX_AGE_MS);
+export async function readAuthFileCached(params: {
+  maxAgeMs: number;
+  integrationIds: readonly string[];
+}): Promise<AuthData | null> {
+  const maxAgeMs = Math.max(0, params.maxAgeMs);
+  const cacheKey = [...params.integrationIds].sort().join(",");
+  const cached = authCache.get(cacheKey);
   const now = Date.now();
 
-  if (authCache && now - authCache.timestamp <= maxAgeMs) {
-    return authCache.value;
+  if (cached && now - cached.timestamp <= maxAgeMs) {
+    return cached.value;
   }
 
-  if (authCache?.inFlight) {
-    return authCache.inFlight;
+  if (cached?.inFlight) {
+    return cached.inFlight;
   }
 
   const inFlight = (async () => {
-    const value = await readAuthFile();
-    authCache = { timestamp: Date.now(), value };
+    const value = await readAuthFile({ integrationIds: params.integrationIds });
+    authCache.set(cacheKey, { timestamp: Date.now(), value });
     return value;
   })();
 
-  authCache = {
-    timestamp: authCache?.timestamp ?? 0,
-    value: authCache?.value ?? null,
+  authCache.set(cacheKey, {
+    timestamp: cached?.timestamp ?? 0,
+    value: cached?.value ?? null,
     inFlight,
-  };
+  });
 
   try {
     return await inFlight;
   } finally {
-    if (authCache?.inFlight === inFlight) {
-      authCache.inFlight = undefined;
+    const entry = authCache.get(cacheKey);
+    if (entry?.inFlight === inFlight) {
+      entry.inFlight = undefined;
     }
   }
 }
 
 /** Test helper to clear cached auth state between test cases. */
 export function clearReadAuthFileCacheForTests(): void {
-  authCache = null;
+  authCache.clear();
 }

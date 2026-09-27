@@ -28,7 +28,7 @@ const deepseekApiKeyResolver = createProviderApiKeyResolver<DeepSeekKeySource>({
   configJsoncSource: "opencode.jsonc",
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
-    readAuth: readAuthFile,
+    readAuth: () => readAuthFile({ integrationIds: DEEPSEEK_PROVIDER_KEYS }),
     getCredentialDatabasePaths,
     authSource: "opencode.db",
   },

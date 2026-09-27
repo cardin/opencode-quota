@@ -83,6 +83,7 @@ describe("anthropic auth resolution", () => {
     });
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_ANTHROPIC_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["anthropic"],
     });
   });
 
@@ -90,6 +91,9 @@ describe("anthropic auth resolution", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce(null);
 
     await expect(resolveAnthropicOAuthCached({ maxAgeMs: -1 })).resolves.toEqual({ state: "none" });
-    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
+    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+      maxAgeMs: 0,
+      integrationIds: ["anthropic"],
+    });
   });
 });

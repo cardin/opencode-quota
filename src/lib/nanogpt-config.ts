@@ -32,7 +32,7 @@ const nanoGptApiKeyResolver = createProviderApiKeyResolver<NanoGptKeySource>({
   configJsoncSource: "opencode.jsonc",
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
-    readAuth: readAuthFile,
+    readAuth: () => readAuthFile({ integrationIds: NANOGPT_PROVIDER_KEYS }),
     getCredentialDatabasePaths,
     authSource: "opencode.db",
   },

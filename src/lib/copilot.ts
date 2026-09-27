@@ -34,7 +34,15 @@ const COPILOT_QUOTA_CONFIG_FILENAME = "copilot-quota-token.json";
 const USER_AGENT = "opencode-quota/copilot-billing";
 const COPILOT_INTERNAL_USER_PATH = "/copilot_internal/user";
 
-type CopilotAuthKeyName = "github-copilot" | "copilot" | "copilot-chat" | "github-copilot-chat";
+/** Integration ids that can hold the Copilot OAuth login, in precedence order. */
+export const COPILOT_AUTH_KEYS = [
+  "github-copilot",
+  "copilot",
+  "copilot-chat",
+  "github-copilot-chat",
+] as const;
+
+type CopilotAuthKeyName = (typeof COPILOT_AUTH_KEYS)[number];
 type CopilotPatTokenKind = "github_pat" | "ghp" | "ghu" | "ghs" | "other";
 type EffectiveCopilotAuthSource = "pat" | "oauth" | "none";
 type CopilotQuotaApi =
@@ -1337,7 +1345,9 @@ export async function queryCopilotQuota(
     );
   }
   if (pat.state === "absent" || !pat.config) {
-    const { auth } = selectCopilotAuth(options.authData ?? (await readAuthFile()));
+    const { auth } = selectCopilotAuth(
+      options.authData ?? (await readAuthFile({ integrationIds: COPILOT_AUTH_KEYS })),
+    );
     const token = getCopilotOAuthToken(auth);
     if (!auth || !token) return null;
 
@@ -1415,7 +1425,7 @@ export async function resolveCopilotAuthIdentity(): Promise<ResolvedAuthIdentity
     });
   }
 
-  const { auth } = selectCopilotAuth(await readAuthFile());
+  const { auth } = selectCopilotAuth(await readAuthFile({ integrationIds: COPILOT_AUTH_KEYS }));
   const token = getCopilotOAuthToken(auth);
   if (!auth || !token) return null;
 
@@ -1429,7 +1439,9 @@ export async function resolveCopilotAuthIdentity(): Promise<ResolvedAuthIdentity
 }
 
 export async function hasCopilotQuotaRuntimeAvailable(): Promise<boolean> {
-  const diagnostics = getCopilotQuotaAuthDiagnostics(await readAuthFile());
+  const diagnostics = getCopilotQuotaAuthDiagnostics(
+    await readAuthFile({ integrationIds: COPILOT_AUTH_KEYS }),
+  );
   return diagnostics.billingApiAccessLikely;
 }
 

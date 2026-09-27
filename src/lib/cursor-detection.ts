@@ -91,7 +91,8 @@ export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
   let invalidPath: string | undefined;
   let invalidError: string | undefined;
 
-  const cursorAuth = (await readAuthFile())?.cursor;
+  const cursorAuth = (await readAuthFile({ integrationIds: ["cursor"] }))?.cursor;
+  const cursorResolveError = cursorAuth?.resolveError;
   if (cursorAuth) {
     if (isValidCursorCredential(cursorAuth)) {
       return {
@@ -104,7 +105,9 @@ export async function inspectCursorAuthPresence(): Promise<CursorAuthPresence> {
 
     invalidPath = credentialDatabasePath;
     invalidError =
-      "Cursor credential in the OpenCode database is missing a valid OAuth token or API key";
+      cursorResolveError !== undefined
+        ? `OpenCode could not read this login: ${cursorResolveError}`
+        : "Cursor credential in the OpenCode database is missing a valid OAuth token or API key";
   }
 
   if (hasNonEmptyString(process.env[CURSOR_API_KEY_ENV])) {

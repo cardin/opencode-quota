@@ -113,12 +113,44 @@ describe("openai auth resolution", () => {
     });
   });
 
+  it("keeps a login OpenCode could not return present, with no identity and a clear error", async () => {
+    const failed = { openai: { type: "oauth", resolveError: "refresh_failed: HTTP 400" } };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(resolveOpenAIOAuth(failed)).toEqual({
+      state: "failed",
+      sourceKey: "openai",
+      error: "refresh_failed: HTTP 400",
+    });
+    mocks.readAuthFileCached.mockResolvedValue(failed);
+    await expect(hasOpenAIOAuthCached()).resolves.toBe(true);
+    await expect(resolveOpenAIAuthIdentity()).resolves.toBeNull();
+    await expect(queryOpenAIQuota()).resolves.toEqual({
+      success: false,
+      error:
+        "OpenAI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth login openai`.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.deriveResolvedAuthIdentity).not.toHaveBeenCalled();
+  });
+
+  it("lets a failed openai login win over a later compatibility key, as a configured one would", () => {
+    expect(
+      resolveOpenAIOAuth({
+        openai: { type: "oauth", resolveError: "resolve_empty: no value" },
+        codex: { type: "oauth", access: "codex-token" },
+      }),
+    ).toEqual({ state: "failed", sourceKey: "openai", error: "resolve_empty: no value" });
+  });
+
   it("returns null when quota is not configured", async () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({});
 
     await expect(queryOpenAIQuota()).resolves.toBeNull();
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["openai", "codex", "chatgpt"],
     });
   });
 
@@ -212,6 +244,7 @@ describe("openai auth resolution", () => {
     await expect(hasOpenAIOAuthCached()).resolves.toBe(true);
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["openai", "codex", "chatgpt"],
     });
   });
 

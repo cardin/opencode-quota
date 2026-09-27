@@ -8,9 +8,11 @@ import { resolveAgyAccounts } from "../src/lib/google-agy.js";
 import { resolveGeminiCliAccounts } from "../src/lib/google-gemini-cli.js";
 import {
   clearReadAuthFileCacheForTests,
+  credentialRowAuthEntry,
   formatCredentialDisplayNames,
   getCredentialDatabasePaths,
   readAuthFile,
+  readAuthFileCached,
   readCredentialRows,
   selectConnectionCredentialRows,
 } from "../src/lib/opencode-auth.js";
@@ -19,6 +21,7 @@ const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   clearReadAuthFileCacheForTests();
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   await Promise.all(
     temporaryDirectories
@@ -152,7 +155,9 @@ describe("OpenCode auth reader", () => {
     const { dataDir } = await createCredentialDatabase();
     vi.stubEnv("XDG_DATA_HOME", join(dataDir, ".."));
 
-    await expect(readAuthFile()).resolves.toMatchObject({
+    await expect(
+      readAuthFile({ integrationIds: ["github-copilot", "deepseek", "openai"] }),
+    ).resolves.toMatchObject({
       "github-copilot": { access: "copilot-access", enterpriseUrl: "example.ghe.com" },
       deepseek: { type: "api", key: "deepseek-key" },
       openai: { access: "openai-access" },
@@ -177,7 +182,7 @@ describe("OpenCode auth reader", () => {
     database.close();
     vi.stubEnv("OPENCODE_DB", databasePath);
 
-    await expect(readCredentialRows()).resolves.toEqual(
+    await expect(readCredentialRows(["openai"])).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "openai-active",
@@ -189,9 +194,10 @@ describe("OpenCode auth reader", () => {
         expect.objectContaining({ id: "openai", active: false }),
       ]),
     );
-    expect(
-      (await readCredentialRows()).findIndex((row) => row.id === "openai-active"),
-    ).toBeLessThan((await readCredentialRows()).findIndex((row) => row.id === "openai"));
+    const rows = await readCredentialRows(["openai"]);
+    expect(rows.findIndex((row) => row.id === "openai-active")).toBeLessThan(
+      rows.findIndex((row) => row.id === "openai"),
+    );
   });
 
   it("ignores legacy auth.json entries", async () => {
@@ -202,10 +208,172 @@ describe("OpenCode auth reader", () => {
       JSON.stringify({ openai: { type: "oauth", access: "file-access" } }),
     );
 
-    await expect(readAuthFile()).resolves.toMatchObject({
+    await expect(
+      readAuthFile({ integrationIds: ["github-copilot", "openai"] }),
+    ).resolves.toMatchObject({
       "github-copilot": { access: "copilot-access" },
       openai: { access: "openai-access" },
     });
+  });
+});
+
+describe("reader requests name their integration ids", () => {
+  async function addRow(
+    databasePath: string,
+    row: { id: string; integrationId: string; active: number; updated: number; value: unknown },
+  ): Promise<void> {
+    const database = new DatabaseSync(databasePath);
+    database
+      .prepare("INSERT INTO credential VALUES (?, ?, 'default', ?, NULL, NULL, ?, 1, ?)")
+      .run(row.id, row.integrationId, JSON.stringify(row.value), row.active, row.updated);
+    database.close();
+  }
+
+  it("returns only rows of the requested ids, in database order", async () => {
+    const { databasePath } = await createCredentialDatabase();
+    vi.stubEnv("OPENCODE_DB", databasePath);
+
+    expect((await readCredentialRows(["openai"])).map((row) => row.id)).toEqual(["openai"]);
+    // Database order (most recently updated first), not request order.
+    expect((await readCredentialRows(["github-copilot", "openai"])).map((row) => row.id)).toEqual([
+      "openai",
+      "copilot",
+    ]);
+    await expect(readCredentialRows([])).resolves.toEqual([]);
+    await expect(readAuthFile({ integrationIds: ["xai"] })).resolves.toBeNull();
+    await expect(readAuthFile({ integrationIds: ["openai"] })).resolves.toEqual({
+      openai: { type: "oauth", access: "openai-access", refresh: "openai-refresh", expires: 20 },
+    });
+  });
+
+  it("keeps only the requested connection methods", async () => {
+    const { databasePath } = await createCredentialDatabase();
+    await addRow(databasePath, {
+      id: "console",
+      integrationId: "opencode",
+      active: 1,
+      updated: 5,
+      value: { type: "oauth", access: "console-access", refresh: "console-refresh", expires: 1 },
+    });
+    await addRow(databasePath, {
+      id: "workspace-key",
+      integrationId: "opencode",
+      active: 0,
+      updated: 4,
+      value: { type: "key", key: "workspace-key" },
+    });
+    vi.stubEnv("OPENCODE_DB", databasePath);
+
+    const ids = ["opencode", "openai", "deepseek"];
+    expect((await readCredentialRows(ids, { methods: ["key"] })).map((row) => row.id)).toEqual([
+      "workspace-key",
+      "deepseek",
+    ]);
+    expect((await readCredentialRows(ids, { methods: ["oauth"] })).map((row) => row.id)).toEqual([
+      "console",
+      "openai",
+    ]);
+    expect(
+      (await readCredentialRows(ids, { methods: ["key", "oauth"] })).map((row) => row.id),
+    ).toEqual(["console", "workspace-key", "deepseek", "openai"]);
+  });
+
+  it("keeps the first (active) row per id when firstOnly is set", async () => {
+    const { databasePath } = await createCredentialDatabase();
+    const database = new DatabaseSync(databasePath);
+    database.prepare("UPDATE credential SET active = 1 WHERE id = 'openai'").run();
+    database.close();
+    await addRow(databasePath, {
+      id: "openai-newer-inactive",
+      integrationId: "openai",
+      active: 0,
+      updated: 9,
+      value: { type: "oauth", access: "inactive-access" },
+    });
+    vi.stubEnv("OPENCODE_DB", databasePath);
+
+    expect(
+      (await readCredentialRows(["openai", "deepseek"], { firstOnly: true })).map((row) => row.id),
+    ).toEqual(["openai", "deepseek"]);
+    await expect(readAuthFile({ integrationIds: ["openai"] })).resolves.toMatchObject({
+      openai: { access: "openai-access" },
+    });
+  });
+
+  it("applies firstOnly before the method filter, so a mismatched active row yields nothing", async () => {
+    const { databasePath } = await createCredentialDatabase();
+    await addRow(databasePath, {
+      id: "openai-key",
+      integrationId: "openai",
+      active: 1,
+      updated: 9,
+      value: { type: "key", key: "openai-key" },
+    });
+    vi.stubEnv("OPENCODE_DB", databasePath);
+
+    await expect(
+      readCredentialRows(["openai"], { firstOnly: true, methods: ["oauth"] }),
+    ).resolves.toEqual([]);
+  });
+
+  it("caches auth maps per sorted id list", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1_000_000);
+    const { databasePath } = await createCredentialDatabase();
+    vi.stubEnv("OPENCODE_DB", databasePath);
+
+    await expect(
+      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["openai", "deepseek"] }),
+    ).resolves.toMatchObject({ openai: { access: "openai-access" } });
+    const database = new DatabaseSync(databasePath);
+    database
+      .prepare("UPDATE credential SET value = ? WHERE id = 'openai'")
+      .run(JSON.stringify({ type: "oauth", access: "rotated-access" }));
+    database.close();
+
+    // Same ids in another order hit the same cache entry.
+    await expect(
+      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["deepseek", "openai"] }),
+    ).resolves.toMatchObject({ openai: { access: "openai-access" } });
+    // A different id list has its own entry and reads fresh.
+    await expect(
+      readAuthFileCached({ maxAgeMs: 60_000, integrationIds: ["openai"] }),
+    ).resolves.toEqual({ openai: { type: "oauth", access: "rotated-access" } });
+    // Once time moves on, maxAgeMs 0 re-reads the first entry too.
+    vi.setSystemTime(1_000_001);
+    await expect(
+      readAuthFileCached({ maxAgeMs: 0, integrationIds: ["openai", "deepseek"] }),
+    ).resolves.toMatchObject({ openai: { access: "rotated-access" } });
+  });
+
+  it("shares one in-flight read per id list", async () => {
+    const { databasePath } = await createCredentialDatabase();
+    vi.stubEnv("OPENCODE_DB", databasePath);
+
+    const [first, second] = await Promise.all([
+      readAuthFileCached({ maxAgeMs: 0, integrationIds: ["deepseek"] }),
+      readAuthFileCached({ maxAgeMs: 0, integrationIds: ["deepseek"] }),
+    ]);
+    expect(first).toEqual({ deepseek: { type: "api", key: "deepseek-key" } });
+    expect(second).toBe(first);
+  });
+
+  it("adds resolveError to the auth entry of a failed row only", () => {
+    const row = {
+      id: "openai",
+      integrationId: "openai",
+      label: "default",
+      active: true,
+      value: { type: "oauth", access: "token" },
+    };
+    expect(credentialRowAuthEntry(row)).toBe(row.value);
+    expect(
+      credentialRowAuthEntry({
+        ...row,
+        value: { type: "oauth" },
+        resolveError: "refresh_failed: HTTP 400",
+      }),
+    ).toEqual({ type: "oauth", resolveError: "refresh_failed: HTTP 400" });
   });
 });
 
@@ -324,7 +492,7 @@ describe("Google companion credentials written by OpenCode 2", () => {
     );
     database.close();
     vi.stubEnv("OPENCODE_DB", databasePath);
-    const auth = await readAuthFile();
+    const auth = await readAuthFile({ integrationIds: ["google", "google-agy"] });
 
     expect(resolveGeminiCliAccounts(auth)).toEqual([
       {

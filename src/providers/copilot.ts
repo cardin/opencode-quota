@@ -6,6 +6,7 @@
  */
 
 import {
+  COPILOT_AUTH_KEYS,
   getCopilotQuotaAuthDiagnostics,
   hasCopilotQuotaRuntimeAvailable,
   queryCopilotQuota,
@@ -209,7 +210,9 @@ function personalEntries(result: CopilotQuotaResult): QuotaToastEntry[] {
 }
 
 async function getCopilotStatusDetails() {
-  const diagnostics = getCopilotQuotaAuthDiagnostics(await readAuthFileCached({ maxAgeMs: 5_000 }));
+  const diagnostics = getCopilotQuotaAuthDiagnostics(
+    await readAuthFileCached({ maxAgeMs: 5_000, integrationIds: COPILOT_AUTH_KEYS }),
+  );
   const managedBilling =
     diagnostics.billingMode === "organization_usage" ||
     diagnostics.billingMode === "enterprise_usage";
@@ -298,9 +301,14 @@ export const copilotProvider: QuotaProvider = {
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const statusDetails = await getCopilotStatusDetails();
-    const authData = await readAuthFileCached({ maxAgeMs: 5_000 });
+    const authData = await readAuthFileCached({
+      maxAgeMs: 5_000,
+      integrationIds: COPILOT_AUTH_KEYS,
+    });
     if (getCopilotQuotaAuthDiagnostics(authData).effectiveSource === "oauth") {
-      const credentials = (await readCredentialRows()).filter((row) =>
+      const credentials = (
+        await readCredentialRows(COPILOT_AUTH_KEYS, { methods: ["oauth"] })
+      ).filter((row) =>
         ["github-copilot", "copilot", "copilot-chat", "github-copilot-chat"].includes(
           row.integrationId,
         ),

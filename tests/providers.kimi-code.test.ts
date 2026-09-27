@@ -335,4 +335,50 @@ describe("Kimi regional providers", () => {
       expect.objectContaining({ apiKey: "cn-key", endpoint: "cn" }),
     );
   });
+
+  it("shows a CN login OpenCode could not return as its own error row", async () => {
+    const actual =
+      await vi.importActual<typeof import("../src/lib/kimi-auth.js")>("../src/lib/kimi-auth.js");
+    authMocks.parseCn.mockImplementation(actual.resolveKimiCnAuth);
+    authMocks.resolveCnWithDiagnostics.mockResolvedValueOnce({
+      auth: {
+        state: "invalid",
+        error: "OpenCode could not read this login: resolve_empty: no value",
+      },
+      diagnostics: {
+        state: "invalid",
+        source: "opencode.db",
+        error: "OpenCode could not read this login: resolve_empty: no value",
+        checkedPaths: [],
+        credentialDatabasePaths: [],
+      },
+    });
+    vi.mocked(readCredentialRows).mockResolvedValueOnce([
+      {
+        id: "failed",
+        integrationId: "kimi-code-plan-cn",
+        label: "Work",
+        active: true,
+        value: { type: "api" },
+        resolveError: "resolve_empty: no value",
+      },
+    ]);
+    vi.mocked(queryKimiQuota).mockClear();
+
+    const out = await kimiCodePlanCnProvider.fetch({ config: {} } as any);
+
+    expect(readCredentialRows).toHaveBeenLastCalledWith(
+      ["kimi-code-plan-cn", "kimi-for-coding", "kimi-code", "kimi"],
+      { methods: ["key"] },
+    );
+    expect(out.attempted).toBe(true);
+    expect(out.entries).toEqual([]);
+    expect(out.errors).toEqual([
+      {
+        label: "[Kimi Code (CN) Work]*",
+        message: "OpenCode could not read this login: resolve_empty: no value",
+      },
+    ]);
+    expect(queryKimiQuota).not.toHaveBeenCalled();
+  });
 });

@@ -6,6 +6,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import {
+  AGY_AUTH_KEYS,
   hasAgyQuotaRuntimeAvailable,
   inspectAgyAuthPresence,
   queryGoogleAgyQuota,
@@ -138,8 +139,8 @@ export const googleAgyProvider: QuotaProvider = {
       companion_error:
         companion.state !== "present" ? sanitizeDisplayText(companion.error) : undefined,
     });
-    const credentialRows = (await readCredentialRows()).filter((row) =>
-      ["google-agy", "opencode-agy-auth", "google-agy-auth"].includes(row.integrationId),
+    const credentialRows = (await readCredentialRows(AGY_AUTH_KEYS, { methods: ["oauth"] })).filter(
+      (row) => ["google-agy", "opencode-agy-auth", "google-agy-auth"].includes(row.integrationId),
     );
     if (credentialRows.length > 0) {
       const results = await Promise.all(

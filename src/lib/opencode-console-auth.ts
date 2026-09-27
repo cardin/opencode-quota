@@ -36,15 +36,15 @@ export type OpenCodeConsoleAuthState =
 export async function resolveOpenCodeConsoleAuth(params?: {
   nowMs?: number;
 }): Promise<OpenCodeConsoleAuthState> {
-  const rows = await readCredentialRows();
-  const candidates = rows
-    .filter((row) => row.integrationId === OPENCODE_CONSOLE_INTEGRATION_ID)
-    .filter((row) => (row.value as Record<string, unknown> | null)?.type === "oauth");
+  // Only the active Console login counts, the way OpenCode itself picks it.
+  const rows = await readCredentialRows([OPENCODE_CONSOLE_INTEGRATION_ID], { firstOnly: true });
+  const row = rows.find((row) => row.integrationId === OPENCODE_CONSOLE_INTEGRATION_ID);
+  if (!row) return { state: "none" };
+  if (row.resolveError !== undefined) return { state: "invalid", error: row.resolveError };
 
-  if (candidates.length === 0) return { state: "none" };
+  const value = row.value;
+  if (value.type !== "oauth") return { state: "none" };
 
-  const row = candidates[0]!;
-  const value = row.value as Record<string, unknown>;
   const accessToken = typeof value.access === "string" ? value.access.trim() : "";
   if (!accessToken) {
     return { state: "invalid", error: "OpenCode Console credential has no access token" };

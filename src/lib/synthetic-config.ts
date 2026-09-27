@@ -28,7 +28,7 @@ const syntheticApiKeyResolver = createProviderApiKeyResolver<SyntheticKeySource>
   configJsoncSource: "opencode.jsonc",
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
-    readAuth: readAuthFile,
+    readAuth: () => readAuthFile({ integrationIds: SYNTHETIC_PROVIDER_KEYS }),
     getCredentialDatabasePaths,
     authSource: "opencode.db",
   },

@@ -6,6 +6,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveOpenCodeConsoleAuth } from "../src/lib/opencode-console-auth.js";
 
+const authMocks = vi.hoisted(() => ({ readCredentialRows: vi.fn() }));
+
+// Real SQLite reads by default; single tests swap in fixture rows the SQLite
+// reader cannot produce (failed logins).
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/opencode-auth.js")>();
+  authMocks.readCredentialRows.mockImplementation(actual.readCredentialRows);
+  return { ...actual, readCredentialRows: authMocks.readCredentialRows };
+});
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -20,7 +30,7 @@ afterEach(async () => {
 async function createCredentialDatabaseWith(
   integrationId: string,
   value: Record<string, unknown>,
-): Promise<void> {
+): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "opencode-console-auth-"));
   temporaryDirectories.push(root);
   const dataDir = join(root, "opencode");
@@ -42,6 +52,7 @@ async function createCredentialDatabaseWith(
     .run("cred-console", integrationId, JSON.stringify(value));
   database.close();
   vi.stubEnv("XDG_DATA_HOME", root);
+  return join(dataDir, "opencode.db");
 }
 
 describe("OpenCode Console credential reader", () => {
@@ -103,5 +114,44 @@ describe("OpenCode Console credential reader", () => {
     await createCredentialDatabaseWith("opencode", { type: "key", key: "workspace-key" });
 
     await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({ state: "none" });
+  });
+
+  it("reads only the active opencode login", async () => {
+    const databasePath = await createCredentialDatabaseWith("opencode", {
+      type: "key",
+      key: "workspace-key",
+    });
+    const database = new DatabaseSync(databasePath);
+    database.prepare("UPDATE credential SET active = 1 WHERE id = 'cred-console'").run();
+    database
+      .prepare("INSERT INTO credential VALUES (?, 'opencode', 'default', ?, NULL, NULL, 0, 1, 2)")
+      .run(
+        "cred-console-inactive",
+        JSON.stringify({ type: "oauth", access: "console-access", expires: Date.now() + 60_000 }),
+      );
+    database.close();
+
+    await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({ state: "none" });
+    expect(authMocks.readCredentialRows).toHaveBeenLastCalledWith(["opencode"], {
+      firstOnly: true,
+    });
+  });
+
+  it("reports a login OpenCode could not return as invalid", async () => {
+    authMocks.readCredentialRows.mockResolvedValueOnce([
+      {
+        id: "cred-console",
+        integrationId: "opencode",
+        label: "default",
+        active: true,
+        value: { type: "oauth" },
+        resolveError: "refresh_failed: HTTP 401",
+      },
+    ]);
+
+    await expect(resolveOpenCodeConsoleAuth()).resolves.toEqual({
+      state: "invalid",
+      error: "refresh_failed: HTTP 401",
+    });
   });
 });

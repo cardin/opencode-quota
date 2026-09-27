@@ -273,6 +273,7 @@ describe("alibaba auth resolution", () => {
       });
       expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
         maxAgeMs: DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: ["alibaba-coding-plan", "alibaba"],
       });
     });
 
@@ -303,7 +304,10 @@ describe("alibaba auth resolution", () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({});
 
       await resolveAlibabaCodingPlanAuthCached({ maxAgeMs: -100 });
-      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
+      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+        maxAgeMs: 0,
+        integrationIds: ["alibaba-coding-plan", "alibaba"],
+      });
     });
   });
 

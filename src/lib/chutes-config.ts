@@ -28,7 +28,7 @@ const chutesApiKeyResolver = createProviderApiKeyResolver<ChutesKeySource>({
   configJsoncSource: "opencode.jsonc",
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
-    readAuth: readAuthFile,
+    readAuth: () => readAuthFile({ integrationIds: CHUTES_PROVIDER_KEYS }),
     getCredentialDatabasePaths,
     authSource: "opencode.db",
   },

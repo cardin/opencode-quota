@@ -197,6 +197,7 @@ async function resolveAlibabaCodingPlanAuthWithSource(params?: {
   const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_ALIBABA_AUTH_CACHE_MAX_AGE_MS);
   const authData = await readAuthFileCached({
     maxAgeMs,
+    integrationIds: ALIBABA_AUTH_KEYS,
   });
   const auth = resolveAlibabaCodingPlanAuth(authData, fallbackTier);
 

@@ -314,6 +314,8 @@ export interface CursorAuthData {
   refresh?: string;
   expires?: number;
   key?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -331,6 +333,8 @@ export interface OpenAIOAuthData {
   refresh?: string;
   expires?: number;
   accountId?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -339,6 +343,8 @@ export interface XaiOAuthData {
   access?: string;
   refresh?: string;
   expires?: number;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -355,6 +361,8 @@ export interface GeminiCliOAuthAuthData {
   email?: string;
   accountEmail?: string;
   login?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 

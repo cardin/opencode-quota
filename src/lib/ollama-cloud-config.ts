@@ -9,6 +9,8 @@ export interface OllamaCloudApiKeyResult {
   source: OllamaCloudKeySource;
 }
 
+const OLLAMA_CLOUD_PROVIDER_KEYS = ["ollama-cloud"] as const;
+
 export type OllamaCloudKeySource =
   | "env:OLLAMA_API_KEY"
   | "opencode.json"
@@ -19,13 +21,13 @@ export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePath
 
 const ollamaCloudApiKeyResolver = createProviderApiKeyResolver<OllamaCloudKeySource>({
   envVars: [{ name: "OLLAMA_API_KEY", source: "env:OLLAMA_API_KEY" }],
-  providerKeys: ["ollama-cloud"],
+  providerKeys: OLLAMA_CLOUD_PROVIDER_KEYS,
   allowedEnvVars: ["OLLAMA_API_KEY"],
   configJsonSource: "opencode.json",
   configJsoncSource: "opencode.jsonc",
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
-    readAuth: readAuthFile,
+    readAuth: () => readAuthFile({ integrationIds: OLLAMA_CLOUD_PROVIDER_KEYS }),
     getCredentialDatabasePaths,
     authSource: "opencode.db",
   },

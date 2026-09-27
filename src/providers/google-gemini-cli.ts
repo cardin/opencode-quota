@@ -6,6 +6,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import {
+  GEMINI_CLI_AUTH_KEYS,
   hasGeminiCliQuotaRuntimeAvailable,
   inspectGeminiCliAuthPresence,
   queryGeminiCliQuota,
@@ -13,7 +14,7 @@ import {
 import { inspectGeminiCliCompanionPresence } from "../lib/google-gemini-cli-companion.js";
 import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
 import { parseProviderModelRef } from "../lib/provider-model-matching.js";
-import type { AuthData } from "../lib/types.js";
+import type { AuthData, GeminiCliResult } from "../lib/types.js";
 import {
   createGoogleAccountLabelMap,
   formatGoogleAccountErrors,
@@ -75,7 +76,9 @@ export const googleGeminiCliProvider: QuotaProvider = {
       companion_error:
         companion.state !== "present" ? sanitizeDisplayText(companion.error) : undefined,
     });
-    const credentialRows = (await readCredentialRows()).filter((row) =>
+    const credentialRows = (
+      await readCredentialRows(GEMINI_CLI_AUTH_KEYS, { methods: ["oauth"] })
+    ).filter((row) =>
       ["google-gemini-cli", "gemini-cli", "opencode-gemini-auth", "gemini", "google"].includes(
         row.integrationId,
       ),
@@ -84,12 +87,18 @@ export const googleGeminiCliProvider: QuotaProvider = {
       const results = await Promise.all(
         credentialRows.map(async (row) => ({
           row,
-          result: await queryGeminiCliQuota({
-            requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
-              ? ctx.config.requestTimeoutMs
-              : undefined,
-            authData: { [row.integrationId]: row.value } as AuthData,
-          }),
+          result:
+            row.resolveError !== undefined
+              ? ({
+                  success: false,
+                  error: `Gemini CLI sign-in could not be refreshed: ${row.resolveError}. Run \`opencode auth login google\`.`,
+                } satisfies GeminiCliResult)
+              : await queryGeminiCliQuota({
+                  requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
+                    ? ctx.config.requestTimeoutMs
+                    : undefined,
+                  authData: { [row.integrationId]: row.value } as AuthData,
+                }),
         })),
       );
       const names = formatCredentialDisplayNames(

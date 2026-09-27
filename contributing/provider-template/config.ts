@@ -38,7 +38,7 @@ export async function resolveExampleProviderApiKey(): Promise<ExampleProviderApi
     configJsoncSource: "opencode.jsonc",
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     auth: {
-      readAuth: readAuthFile,
+      readAuth: () => readAuthFile({ integrationIds: PROVIDER_KEYS }),
       authSource: "opencode.db",
     },
   });

@@ -17,7 +17,11 @@ import {
   resolveKimiGlobalAuthWithDiagnosticsCached,
 } from "../lib/kimi-auth.js";
 import { getKimiQuotaEndpoint, type KimiQuotaEndpointId } from "../lib/kimi-endpoints.js";
-import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
+import {
+  credentialRowAuthEntry,
+  formatCredentialDisplayNames,
+  readCredentialRows,
+} from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import type { AuthData } from "../lib/types.js";
@@ -94,9 +98,9 @@ function createKimiProvider(spec: KimiProviderSpec): QuotaProvider {
       }
 
       if (diagnostics.source === "opencode.db") {
-        const credentialRows = (await readCredentialRows()).filter((row) =>
-          spec.integrationIds.includes(row.integrationId),
-        );
+        const credentialRows = (
+          await readCredentialRows(spec.integrationIds, { methods: ["key"] })
+        ).filter((row) => spec.integrationIds.includes(row.integrationId));
         const rowNames = formatCredentialDisplayNames(
           spec.label,
           credentialRows.map((row) => ({ row, fallbackName: spec.label })),
@@ -106,7 +110,9 @@ function createKimiProvider(spec: KimiProviderSpec): QuotaProvider {
         );
         const invalidErrors: QuotaProviderResult["errors"] = [];
         const credentials = credentialRows.flatMap((row) => {
-          const rowAuth = spec.parseAuth({ [row.integrationId]: row.value } as AuthData);
+          const rowAuth = spec.parseAuth({
+            [row.integrationId]: credentialRowAuthEntry(row),
+          } as AuthData);
           if (rowAuth.state === "invalid") {
             invalidErrors.push({
               label: displayNamesByRowId.get(row.id) ?? spec.label,

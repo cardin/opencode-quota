@@ -181,7 +181,10 @@ export async function resolveAgyConfiguredProjectId(): Promise<string | undefine
 
 export async function resolveGoogleAgyAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
   const [auth, configuredProjectId, credentials] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: AGY_AUTH_KEYS,
+    }),
     resolveAgyConfiguredProjectId(),
     resolveAgyClientCredentials(),
   ]);
@@ -214,7 +217,10 @@ export async function resolveGoogleAgyAuthIdentity(): Promise<ResolvedAuthIdenti
 
 export async function inspectAgyAuthPresence(): Promise<AgyAuthPresence> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: AGY_AUTH_KEYS,
+    }),
     resolveAgyConfiguredProjectId(),
   ]);
 
@@ -697,7 +703,11 @@ export async function queryGoogleAgyQuota(
   options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<GoogleAgyResult> {
   const [auth, configuredProjectId] = await Promise.all([
-    options.authData ?? readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
+    options.authData ??
+      readAuthFileCached({
+        maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: AGY_AUTH_KEYS,
+      }),
     resolveAgyConfiguredProjectId(),
   ]);
   const accounts = resolveAgyAccounts(auth, configuredProjectId);

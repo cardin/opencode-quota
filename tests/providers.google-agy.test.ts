@@ -8,6 +8,7 @@ import {
 } from "./helpers/provider-assertions.js";
 
 vi.mock("../src/lib/google-agy.js", () => ({
+  AGY_AUTH_KEYS: ["google-agy", "opencode-agy-auth", "google-agy-auth"],
   hasAgyQuotaRuntimeAvailable: vi.fn(),
   queryGoogleAgyQuota: vi.fn(),
   inspectAgyAuthPresence: vi.fn(async () => ({

@@ -202,6 +202,9 @@ describe("minimax-coding-plan provider", () => {
     mockMiniMaxHttpSuccess([createCodingPlanModel()]);
 
     const out = await runProviderFetch();
+    expect(readCredentialRows).toHaveBeenCalledWith(["minimax-coding-plan"], {
+      methods: ["key"],
+    });
     expect(out.errors).toContainEqual({
       label: "[MiniMax Token Plan shared]*",
       message: "empty key",

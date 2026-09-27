@@ -62,7 +62,9 @@ export const anthropicProvider: QuotaProvider = {
     };
     let statusDetails;
     let acquisitionMethod: QuotaToastEntry["accounting"]["acquisitionMethod"] = "local_cli";
-    const databaseCredentials = (await readCredentialRows()).flatMap((row) => {
+    const databaseCredentials = (
+      await readCredentialRows(["anthropic"], { methods: ["oauth"] })
+    ).flatMap((row) => {
       if (row.integrationId !== "anthropic") return [];
       const auth = resolveAnthropicOAuth({ anthropic: row.value } as AuthData);
       return auth.state === "configured" ? [{ row, auth }] : [];

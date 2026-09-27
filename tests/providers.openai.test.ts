@@ -208,6 +208,63 @@ describe("openai provider", () => {
     }
   });
 
+  it("shows a login OpenCode could not return as its own error row next to working ones", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryOpenAIQuota, resolveOpenAIOAuth } = await import("../src/lib/openai.js");
+    const actual =
+      await vi.importActual<typeof import("../src/lib/openai.js")>("../src/lib/openai.js");
+    (readCredentialRows as any).mockResolvedValueOnce([
+      {
+        id: "work-id",
+        integrationId: "openai",
+        label: "Work",
+        active: true,
+        value: { type: "oauth" },
+        resolveError: "refresh_failed: HTTP 400",
+      },
+      {
+        id: "home-id",
+        integrationId: "openai",
+        label: "Home",
+        active: false,
+        value: { type: "oauth", access: "home-token" },
+      },
+    ]);
+    (resolveOpenAIOAuth as any)
+      .mockImplementationOnce(actual.resolveOpenAIOAuth)
+      .mockImplementationOnce(actual.resolveOpenAIOAuth);
+    (queryOpenAIQuota as any)
+      .mockImplementationOnce(actual.queryOpenAIQuota)
+      .mockResolvedValueOnce({
+        success: true,
+        label: "OpenAI (Pro)",
+        windows: { hourly: { percentRemaining: 42 } },
+      });
+
+    const out = await openaiProvider.fetch({} as any);
+
+    expect(readCredentialRows).toHaveBeenLastCalledWith(["openai", "codex", "chatgpt"], {
+      methods: ["oauth"],
+    });
+    expect(out.errors).toEqual([
+      {
+        label: "[OpenAI Work]*",
+        message:
+          "OpenAI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth login openai`.",
+      },
+    ]);
+    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
+      ["[OpenAI Home] (Pro)", "home-id"],
+    ]);
+    expect(out.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "auth_configured", value: "true" },
+        { key: "auth_source", value: "openai" },
+        { key: "token_status", value: "failed" },
+      ]),
+    );
+  });
+
   it("is available when provider ids include openai/chatgpt/codex", async () => {
     const { hasOpenAIOAuthCached } = await import("../src/lib/openai.js");
     (hasOpenAIOAuthCached as any).mockResolvedValue(false);

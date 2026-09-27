@@ -44,7 +44,7 @@ const zhipuAuthResolver = createProviderApiKeyResolver<ZhipuKeySource, "opencode
     authSource: "opencode.db",
     displayName: "Zhipu",
     defaultMaxAgeMs: DEFAULT_ZHIPU_AUTH_CACHE_MAX_AGE_MS,
-    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs }),
+    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs, integrationIds: ZHIPU_AUTH_KEYS }),
     getCredentialDatabasePaths,
   },
 });

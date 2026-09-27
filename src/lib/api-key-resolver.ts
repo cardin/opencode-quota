@@ -337,6 +337,12 @@ function parseInvalidAwareAuth(
   }
 
   const record = entry as Record<string, unknown>;
+  if (typeof record.resolveError === "string") {
+    return {
+      state: "invalid",
+      error: `OpenCode could not read this login: ${record.resolveError}`,
+    };
+  }
   if (typeof record.type !== "string") {
     return {
       state: "invalid",

@@ -10,7 +10,11 @@ import {
   queryOpenAIQuota,
   resolveOpenAIOAuth,
 } from "../lib/openai.js";
-import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
+import {
+  credentialRowAuthEntry,
+  formatCredentialDisplayNames,
+  readCredentialRows,
+} from "../lib/opencode-auth.js";
 import { isCanonicalProviderAvailable } from "../lib/provider-availability.js";
 import { modelProviderIncludesAny } from "../lib/provider-model-matching.js";
 import type { AuthData } from "../lib/types.js";
@@ -45,12 +49,15 @@ export const openaiProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const rows = (await readCredentialRows()).filter((row) =>
-      (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId),
+    const rows = (await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth"] })).filter(
+      (row) => (OPENAI_AUTH_SOURCE_KEYS as readonly string[]).includes(row.integrationId),
     );
+    // A failed login stays in the list so it shows as its own error row.
     const credentials = rows.flatMap((row) => {
-      const auth = resolveOpenAIOAuth({ [row.integrationId]: row.value } as AuthData);
-      return auth.state === "configured" ? [{ row, auth }] : [];
+      const auth = resolveOpenAIOAuth({
+        [row.integrationId]: credentialRowAuthEntry(row),
+      } as AuthData);
+      return auth.state === "none" ? [] : [{ row, auth }];
     });
     const entries: QuotaProviderResult["entries"] = [];
     const errors: QuotaProviderResult["errors"] = [];
@@ -110,7 +117,7 @@ export const openaiProvider: QuotaProvider = {
         : mapResult(await queryOpenAIQuota({ requestTimeoutMs: ctx.config?.requestTimeoutMs }));
     const configuredAuth = credentials[0]?.auth;
     const configured = configuredAuth !== undefined;
-    const expiresAt = configuredAuth?.expiresAt;
+    const expiresAt = configuredAuth?.state === "configured" ? configuredAuth.expiresAt : undefined;
     return withStatusDetails(
       providerResult,
       statusDetailsFromRecord({
@@ -118,9 +125,11 @@ export const openaiProvider: QuotaProvider = {
         auth_source: configuredAuth?.sourceKey ?? "(none)",
         token_status: !configured
           ? "(none)"
-          : expiresAt && expiresAt < Date.now()
-            ? "expired"
-            : "valid",
+          : configuredAuth?.state === "failed"
+            ? "failed"
+            : expiresAt && expiresAt < Date.now()
+              ? "expired"
+              : "valid",
         token_expires_at: expiresAt ? new Date(expiresAt).toISOString() : "(none)",
       }),
     );

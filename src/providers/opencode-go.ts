@@ -8,6 +8,7 @@ import type {
   QuotaToastEntry,
 } from "../lib/entries.js";
 import {
+  credentialRowAuthEntry,
   formatCredentialDisplayNames,
   readCredentialRows,
   selectConnectionCredentialRows,
@@ -221,7 +222,7 @@ async function fetchOpenCodeGoLegacy(
     // holding the same credential (e.g. Zen + Go sharing a workspace key).
     // Console OAuth credentials cannot authorize this API and are skipped.
     const credentialRows = selectConnectionCredentialRows(
-      (await readCredentialRows())
+      (await readCredentialRows(OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS, { methods: ["key"] }))
         .filter((row) => OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS.includes(row.integrationId))
         .filter((row) => row.value.type !== "oauth"),
       "opencode-go",
@@ -235,7 +236,7 @@ async function fetchOpenCodeGoLegacy(
     );
     const invalidErrors: QuotaProviderResult["errors"] = [];
     const credentials = credentialRows.flatMap((row) => {
-      const rowAuth = resolveOpenCodeGoAuth({ [row.integrationId]: row.value });
+      const rowAuth = resolveOpenCodeGoAuth({ [row.integrationId]: credentialRowAuthEntry(row) });
       if (rowAuth.state === "invalid") {
         invalidErrors.push({
           label: displayNamesByRowId.get(row.id) ?? OPENCODE_GO_PROVIDER_LABEL,

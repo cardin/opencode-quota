@@ -152,5 +152,8 @@ describe("example provider config", () => {
       key: "auth-key",
       source: "opencode.db",
     });
+    expect(readAuthFile).toHaveBeenCalledWith({
+      integrationIds: ["example-provider", "exampleProvider"],
+    });
   });
 });

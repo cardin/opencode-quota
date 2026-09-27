@@ -43,7 +43,7 @@ const openCodeGoAuthResolver = createProviderApiKeyResolver<OpenCodeGoKeySource,
     displayName: "OpenCode Go",
     defaultMaxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
     unsupportedTypeError: "OpenCode Go auth entry has unsupported type",
-    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs }),
+    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs, integrationIds: OPENCODE_GO_AUTH_KEYS }),
     getCredentialDatabasePaths,
   },
 });

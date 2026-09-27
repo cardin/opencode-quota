@@ -270,5 +270,15 @@ describe("api-key-resolver", () => {
         ["provider"],
       ),
     ).toBeNull();
+
+    // A login OpenCode could not return carries no key, so strict resolvers see nothing.
+    expect(
+      extractAuthApiKeyEntry(
+        {
+          provider: { type: "api", resolveError: "refresh_failed: HTTP 400" },
+        },
+        ["provider"],
+      ),
+    ).toBeNull();
   });
 });

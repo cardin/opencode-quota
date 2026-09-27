@@ -64,6 +64,7 @@ vi.mock("../src/lib/resolved-auth-identity.js", () => ({
 
 import {
   DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+  hasGeminiCliQuotaRuntimeAvailable,
   inspectGeminiCliAuthPresence,
   parseGeminiCliRefreshParts,
   queryGeminiCliQuota,
@@ -322,6 +323,61 @@ describe("gemini cli auth resolution", () => {
     });
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: [
+        "google-gemini-cli",
+        "gemini-cli",
+        "opencode-gemini-auth",
+        "gemini",
+        "google",
+      ],
+    });
+  });
+
+  it("keeps a login OpenCode could not return present without making it an account", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({
+      "google-gemini-cli": { type: "oauth", resolveError: "refresh_failed: HTTP 400" },
+    });
+    mocks.inspectGeminiCliCompanionPresence.mockResolvedValue({
+      state: "present",
+      resolvedPath: "/plugin",
+    });
+
+    await expect(inspectGeminiCliAuthPresence()).resolves.toEqual({
+      state: "present",
+      sourceKey: "google-gemini-cli",
+      accountCount: 1,
+      validAccountCount: 0,
+    });
+    await expect(hasGeminiCliQuotaRuntimeAvailable()).resolves.toBe(true);
+    await expect(queryGeminiCliQuota()).resolves.toBeNull();
+    expect(mocks.fetchResponse).not.toHaveBeenCalled();
+  });
+
+  it("skips a failed login when resolving accounts and counts it next to valid ones", async () => {
+    const auth = {
+      "google-gemini-cli": { type: "oauth", resolveError: "refresh_failed: HTTP 400" },
+      google: { type: "oauth", refresh: "refresh-token|project-id" },
+    };
+    mocks.readAuthFileCached.mockResolvedValue(auth);
+
+    expect(resolveGeminiCliAccounts(auth).map((account) => account.sourceKey)).toEqual(["google"]);
+    await expect(inspectGeminiCliAuthPresence()).resolves.toEqual({
+      state: "present",
+      sourceKey: "google",
+      accountCount: 2,
+      validAccountCount: 1,
+    });
+  });
+
+  it("does not treat a failed Google API key login as a Gemini CLI login", async () => {
+    mocks.readAuthFileCached.mockResolvedValue({
+      google: { type: "api", resolveError: "resolve_empty: no value" },
+    });
+
+    await expect(inspectGeminiCliAuthPresence()).resolves.toEqual({
+      state: "missing",
+      accountCount: 0,
+      validAccountCount: 0,
     });
   });
 

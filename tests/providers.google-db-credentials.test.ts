@@ -11,6 +11,7 @@ vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
   readCredentialRows: mocks.rows,
 }));
 vi.mock("../src/lib/google-agy.js", () => ({
+  AGY_AUTH_KEYS: ["google-agy", "opencode-agy-auth", "google-agy-auth"],
   hasAgyQuotaRuntimeAvailable: vi.fn(),
   inspectAgyAuthPresence: vi.fn(async () => ({
     state: "configured",
@@ -21,6 +22,13 @@ vi.mock("../src/lib/google-agy.js", () => ({
   queryGoogleAgyQuota: mocks.agyQuery,
 }));
 vi.mock("../src/lib/google-gemini-cli.js", () => ({
+  GEMINI_CLI_AUTH_KEYS: [
+    "google-gemini-cli",
+    "gemini-cli",
+    "opencode-gemini-auth",
+    "gemini",
+    "google",
+  ],
   hasGeminiCliQuotaRuntimeAvailable: vi.fn(),
   inspectGeminiCliAuthPresence: vi.fn(async () => ({
     state: "configured",

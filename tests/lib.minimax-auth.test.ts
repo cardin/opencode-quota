@@ -253,6 +253,7 @@ describe("minimax auth resolution", () => {
       });
       expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
         maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: ["minimax-coding-plan"],
       });
     });
 
@@ -297,7 +298,10 @@ describe("minimax auth resolution", () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({});
 
       await resolveMiniMaxAuthCached({ maxAgeMs: -500 });
-      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
+      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+        maxAgeMs: 0,
+        integrationIds: ["minimax-coding-plan"],
+      });
     });
   });
 

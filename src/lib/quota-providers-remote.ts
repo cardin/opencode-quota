@@ -103,7 +103,7 @@ export async function resolveQuotaProviderApiKey(
     configJsoncSource: "opencode.jsonc",
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     auth: {
-      readAuth: readAuthFile,
+      readAuth: () => readAuthFile({ integrationIds: [source.providerId] }),
       authKeys: [source.providerId],
       authSource: "opencode.db",
     },

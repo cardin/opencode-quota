@@ -287,6 +287,7 @@ describe("OpenCode Go auth resolution", () => {
     });
     expect(authMocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["opencode-go", "opencode"],
     });
   });
 
@@ -312,7 +313,10 @@ describe("OpenCode Go auth resolution", () => {
       error: "OpenCode Go auth entry has unsupported type",
     });
     expect(JSON.stringify(diagnostics)).not.toContain(secret);
-    expect(authMocks.readAuthFileCached).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+    expect(authMocks.readAuthFileCached).toHaveBeenLastCalledWith({
+      maxAgeMs: 0,
+      integrationIds: ["opencode-go", "opencode"],
+    });
 
     const { opencodeGoProvider } = await import("../src/providers/opencode-go.js");
     const result = await opencodeGoProvider.fetch(createProviderAvailabilityContext());

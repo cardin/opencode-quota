@@ -239,6 +239,7 @@ async function resolveMiniMaxAuthWithSource(
   const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS);
   const authData = await readAuthFileCached({
     maxAgeMs,
+    integrationIds: spec.authKeys,
   });
   const auth = resolveMiniMaxAuthForSpec(authData, spec);
 

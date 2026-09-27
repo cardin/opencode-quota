@@ -112,6 +112,20 @@ describe("cursor detection", () => {
     );
   });
 
+  it("reports a Cursor login OpenCode could not return as invalid with its reason", async () => {
+    mockFiles.set(testPaths.credentialDatabase, "");
+    mockAuth.value = { cursor: { type: "oauth", resolveError: "refresh_failed: HTTP 401" } };
+
+    const { inspectCursorAuthPresence } = await import("../src/lib/cursor-detection.js");
+    const { readAuthFile } = await import("../src/lib/opencode-auth.js");
+    const result = await inspectCursorAuthPresence();
+
+    expect(result.state).toBe("invalid");
+    expect(result.selectedPath).toBe(testPaths.credentialDatabase);
+    expect(result.error).toBe("OpenCode could not read this login: refresh_failed: HTTP 401");
+    expect(readAuthFile).toHaveBeenCalledWith({ integrationIds: ["cursor"] });
+  });
+
   it("accepts a Cursor API key credential in the OpenCode database", async () => {
     mockFiles.set(testPaths.credentialDatabase, "");
     // The credential reader maps OpenCode 2's stored `{ type: "key", key }` to `type: "api"`.

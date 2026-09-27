@@ -39,7 +39,7 @@ const zaiAuthResolver = createProviderApiKeyResolver<ZaiKeySource, "opencode.db"
     authSource: "opencode.db",
     displayName: "Z.ai",
     defaultMaxAgeMs: DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
-    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs }),
+    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs, integrationIds: ZAI_AUTH_KEYS }),
     getCredentialDatabasePaths,
   },
 });

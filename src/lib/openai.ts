@@ -207,6 +207,7 @@ export type OpenAIResult =
 
 export type ResolvedOpenAIOAuth =
   | { state: "none" }
+  | { state: "failed"; sourceKey: OpenAIAuthSourceKey; error: string }
   | {
       state: "configured";
       sourceKey: OpenAIAuthSourceKey;
@@ -227,7 +228,7 @@ function getOpenAIOAuthEntry(
     }
 
     const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";
-    if (accessToken) {
+    if (accessToken || entry.resolveError !== undefined) {
       return { sourceKey, entry, accessToken };
     }
   }
@@ -239,6 +240,9 @@ export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedO
   const resolved = getOpenAIOAuthEntry(auth);
   if (!resolved) {
     return { state: "none" };
+  }
+  if (resolved.entry.resolveError !== undefined) {
+    return { state: "failed", sourceKey: resolved.sourceKey, error: resolved.entry.resolveError };
   }
 
   const email = getEmailFromJwt(resolved.accessToken) ?? undefined;
@@ -260,7 +264,7 @@ export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedO
 }
 
 export function hasOpenAIOAuth(auth: AuthData | null | undefined): boolean {
-  return resolveOpenAIOAuth(auth).state === "configured";
+  return resolveOpenAIOAuth(auth).state !== "none";
 }
 
 export async function resolveOpenAIAuthIdentity(params?: {
@@ -268,6 +272,7 @@ export async function resolveOpenAIAuthIdentity(params?: {
 }): Promise<ResolvedAuthIdentity | null> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+    integrationIds: OPENAI_AUTH_SOURCE_KEYS,
   });
   const resolved = resolveOpenAIOAuth(auth);
   if (resolved.state !== "configured") return null;
@@ -288,6 +293,7 @@ export async function resolveOpenAIAuthIdentity(params?: {
 export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+    integrationIds: OPENAI_AUTH_SOURCE_KEYS,
   });
   return hasOpenAIOAuth(auth);
 }
@@ -298,8 +304,17 @@ export async function queryOpenAIQuota(
   const resolvedAuth =
     options.auth ??
     resolveOpenAIOAuth(
-      await readAuthFileCached({ maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS }),
+      await readAuthFileCached({
+        maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: OPENAI_AUTH_SOURCE_KEYS,
+      }),
     );
+  if (resolvedAuth.state === "failed") {
+    return {
+      success: false,
+      error: `OpenAI sign-in could not be refreshed: ${resolvedAuth.error}. Run \`opencode auth login openai\`.`,
+    };
+  }
   if (resolvedAuth.state !== "configured") return null;
 
   if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {

@@ -75,7 +75,7 @@ describe("OpenCode database path", () => {
     const expected = join(sandboxData, "opencode", "opencode.db");
     expect(getOpenCodeDbPath()).toBe(expected);
     expect(getCredentialDatabasePaths()).toEqual([expected]);
-    await expect(readAuthFile()).resolves.toBeNull();
+    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toBeNull();
     await expect(getOpenCodeDbStats()).resolves.toMatchObject({
       dbPath: expected,
       sessionCount: 0,
@@ -91,7 +91,9 @@ describe("OpenCode database path", () => {
     vi.stubEnv("OPENCODE_DB", custom);
 
     expect(getOpenCodeDbPath()).toBe(custom);
-    await expect(readAuthFile()).resolves.toMatchObject({ deepseek: { key: "custom-key" } });
+    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toMatchObject({
+      deepseek: { key: "custom-key" },
+    });
     await expect(getOpenCodeDbStats()).resolves.toMatchObject({ dbPath: custom, sessionCount: 2 });
   });
 
@@ -104,7 +106,9 @@ describe("OpenCode database path", () => {
     vi.stubEnv("OPENCODE_DB", join("profiles", "work.db"));
 
     expect(getOpenCodeDbPath()).toBe(custom);
-    await expect(readAuthFile()).resolves.toMatchObject({ deepseek: { key: "work-key" } });
+    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toMatchObject({
+      deepseek: { key: "work-key" },
+    });
     await expect(getOpenCodeDbStats()).resolves.toMatchObject({ dbPath: custom, sessionCount: 4 });
   });
 
@@ -116,7 +120,7 @@ describe("OpenCode database path", () => {
 
     expect(getOpenCodeDbPath()).toBe(":memory:");
     expect(getCredentialDatabasePaths()).toEqual([]);
-    await expect(readAuthFile()).resolves.toBeNull();
+    await expect(readAuthFile({ integrationIds: ["deepseek"] })).resolves.toBeNull();
     await expect(getOpenCodeDbStats()).resolves.toMatchObject({
       dbPath: ":memory:",
       sessionCount: 0,

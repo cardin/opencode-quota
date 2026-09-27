@@ -133,6 +133,36 @@ describe("invalid-aware provider auth", () => {
         module.parseAuth(withEntry({ type: "api", key: " contract-key " })),
         `${provider.name} configured`,
       ).toEqual({ state: "configured", apiKey: "contract-key" });
+      expect(
+        module.parseAuth(withEntry({ type: "api", resolveError: "resolve_empty: no value" })),
+        `${provider.name} failed`,
+      ).toEqual({
+        state: "invalid",
+        error: "OpenCode could not read this login: resolve_empty: no value",
+      });
+    }
+  });
+
+  it("keeps a login OpenCode could not return present as an invalid auth", async () => {
+    for (const provider of providers) {
+      const module = await provider.load();
+      resetFixture();
+      authMocks.readAuthFileCached.mockResolvedValue(
+        authWithEntry(provider.authKeys[0], {
+          type: "api",
+          resolveError: "active_failed: database is locked",
+        }),
+      );
+
+      await expect(module.resolve(), provider.name).resolves.toEqual({
+        state: "invalid",
+        error: "OpenCode could not read this login: active_failed: database is locked",
+      });
+      await expect(module.diagnostics(), `${provider.name} diagnostics`).resolves.toMatchObject({
+        state: "invalid",
+        source: "opencode.db",
+        error: "OpenCode could not read this login: active_failed: database is locked",
+      });
     }
   });
 
@@ -256,6 +286,7 @@ describe("invalid-aware provider auth", () => {
       });
       expect(authMocks.readAuthFileCached, provider.name).toHaveBeenLastCalledWith({
         maxAgeMs: provider.defaultCacheMaxAgeMs,
+        integrationIds: provider.authKeys,
       });
 
       authMocks.readAuthFileCached.mockResolvedValue(
@@ -269,6 +300,7 @@ describe("invalid-aware provider auth", () => {
       await module.resolve({ maxAgeMs: -1 });
       expect(authMocks.readAuthFileCached, `${provider.name} clamp`).toHaveBeenLastCalledWith({
         maxAgeMs: 0,
+        integrationIds: provider.authKeys,
       });
     }
   });

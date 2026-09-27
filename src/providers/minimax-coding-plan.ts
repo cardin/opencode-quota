@@ -32,7 +32,11 @@ import {
   resolveMiniMaxChinaAuthCached,
 } from "../lib/minimax-auth.js";
 import { getMiniMaxQuotaEndpoint, type MiniMaxQuotaEndpointId } from "../lib/minimax-endpoints.js";
-import { formatCredentialDisplayNames, readCredentialRows } from "../lib/opencode-auth.js";
+import {
+  credentialRowAuthEntry,
+  formatCredentialDisplayNames,
+  readCredentialRows,
+} from "../lib/opencode-auth.js";
 import {
   isAnyProviderIdAvailable,
   isCanonicalProviderAvailable,
@@ -460,9 +464,9 @@ function createMiniMaxProvider(spec: MiniMaxProviderSpec): QuotaProvider {
       }
 
       if (diagnostics.source === "opencode.db") {
-        const credentialRows = (await readCredentialRows()).filter((row) =>
-          spec.credentialIntegrationIds.includes(row.integrationId),
-        );
+        const credentialRows = (
+          await readCredentialRows(spec.credentialIntegrationIds, { methods: ["key"] })
+        ).filter((row) => spec.credentialIntegrationIds.includes(row.integrationId));
         const rowNames = formatCredentialDisplayNames(
           spec.label,
           credentialRows.map((row) => ({ row, fallbackName: spec.label })),
@@ -473,7 +477,7 @@ function createMiniMaxProvider(spec: MiniMaxProviderSpec): QuotaProvider {
         const invalidErrors: QuotaProviderResult["errors"] = [];
         const credentials = credentialRows.flatMap((row) => {
           const rowAuth = spec.resolveCredentialAuth({
-            [row.integrationId]: row.value,
+            [row.integrationId]: credentialRowAuthEntry(row),
           } as AuthData);
           if (rowAuth.state === "invalid") {
             invalidErrors.push({

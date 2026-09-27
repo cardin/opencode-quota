@@ -80,7 +80,7 @@ function createKimiAuthResolver(spec: KimiAuthSpec) {
       authSource: "opencode.db",
       displayName: "Kimi",
       defaultMaxAgeMs: DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
-      readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs }),
+      readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs, integrationIds: spec.authKeys }),
       getCredentialDatabasePaths,
     },
   });
