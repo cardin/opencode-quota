@@ -20,7 +20,6 @@ import {
   withStatusDetails,
 } from "./result-helpers.js";
 
-const OPENCODE_PROVIDER_LABEL = "OpenCode";
 const OPENCODE_ZEN_GROUP = "OpenCode Zen";
 const OPENCODE_ZEN_BALANCE_ACCOUNTING: AccountingMetadata = {
   resultType: "balance",
@@ -125,7 +124,7 @@ export const opencodeZenProvider: QuotaProvider = {
 
     if (resolved.state !== "configured") {
       return withStatusDetails(
-        attemptedErrorResult(OPENCODE_PROVIDER_LABEL, accountErrorMessage(resolved.state)),
+        attemptedErrorResult(OPENCODE_ZEN_GROUP, accountErrorMessage(resolved.state)),
         accountStatusDetails({ state: resolved.state, consoleUrl: null }),
       );
     }
@@ -143,7 +142,7 @@ export const opencodeZenProvider: QuotaProvider = {
     });
 
     if (!result.success) {
-      return withStatusDetails(attemptedErrorResult(OPENCODE_PROVIDER_LABEL, result.error), [
+      return withStatusDetails(attemptedErrorResult(OPENCODE_ZEN_GROUP, result.error), [
         ...statusDetails,
         { key: "live_fetch_error", value: result.error },
       ]);
@@ -234,7 +233,7 @@ export const opencodeZenProvider: QuotaProvider = {
       });
     }
 
-    const errors = result.errors.map((message) => ({ label: OPENCODE_PROVIDER_LABEL, message }));
+    const errors = result.errors.map((message) => ({ label: OPENCODE_ZEN_GROUP, message }));
 
     return withStatusDetails(attemptedResult(entries, errors), [
       ...statusDetails,

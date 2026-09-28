@@ -136,7 +136,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(missingOrg.active).toEqual([opencodeZenProvider]);
     expect(missingOrg.data?.errors).toContainEqual({
-      label: "OpenCode",
+      label: "OpenCode Zen",
       message:
         "No active OpenCode Console organization. Run `opencode console switch` to select one.",
     });
@@ -164,7 +164,7 @@ describe("collectQuotaRenderData shared quota state", () => {
     });
     expect(explicitNoAccount.active).toEqual([opencodeZenProvider]);
     expect(explicitNoAccount.data?.errors).toContainEqual({
-      label: "OpenCode",
+      label: "OpenCode Zen",
       message: "No active OpenCode Console account. Run `opencode console login` to sign in again.",
     });
 
