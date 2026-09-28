@@ -426,6 +426,8 @@ async function runQuotaCommand(
  * typed in "inline" mode) post the report into the chat as a pending inbox item. When a
  * report arrives for the session on screen, tuiCommandDisplay decides what the TUI shows: "dialog" opens the report in the dialog and cancels the pending
  * item, so no chat message remains; "inline" leaves the report in the chat.
+ * A command sent from Home creates its session, and OpenCode opens that session before the
+ * server runs the command, so its report also arrives for the session on screen.
  * The TUI cannot tell which client typed the command, so in "dialog" mode it also removes a
  * report that Web or Desktop requested for the same session while the TUI shows it.
  */
@@ -486,7 +488,7 @@ function registerQuotaCommands(context: TuiContext): void {
  * the server command posts the report as before.
  * The layer has no mode, so it is off while the "/" list or a dialog is open. tuiCommandDisplay
  * must be known when Enter is pressed, so it is read at start and again after each typed
- * quota command; until the first read finishes, typed commands go to the server.
+ * quota command. Until the first read finishes, typed commands follow the default, "dialog".
  */
 function registerTypedQuotaCommands(context: TuiContext): void {
   let commandDisplay: TuiCommandDisplay | undefined;
@@ -513,7 +515,7 @@ function registerTypedQuotaCommands(context: TuiContext): void {
           if (!editor || !typed) return false;
           const display = commandDisplay;
           readCommandDisplay();
-          if (display !== "dialog") return false;
+          if (display === "inline") return false;
           editor.clear();
           void runQuotaCommand(context, typed.command, getRouteSessionID(context), typed);
         },
@@ -583,7 +585,10 @@ const plugin = Plugin.define({
     const disposeApp = api.ui.slot({
       append: "app",
       render: () => {
-        if (disposeEvents) return null;
+        // OpenCode mounts this slot again when it reconnects to its server, which can also
+        // happen right after it starts. Leaving a mount drops its keymap layers and event
+        // listeners, so each mount replaces the listeners and registers everything again.
+        disposeEvents?.();
         registerQuotaCommands(api);
         registerTypedQuotaCommands(api);
         const trigger = (event: TuiEvent, reason: "idle" | "compacted" | "question") => {

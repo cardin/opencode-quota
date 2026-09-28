@@ -54,6 +54,7 @@ function startTui(
   route: { type: "home" } | { type: "session"; sessionID: string } = { type: "home" },
 ) {
   let layer: { commands: RegisteredCommand[] } | undefined;
+  let renderApp: (() => unknown) | undefined;
   const listeners = new Map<string, Listener>();
   const editor = { plainText: "", clear: vi.fn() };
   const context = {
@@ -84,11 +85,14 @@ function startTui(
     },
     ui: {
       slot: vi.fn((claim) => {
-        if (claim.append === "app") claim.render();
+        if (claim.append === "app") {
+          renderApp = claim.render;
+          claim.render();
+        }
         return vi.fn();
       }),
       toast: { show: vi.fn() },
-      router: { current: vi.fn(() => route) },
+      router: { current: vi.fn((): typeof route => route) },
       dialog: {
         show: vi.fn((_render: () => unknown, onClose?: () => void) => onClose?.()),
         clear: vi.fn(),
@@ -102,7 +106,9 @@ function startTui(
   const command = (id: string) => commands.find((item) => item.id === `quota.${id}`)!;
   const emit = (name: string, data: Record<string, unknown>) => listeners.get(name)?.({ data });
   const layers = () => context.keymap.layer.mock.calls.map(([build]) => build() as Layer);
-  return { context, editor, commands, command, emit, layers };
+  /** OpenCode mounts the "app" slot again, for example after it reconnects to its server. */
+  const mountAppAgain = () => renderApp!();
+  return { context, editor, commands, command, emit, layers, mountAppAgain };
 }
 
 describe("V2 quota TUI commands", () => {
@@ -155,6 +161,21 @@ describe("V2 quota TUI commands", () => {
       "session.tool.failed",
       "session.inbox.enqueued",
     ]);
+  });
+
+  it("registers its layers and listeners again when OpenCode mounts the app slot again", () => {
+    const { context, mountAppAgain } = startTui();
+    const firstListeners = context.data.on.mock.results.map((result) => result.value);
+    const firstLayers = context.keymap.layer.mock.calls.length;
+
+    mountAppAgain();
+
+    // The previous mount's layers left with it, so both layers are registered again.
+    expect(context.keymap.layer).toHaveBeenCalledTimes(firstLayers * 2);
+    expect(context.data.on).toHaveBeenCalledTimes(firstListeners.length * 2);
+    for (const dispose of firstListeners) expect(dispose).toHaveBeenCalledOnce();
+    const secondListeners = context.data.on.mock.results.slice(firstListeners.length);
+    for (const { value: dispose } of secondListeners) expect(dispose).not.toHaveBeenCalled();
   });
 
   it("prompts for /tokens_between dates in the palette and stops when cancelled", async () => {
@@ -282,6 +303,25 @@ describe("V2 quota TUI commands", () => {
       };
       expect(render().props).toMatchObject({ title: "OpenCode Quota", message: "openai 42%" });
       expect(rpc.command).not.toHaveBeenCalled();
+    });
+
+    it("dialog mode handles the report of a session created from Home", async () => {
+      const { context, emit } = startTui({ directory: projectDir }, { type: "home" });
+      // OpenCode opens the new session before the server runs the command.
+      context.ui.router.current.mockReturnValue({ type: "session", sessionID: "ses_new" });
+
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_new",
+        inboxID: "msg_report",
+        item: item(report, metadata),
+      });
+      await settle();
+
+      expect(context.client.session.inbox.cancel).toHaveBeenCalledExactlyOnceWith({
+        sessionID: "ses_new",
+        inboxID: "msg_report",
+      });
+      expect(context.ui.dialog.show).toHaveBeenCalledOnce();
     });
 
     it("inline mode leaves the report in the chat and opens no dialog", async () => {
@@ -416,6 +456,26 @@ describe("V2 quota TUI commands", () => {
       expect(inline.enter.run()).toBe(false);
       expect(inline.editor.clear).not.toHaveBeenCalled();
       expect(rpc.command).not.toHaveBeenCalled();
+    });
+
+    it("opens the dialog, the default, before the first read of tuiCommandDisplay finishes", async () => {
+      writeFileSync(
+        join(projectDir, "opencode-quota", "quota-toast.json"),
+        JSON.stringify({ tuiCommandDisplay: "inline" }),
+      );
+      const { context, editor, layers } = startTui({ directory: projectDir });
+      const enter = layers().find((layer) => layer.priority === 1)!.commands[0];
+      editor.plainText = "/quota";
+
+      // Enter right after start: the setting is still unknown.
+      expect(enter.run()).toBeUndefined();
+      expect(editor.clear).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(context.ui.dialog.show).toHaveBeenCalledOnce());
+
+      // Once read, "inline" goes on to OpenCode's submit.
+      await loadConfig.mock.results.at(-1)?.value;
+      expect(enter.run()).toBe(false);
+      expect(editor.clear).toHaveBeenCalledOnce();
     });
 
     it("reads tuiCommandDisplay again after each typed command", async () => {
