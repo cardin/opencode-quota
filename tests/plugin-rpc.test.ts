@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  messageDocument,
+  type ReportDocument,
+  renderPlainTextReport,
+} from "../src/lib/report-document.js";
 import type { DEFAULT_CONFIG } from "../src/lib/types.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
@@ -224,6 +229,7 @@ describe("server quota RPC", () => {
 
     const output = (await call("command", { command: "quota", sessionID: "session-1" })) as {
       output: string;
+      document: ReportDocument;
     };
     expect(output).toEqual(
       expect.objectContaining({
@@ -234,6 +240,7 @@ describe("server quota RPC", () => {
       }),
     );
     expect(output.output).toContain("Copilot");
+    expect(renderPlainTextReport(output.document)).toBe(output.output);
   });
 
   it("never writes detected providers to the global config from the palette", async () => {
@@ -246,6 +253,7 @@ describe("server quota RPC", () => {
         command: params.command,
         title: "OpenCode Quota Status",
         output: "status",
+        document: messageDocument("status"),
         dialogSize: "xlarge",
       };
     });
@@ -275,6 +283,7 @@ describe("server quota RPC", () => {
       command: "quota",
       title: "OpenCode Quota",
       output: "quota broke",
+      document: messageDocument("quota broke"),
       dialogSize: "xlarge",
     });
   });

@@ -39,7 +39,12 @@ import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import { isMaintainedQuotaProviderTuning } from "./quota-providers.js";
 import { aggregateUsage } from "./quota-stats.js";
-import { type ReportKvRow, type ReportSection, renderPlainTextReport } from "./report-document.js";
+import {
+  type ReportDocument,
+  type ReportKvRow,
+  type ReportSection,
+  renderPlainTextReport,
+} from "./report-document.js";
 import { totalTokenBuckets } from "./token-buckets.js";
 import type {
   CursorQuotaPlan,
@@ -669,7 +674,7 @@ function supportedProviderPricingRow(params: {
   };
 }
 
-export async function buildQuotaStatusReport(params: {
+type QuotaStatusReportParams = {
   configSource: string;
   configPaths: string[];
   globalConfigPaths?: string[];
@@ -697,7 +702,15 @@ export async function buildQuotaStatusReport(params: {
     summary: MaintainerAnnouncementsSummary;
   };
   generatedAtMs?: number;
-}): Promise<string> {
+};
+
+export async function buildQuotaStatusReport(params: QuotaStatusReportParams): Promise<string> {
+  return renderPlainTextReport(await buildQuotaStatusReportDocument(params));
+}
+
+export async function buildQuotaStatusReportDocument(
+  params: QuotaStatusReportParams,
+): Promise<ReportDocument> {
   const version = await getPackageVersion();
   const v = version ?? "unknown";
   const modelDisplay = params.currentModel
@@ -1114,11 +1127,11 @@ export async function buildQuotaStatusReport(params: {
   }
   sections.push(createKvSection("unknown_pricing", "unknown_pricing:", unknownRows));
 
-  return renderPlainTextReport({
+  return {
     heading: {
       title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
       generatedAtMs: params.generatedAtMs,
     },
     sections,
-  });
+  };
 }

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { messageDocument } from "../src/lib/report-document.js";
+
 const buildOutput = vi.hoisted(() => vi.fn());
 vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/quota-dialog-commands.js")>()),
@@ -135,10 +137,12 @@ describe("V2 server plugin", () => {
 
   it("posts the report as a user message that never starts a model turn", async () => {
     const { ctx, commands, calls } = createContext();
+    const document = messageDocument("# Quota\nopenai 42%\u001b[31m");
     buildOutput.mockResolvedValue({
       state: "output",
       title: "OpenCode Quota",
       output: "# Quota\nopenai 42%\u001b[31m",
+      document,
     });
     vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
 
@@ -154,8 +158,14 @@ describe("V2 server plugin", () => {
     expect(ctx.session.prompt.mock.calls[0][0]).toEqual({
       sessionID: "session-web",
       text: formatQuotaReportMessage("# Quota\nopenai 42%"),
+      // The TUI sanitizes the document when it draws it.
       metadata: {
-        opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1_790_000_000_000 },
+        opencodeQuota: {
+          command: "quota",
+          title: "OpenCode Quota",
+          at: 1_790_000_000_000,
+          document,
+        },
       },
       delivery: "steer",
       resume: false,

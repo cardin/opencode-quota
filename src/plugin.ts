@@ -32,6 +32,7 @@ import {
   type QuotaSurfaceHost,
   writeQuotaExportIfEnabled,
 } from "./lib/quota-surface-data.js";
+import { messageDocument } from "./lib/report-document.js";
 import { QuotaRpc, type QuotaRpcCommandOutput } from "./rpc.js";
 
 type ModelMessage = {
@@ -167,11 +168,15 @@ export const QuotaToastPlugin = Plugin.define({
         } catch (error) {
           // Return the reason as output so the TUI shows it instead of OpenCode's rpc.internal.
           const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === input.command)!;
+          const output = sanitizeDisplayText(
+            error instanceof Error ? error.message : String(error),
+          );
           return {
             state: "output",
             command: input.command,
             title: spec.title,
-            output: sanitizeDisplayText(error instanceof Error ? error.message : String(error)),
+            output,
+            document: messageDocument(output),
             dialogSize: spec.dialogSize,
           };
         }
@@ -221,6 +226,7 @@ export const QuotaToastPlugin = Plugin.define({
               command: spec.id,
               title: result.title,
               at: Date.now(),
+              document: result.document,
             };
             // The report is posted as the user's message. resume: false admits it without
             // starting a model turn, so it waits in the session inbox, where Web, Desktop,

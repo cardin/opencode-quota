@@ -46,11 +46,91 @@ function hasBlockContent(block: ReportBlock): boolean {
   }
 }
 
-function getRenderableBlocks(section: ReportSection): ReportBlock[] {
-  return section.blocks.filter(hasBlockContent);
+/** The sections every renderer shows: empty blocks dropped, then sections left with nothing. */
+export function renderableSections(document: ReportDocument): ReportSection[] {
+  return document.sections
+    .map((section) => ({ ...section, blocks: section.blocks.filter(hasBlockContent) }))
+    .filter((section) => section.title || section.blocks.length > 0);
 }
 
-function renderKvRow(row: ReportKvRow): string {
+/** A document of one plain message; it renders back to the same text. */
+export function messageDocument(text: string): ReportDocument {
+  return { sections: [{ id: "message", blocks: [{ kind: "lines", lines: text.split("\n") }] }] };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isOptional(value: unknown, type: "string" | "number" | "boolean"): boolean {
+  return value === undefined || typeof value === type;
+}
+
+function isReportKvRow(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    typeof value.key === "string" &&
+    isOptional(value.value, "string") &&
+    (value.indent === undefined || value.indent === 0 || value.indent === 1) &&
+    isOptional(value.trailingColon, "boolean")
+  );
+}
+
+function isReportBlock(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  switch (value.kind) {
+    case "lines":
+      return isStringArray(value.lines);
+    case "kv":
+      return Array.isArray(value.rows) && value.rows.every(isReportKvRow);
+    case "table":
+      return (
+        isStringArray(value.headers) &&
+        Array.isArray(value.rows) &&
+        value.rows.every(isStringArray) &&
+        Array.isArray(value.aligns) &&
+        value.aligns.every((align) => align === "left" || align === "right") &&
+        (value.widthMode === undefined ||
+          value.widthMode === "raw" ||
+          value.widthMode === "markdown-conceal")
+      );
+    default:
+      return false;
+  }
+}
+
+/** Checks the shape of a document read back from stored message metadata. */
+export function isReportDocument(value: unknown): value is ReportDocument {
+  if (!isObject(value)) return false;
+  const heading = value.heading;
+  if (
+    heading !== undefined &&
+    !(
+      isObject(heading) &&
+      typeof heading.title === "string" &&
+      isOptional(heading.generatedAtMs, "number")
+    )
+  ) {
+    return false;
+  }
+  return (
+    Array.isArray(value.sections) &&
+    value.sections.every(
+      (section) =>
+        isObject(section) &&
+        typeof section.id === "string" &&
+        isOptional(section.title, "string") &&
+        Array.isArray(section.blocks) &&
+        section.blocks.every(isReportBlock),
+    )
+  );
+}
+
+export function renderKvRow(row: ReportKvRow): string {
   const indent = row.indent === 1 ? "  " : "";
   if (row.value !== undefined) {
     return `${indent}- ${row.key}: ${row.value}`;
@@ -106,11 +186,7 @@ export function renderPlainTextReport(document: ReportDocument): string {
     );
   }
 
-  const sections = document.sections
-    .map((section) => ({ ...section, blocks: getRenderableBlocks(section) }))
-    .filter((section) => section.title || section.blocks.length > 0);
-
-  for (const section of sections) {
+  for (const section of renderableSections(document)) {
     if (lines.length > 0) lines.push("");
 
     if (section.title) {
@@ -138,11 +214,7 @@ export function renderMarkdownReport(document: ReportDocument): string {
     );
   }
 
-  const sections = document.sections
-    .map((section) => ({ ...section, blocks: getRenderableBlocks(section) }))
-    .filter((section) => section.title || section.blocks.length > 0);
-
-  for (const section of sections) {
+  for (const section of renderableSections(document)) {
     if (lines.length > 0) lines.push("");
 
     if (section.title) {

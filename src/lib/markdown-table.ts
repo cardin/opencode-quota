@@ -144,3 +144,31 @@ export function renderMarkdownTable(params: {
   for (const row of safeRows) lines.push(fmtRow(row));
   return lines.join("\n");
 }
+
+/**
+ * Pads each cell to its column width, as renderMarkdownTable does, for a table drawn
+ * without pipes. Widths count raw graphemes and cells are not escaped.
+ */
+export function padTableColumns(params: {
+  headers: string[];
+  rows: string[][];
+  aligns: Array<"left" | "right">;
+}): { header: string[]; rows: string[][] } {
+  const colCount = params.headers.length;
+  const rows = params.rows.map((row) => {
+    const out: string[] = [];
+    for (let i = 0; i < colCount; i++) out.push((row[i] ?? "").replace(/\r?\n/g, " "));
+    return out;
+  });
+
+  const widths = params.headers.map((header) => measureWidth(header));
+  for (const row of rows) {
+    for (let i = 0; i < colCount; i++) {
+      widths[i] = Math.max(widths[i], measureWidth(row[i]));
+    }
+  }
+
+  const padRow = (cells: string[]) =>
+    cells.map((cell, i) => padCell(cell, widths[i], params.aligns[i] ?? "left", "raw"));
+  return { header: padRow(params.headers), rows: rows.map(padRow) };
+}

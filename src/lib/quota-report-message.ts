@@ -4,6 +4,7 @@
  * can keep them out of every model request, and the TUI can show them in its dialog.
  */
 import type { QuotaDialogCommandId } from "./quota-dialog-command-specs.js";
+import { isReportDocument, type ReportDocument } from "./report-document.js";
 
 /** Metadata key on every quota report message. OpenCode stores message metadata with the message. */
 export const QUOTA_REPORT_METADATA_KEY = "opencodeQuota";
@@ -12,6 +13,8 @@ export type QuotaReportMetadata = {
   command: QuotaDialogCommandId;
   title: string;
   at: number;
+  /** The report, structured, so the TUI can show it in its dialog. */
+  document: ReportDocument;
 };
 
 /**
@@ -28,14 +31,6 @@ export function formatQuotaReportMessage(report: string): string {
   return `${QUOTA_REPORT_START}\n${report}\n${QUOTA_REPORT_END}`;
 }
 
-/** The report inside a quota report message, without its first and last line. */
-export function readQuotaReport(text: string): string {
-  const prefix = `${QUOTA_REPORT_START}\n`;
-  const suffix = `\n${QUOTA_REPORT_END}`;
-  if (!text.startsWith(prefix) || !text.endsWith(suffix)) return text;
-  return text.slice(prefix.length, text.length - suffix.length);
-}
-
 export function containsQuotaReport(text: string): boolean {
   return text.includes(QUOTA_REPORT_START);
 }
@@ -50,9 +45,14 @@ export function readQuotaReportMetadata(
 ): QuotaReportMetadata | undefined {
   const value = metadata?.[QUOTA_REPORT_METADATA_KEY];
   if (!value || typeof value !== "object") return undefined;
-  const { command, title, at } = value as Record<string, unknown>;
-  if (typeof command !== "string" || typeof title !== "string" || typeof at !== "number") {
+  const { command, title, at, document } = value as Record<string, unknown>;
+  if (
+    typeof command !== "string" ||
+    typeof title !== "string" ||
+    typeof at !== "number" ||
+    !isReportDocument(document)
+  ) {
     return undefined;
   }
-  return { command: command as QuotaDialogCommandId, title, at };
+  return { command: command as QuotaDialogCommandId, title, at, document };
 }

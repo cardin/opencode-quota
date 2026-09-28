@@ -2,6 +2,8 @@ import { rm } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { QuotaProviderContext } from "../src/lib/entries.js";
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
+import { renderPlainTextReport } from "../src/lib/report-document.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
@@ -30,6 +32,7 @@ async function buildDialogOutput(params: {
   client: ReturnType<typeof createClient>;
   sessionID: string;
   arguments?: string;
+  generatedAtMs?: number;
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   // V2 CLI obtains host provider IDs from its location cache, not V1 plugin bootstrap.
@@ -41,6 +44,7 @@ async function buildDialogOutput(params: {
   const result = await buildQuotaDialogCommandOutput({
     command: params.command ?? "quota",
     arguments: params.arguments,
+    generatedAtMs: params.generatedAtMs,
     client: params.client,
     roots: {
       workspaceRoot: process.cwd(),
@@ -58,7 +62,10 @@ async function buildDialogOutput(params: {
   });
   expect(params.client.session.prompt).not.toHaveBeenCalled();
   expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
+  if (result.state !== "output") return "";
+  // Every command here renders its document as plain text.
+  expect(renderPlainTextReport(result.document)).toBe(result.output);
+  return result.output;
 }
 
 async function createV2StatusTool(directory: string) {
@@ -871,10 +878,12 @@ describe("/quota command behavior", () => {
 
     const client = createClient();
 
+    const generatedAtMs = Date.UTC(2026, 0, 2, 3, 4);
     const injected = await buildDialogOutput({
       command: "pricing_refresh",
       client,
       sessionID: "session-pricing-refresh",
+      generatedAtMs,
     });
 
     expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({
@@ -883,10 +892,56 @@ describe("/quota command behavior", () => {
       snapshotSelection: "bundled",
       allowRefreshWhenSelectionBundled: true,
     });
-    expect(injected).toContain("Pricing Refresh (/pricing_refresh)");
-    expect(injected).toContain("- selection: configured=bundled active=bundled");
-    expect(injected).toContain(
-      "runtime snapshot refreshed locally, but active reports remain pinned to bundled pricing",
+    expect(injected).toBe(
+      [
+        `# Pricing Refresh (/pricing_refresh) ${formatLocalCallTimestamp(generatedAtMs)}`,
+        "",
+        "refresh:",
+        "- attempted: true",
+        "- result: success",
+        "- runtime_snapshot_persisted: true",
+        "",
+        "pricing_snapshot:",
+        "- selection: configured=bundled active=bundled",
+        "- active_snapshot: source=https://models.dev/api.json generated_at=2026-01-01T00:00:00.000Z units=USD per 1M tokens",
+        "- runtime_paths: snapshot=/tmp/modelsdev-pricing.runtime.min.json refresh_state=/tmp/modelsdev-pricing.refresh-state.json",
+        "- selection_note: runtime snapshot refreshed locally, but active reports remain pinned to bundled pricing",
+      ].join("\n"),
+    );
+  });
+
+  it("reports a failed /pricing_refresh with its error", async () => {
+    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
+      attempted: true,
+      updated: false,
+      reason: "fetch_failed",
+      error: "network down",
+      state: { version: 1, updatedAt: Date.now() },
+    });
+    const generatedAtMs = Date.UTC(2026, 0, 2, 3, 4);
+
+    const injected = await buildDialogOutput({
+      command: "pricing_refresh",
+      client: createClient(),
+      sessionID: "session-pricing-refresh-failed",
+      generatedAtMs,
+    });
+
+    expect(injected).toBe(
+      [
+        `# Pricing Refresh (/pricing_refresh) ${formatLocalCallTimestamp(generatedAtMs)}`,
+        "",
+        "refresh:",
+        "- attempted: true",
+        "- result: fetch_failed",
+        "- runtime_snapshot_persisted: false",
+        "- error: network down",
+        "",
+        "pricing_snapshot:",
+        "- selection: configured=auto active=runtime",
+        "- active_snapshot: source=https://models.dev/api.json generated_at=2026-01-01T00:00:00.000Z units=USD per 1M tokens",
+        "- runtime_paths: snapshot=/tmp/modelsdev-pricing.runtime.min.json refresh_state=/tmp/modelsdev-pricing.refresh-state.json",
+      ].join("\n"),
     );
   });
 

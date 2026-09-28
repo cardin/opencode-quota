@@ -1,6 +1,7 @@
 import { rm } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { renderPlainTextReport } from "../src/lib/report-document.js";
 import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createAlibabaAuthModuleMock,
@@ -202,7 +203,10 @@ async function buildAnnouncementsDialogOutput(params: {
   });
   expect(params.client.session.prompt).not.toHaveBeenCalled();
   expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
+  if (result.state !== "output") return "";
+  // Every command here renders its document as plain text.
+  expect(renderPlainTextReport(result.document)).toBe(result.output);
+  return result.output;
 }
 
 async function flushMaintainerFallbackWork(): Promise<void> {

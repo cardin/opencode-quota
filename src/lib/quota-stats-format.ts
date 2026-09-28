@@ -154,7 +154,7 @@ function truncateTitle(title: string | undefined): string {
   return trimmed.slice(0, 10) + "…" + trimmed.slice(-10);
 }
 
-export function formatQuotaStatsReport(params: {
+type QuotaStatsReportParams = {
   title: string;
   result: AggregateResult;
   topModels?: number;
@@ -169,7 +169,13 @@ export function formatQuotaStatsReport(params: {
   };
   generatedAtMs?: number;
   tableOptions?: QuotaStatsReportTableOptions;
-}): string {
+};
+
+export function formatQuotaStatsReport(params: QuotaStatsReportParams): string {
+  return renderMarkdownReport(buildQuotaStatsReportDocument(params));
+}
+
+export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): ReportDocument {
   const topModels = params.topModels ?? 12;
   const topSessions = params.topSessions ?? 8;
   const r = params.result;
@@ -488,13 +494,11 @@ export function formatQuotaStatsReport(params: {
     });
   }
 
-  const document: ReportDocument = {
+  return {
     heading: {
       title: params.title,
       generatedAtMs: params.generatedAtMs,
     },
     sections,
   };
-
-  return renderMarkdownReport(document);
 }

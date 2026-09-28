@@ -125,7 +125,7 @@ function getCommandBasisLines(basis: AccountingRowInterpretation["basis"]): stri
   return details.map((detail) => `    ${detail}`);
 }
 
-function buildQuotaCommandDocument(params: {
+export function buildQuotaCommandDocument(params: {
   entries: QuotaToastEntry[];
   errors: QuotaToastError[];
   sessionTokens?: SessionTokensData;

@@ -8,12 +8,20 @@ import { createSignal, onCleanup, Show } from "solid-js";
 import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
+import { formatLocalCallTimestamp } from "./lib/format-utils.js";
+import { padTableColumns } from "./lib/markdown-table.js";
 import {
   parseQuotaSlashCommand,
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-command-specs.js";
-import { readQuotaReport, readQuotaReportMetadata } from "./lib/quota-report-message.js";
+import { readQuotaReportMetadata } from "./lib/quota-report-message.js";
+import {
+  type ReportBlock,
+  type ReportDocument,
+  renderableSections,
+  renderKvRow,
+} from "./lib/report-document.js";
 import type { TuiCommandDisplay } from "./lib/types.js";
 import {
   QuotaRpc,
@@ -50,6 +58,7 @@ type KeymapCommand = {
 type DialogTheme = {
   text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA } } };
   background: { action: { primary: { focused: RGBA } } };
+  markdown: { heading: RGBA };
 };
 type QuotaRpcCallOptions = { location: { directory: string }; signal: AbortSignal };
 type QuotaRpcClient = {
@@ -286,6 +295,76 @@ function reportFailure(error: unknown): void {
 }
 
 /**
+ * One block of a report. Lines and key-value rows wrap at words. A table keeps each row on
+ * one line: its cells are padded to their column widths and joined by two spaces, with the
+ * header row bold in the markdown heading color.
+ */
+function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX.Element {
+  const block = props.block;
+  if (block.kind === "lines") {
+    return <text fg={props.theme.text.base}>{sanitizeDisplayText(block.lines.join("\n"))}</text>;
+  }
+  if (block.kind === "kv") {
+    return (
+      <text fg={props.theme.text.base}>
+        {sanitizeDisplayText(block.rows.map(renderKvRow).join("\n"))}
+      </text>
+    );
+  }
+  const table = padTableColumns({
+    headers: block.headers.map(sanitizeDisplayText),
+    rows: block.rows.map((row) => row.map(sanitizeDisplayText)),
+    aligns: block.aligns,
+  });
+  return (
+    <box flexDirection="column">
+      <text attributes={TextAttributes.BOLD} fg={props.theme.markdown.heading} wrapMode="none">
+        {table.header.join("  ")}
+      </text>
+      {table.rows.map((row) => (
+        <text fg={props.theme.text.base} wrapMode="none">
+          {row.join("  ")}
+        </text>
+      ))}
+    </box>
+  );
+}
+
+/**
+ * Draws a report document with the same spacing as its plain text: one blank row between
+ * the heading, the sections, and the blocks of a section, and a section title directly
+ * above its first block. The heading and section titles are bold.
+ */
+function ReportDocumentView(props: { document: ReportDocument; theme: DialogTheme }): JSX.Element {
+  const heading = props.document.heading;
+  return (
+    <box flexDirection="column" gap={1}>
+      {heading ? (
+        <text attributes={TextAttributes.BOLD} fg={props.theme.text.base}>
+          {sanitizeDisplayText(
+            `${heading.title} ${formatLocalCallTimestamp(heading.generatedAtMs)}`,
+          )}
+        </text>
+      ) : null}
+      {renderableSections(props.document).map((section) => (
+        <box flexDirection="column">
+          {section.title ? (
+            <text attributes={TextAttributes.BOLD} fg={props.theme.text.base}>
+              {sanitizeDisplayText(section.title)}
+            </text>
+          ) : null}
+          <box flexDirection="column" gap={1}>
+            {section.blocks.map((block) => (
+              <ReportBlockView block={block} theme={props.theme} />
+            ))}
+          </box>
+        </box>
+      ))}
+    </box>
+  );
+}
+
+/**
  * Shows command output like OpenCode's alert dialog, but inside a scrollbox so long
  * reports (/quota_status, /tokens_*) stay reachable. The mouse wheel scrolls the box;
  * arrows, PageUp/PageDown, and Home/End scroll it from the keyboard. Esc is handled by
@@ -294,7 +373,7 @@ function reportFailure(error: unknown): void {
 function QuotaOutputDialog(props: {
   context: TuiContext;
   title: string;
-  message: string;
+  document: ReportDocument;
 }): JSX.Element {
   const theme = () => props.context.theme.surface("dialog");
   const dimensions = useTerminalDimensions();
@@ -349,7 +428,7 @@ function QuotaOutputDialog(props: {
           }}
           maxHeight={maxHeight()}
         >
-          <text fg={theme().text.base}>{props.message}</text>
+          <ReportDocumentView document={props.document} theme={theme()} />
         </scrollbox>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
@@ -368,11 +447,11 @@ function QuotaOutputDialog(props: {
 
 function showQuotaOutputDialog(
   context: TuiContext,
-  output: { title: string; message: string; dialogSize: "medium" | "large" | "xlarge" },
+  output: { title: string; document: ReportDocument; dialogSize: "medium" | "large" | "xlarge" },
 ): Promise<void> {
   return new Promise<void>((resolve) => {
     context.ui.dialog.show(
-      () => <QuotaOutputDialog context={context} title={output.title} message={output.message} />,
+      () => <QuotaOutputDialog context={context} title={output.title} document={output.document} />,
       resolve,
     );
     context.ui.dialog.set({ size: output.dialogSize });
@@ -409,7 +488,7 @@ async function runQuotaCommand(
     if (result.state === "noop") return;
     await showQuotaOutputDialog(context, {
       title: result.title,
-      message: result.output,
+      document: result.document,
       dialogSize: result.dialogSize,
     });
   } catch (error) {
@@ -456,7 +535,7 @@ async function showPostedQuotaReport(context: TuiContext, event: TuiEvent): Prom
   });
   void showQuotaOutputDialog(context, {
     title: report.title,
-    message: readQuotaReport(item.payload.text),
+    document: report.document,
     dialogSize: spec.dialogSize,
   });
 }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { messageDocument, renderPlainTextReport } from "../src/lib/report-document.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
   createAlibabaAuthModuleMock,
@@ -24,7 +25,7 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
   collectQuotaStatusLiveProbes: vi.fn(),
-  buildQuotaStatusReport: vi.fn(),
+  buildQuotaStatusReportDocument: vi.fn(),
 }));
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
@@ -52,7 +53,7 @@ vi.mock("../src/lib/quota-render-data.js", () => ({
 }));
 
 vi.mock("../src/lib/quota-status.js", () => ({
-  buildQuotaStatusReport: mocks.buildQuotaStatusReport,
+  buildQuotaStatusReportDocument: mocks.buildQuotaStatusReportDocument,
 }));
 
 async function buildQuotaStatusDialogOutput(params: {
@@ -79,7 +80,9 @@ async function buildQuotaStatusDialogOutput(params: {
   });
   expect(params.client.session.prompt).not.toHaveBeenCalled();
   expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
+  if (result.state !== "output") return "";
+  expect(renderPlainTextReport(result.document)).toBe(result.output);
+  return result.output;
 }
 
 describe("/quota_status command behavior", () => {
@@ -122,7 +125,9 @@ describe("/quota_status command behavior", () => {
         },
       },
     ]);
-    mocks.buildQuotaStatusReport.mockResolvedValue("Injected quota status");
+    mocks.buildQuotaStatusReportDocument.mockResolvedValue(
+      messageDocument("Injected quota status"),
+    );
   });
 
   afterEach(() => {
@@ -196,6 +201,7 @@ describe("/quota_status command behavior", () => {
     });
 
     expect(data.output).toBe("Injected quota status");
+    expect(data.document).toEqual(messageDocument("Injected quota status"));
     expect(data.payload?.providers).toEqual([
       expect.objectContaining({ id: "synthetic", enabled: true, available: true }),
     ]);
@@ -206,7 +212,7 @@ describe("/quota_status command behavior", () => {
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({ providers: [synthetic] }),
     );
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         providerAvailability: [
           expect.objectContaining({ id: "synthetic", enabled: true, available: true }),
@@ -261,7 +267,7 @@ describe("/quota_status command behavior", () => {
         providers: [openai, synthetic, copilot, cursor],
       }),
     );
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         runtimeRoots: {
           workspaceRoot: process.cwd(),
@@ -309,7 +315,7 @@ describe("/quota_status command behavior", () => {
     });
 
     expect(client.session.get).not.toHaveBeenCalled();
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         currentModel: undefined,
         sessionModelLookup: "no_session",

@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
+import {
+  type ReportDocument,
+  renderMarkdownReport,
+  renderPlainTextReport,
+} from "../src/lib/report-document.js";
 import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
@@ -24,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   aggregateUsage: vi.fn(),
   resolveSessionTree: vi.fn(),
-  formatQuotaStatsReport: vi.fn(),
+  buildQuotaStatsReportDocument: vi.fn(),
   SessionNotFoundError: class SessionNotFoundError extends Error {
     sessionID: string;
     checkedPath: string;
@@ -61,13 +67,16 @@ vi.mock("../src/lib/quota-stats.js", () => ({
 }));
 
 vi.mock("../src/lib/quota-stats-format.js", () => ({
-  formatQuotaStatsReport: mocks.formatQuotaStatsReport,
+  buildQuotaStatsReportDocument: mocks.buildQuotaStatsReportDocument,
 }));
 
 async function buildTokenDialogOutput(params: {
   command: "tokens_session" | "tokens_session_all";
   client: ReturnType<typeof createClient>;
   sessionID: string;
+  generatedAtMs?: number;
+  /** The renderer the command uses for its text; the text must equal it applied to the document. */
+  render: (document: ReportDocument) => string;
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   const result = await buildQuotaDialogCommandOutput({
@@ -79,11 +88,26 @@ async function buildTokenDialogOutput(params: {
       fallbackDirectory: process.cwd(),
     },
     sessionID: params.sessionID,
+    generatedAtMs: params.generatedAtMs,
   });
   expect(params.client.session.prompt).not.toHaveBeenCalled();
   expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
+  if (result.state !== "output") return "";
+  expect(params.render(result.document)).toBe(result.output);
+  return result.output;
 }
+
+// A titled section, so the markdown and plain-text renderers give different text.
+const TOKEN_REPORT_DOCUMENT: ReportDocument = {
+  heading: { title: "Tokens used", generatedAtMs: 0 },
+  sections: [
+    {
+      id: "summary",
+      title: "Summary",
+      blocks: [{ kind: "lines", lines: ["formatted token report"] }],
+    },
+  ],
+};
 
 describe("/tokens_session_all command", () => {
   beforeEach(() => {
@@ -99,7 +123,7 @@ describe("/tokens_session_all command", () => {
     });
     mocks.resolveAlibabaCodingPlanAuthCached.mockResolvedValue({ state: "none" });
     mocks.aggregateUsage.mockResolvedValue({ totals: {}, bySession: [] });
-    mocks.formatQuotaStatsReport.mockReturnValue("formatted token report");
+    mocks.buildQuotaStatsReportDocument.mockReturnValue(TOKEN_REPORT_DOCUMENT);
     mocks.resolveSessionTree.mockResolvedValue([
       { sessionID: "ses_parent", title: "Parent Session", depth: 0 },
       {
@@ -150,6 +174,7 @@ describe("/tokens_session_all command", () => {
       command: "tokens_session_all",
       client,
       sessionID: "ses_parent",
+      render: renderMarkdownReport,
     });
 
     expect(mocks.resolveSessionTree).toHaveBeenCalledWith("ses_parent");
@@ -159,7 +184,7 @@ describe("/tokens_session_all command", () => {
       sessionID: undefined,
       sessionIDs: ["ses_parent", "ses_child"],
     });
-    expect(mocks.formatQuotaStatsReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatsReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Tokens used (Current Session Tree) (/tokens_session_all)",
         focusSessionID: "ses_parent",
@@ -182,7 +207,8 @@ describe("/tokens_session_all command", () => {
         },
       }),
     );
-    expect(output).toContain("formatted token report");
+    expect(output).toBe(renderMarkdownReport(TOKEN_REPORT_DOCUMENT));
+    expect(output).toContain("## Summary");
   });
 
   it("keeps /tokens_session scoped to the selected session only", async () => {
@@ -192,6 +218,7 @@ describe("/tokens_session_all command", () => {
       command: "tokens_session",
       client,
       sessionID: "ses_parent",
+      render: renderMarkdownReport,
     });
 
     expect(mocks.resolveSessionTree).not.toHaveBeenCalled();
@@ -201,7 +228,7 @@ describe("/tokens_session_all command", () => {
       sessionID: "ses_parent",
       sessionIDs: undefined,
     });
-    expect(mocks.formatQuotaStatsReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatsReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Tokens used (Current Session) (/tokens_session)",
         focusSessionID: "ses_parent",
@@ -222,15 +249,24 @@ describe("/tokens_session_all command", () => {
 
     const client = createClient();
 
+    const generatedAtMs = Date.UTC(2026, 0, 2, 3, 4);
     const injected = await buildTokenDialogOutput({
       command: "tokens_session_all",
       client,
       sessionID: "ses_missing",
+      generatedAtMs,
+      render: renderPlainTextReport,
     });
-    expect(injected).toContain("Token report unavailable (/tokens_session_all)");
-    expect(injected).toContain("session_lookup_error:");
-    expect(injected).toContain("- session_id: ses_missing");
-    expect(injected).toContain("- checked_path: /tmp/opencode.db");
+    expect(injected).toBe(
+      [
+        `# Token report unavailable (/tokens_session_all) ${formatLocalCallTimestamp(generatedAtMs)}`,
+        "",
+        "session_lookup_error:",
+        "- session_id: ses_missing",
+        "- error: Session not found: ses_missing",
+        "- checked_path: /tmp/opencode.db",
+      ].join("\n"),
+    );
   });
 
   it("returns a dialog session lookup error for /tokens_session", async () => {
@@ -244,6 +280,7 @@ describe("/tokens_session_all command", () => {
       command: "tokens_session",
       client,
       sessionID: "ses_parent",
+      render: renderPlainTextReport,
     });
     expect(injected).toContain("Token report unavailable (/tokens_session)");
     expect(injected).toContain("- session_id: ses_parent");

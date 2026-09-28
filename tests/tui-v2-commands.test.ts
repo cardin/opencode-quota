@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TextAttributes } from "@opentui/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@opentui/solid", () => ({
@@ -13,14 +14,24 @@ vi.mock("../src/lib/config.js", async (importOriginal) => {
   return { ...original, loadConfig };
 });
 
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
 import { parseQuotaSlashCommand } from "../src/lib/quota-dialog-command-specs.js";
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
+import { messageDocument, type ReportDocument } from "../src/lib/report-document.js";
 import plugin from "../src/tui-v2.tsx";
 
 // The server plugin's quota RPC runs palette commands; the TUI shows their output.
 const rpc = vi.hoisted(() => ({ command: vi.fn() }));
 
 type Node = { type: string; props: Record<string, any> };
+
+function findNodes(node: unknown, type: string): Node[] {
+  if (Array.isArray(node)) return node.flatMap((child) => findNodes(child, type));
+  if (!node || typeof node !== "object") return [];
+  const element = node as Node;
+  if (element.type === type) return [element];
+  return findNodes(element.props?.children, type);
+}
 
 function findNode(node: unknown, type: string): Node | undefined {
   if (Array.isArray(node)) {
@@ -68,6 +79,7 @@ function startTui(
       surface: vi.fn(() => ({
         text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
         background: { action: { primary: { focused: "action-bg" } } },
+        markdown: { heading: "heading" },
       })),
     },
     data: {
@@ -118,6 +130,7 @@ describe("V2 quota TUI commands", () => {
       command: "tokens_today",
       title: "Tokens",
       output: "ok",
+      document: messageDocument("ok"),
       dialogSize: "large",
     });
   });
@@ -207,7 +220,10 @@ describe("V2 quota TUI commands", () => {
   });
 
   describe("quota reports posted by slash commands", () => {
-    const metadata = { opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1 } };
+    const document = messageDocument("openai 42%");
+    const metadata = {
+      opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1, document },
+    };
     const report = formatQuotaReportMessage("openai 42%");
     const item = (text: string, meta?: Record<string, unknown>, type = "user") => ({
       type,
@@ -271,6 +287,12 @@ describe("V2 quota TUI commands", () => {
         inboxID: "msg_5",
         item: item(report, metadata),
       });
+      // Metadata without a report document, as posted before documents were added.
+      emit("session.inbox.enqueued", {
+        sessionID: "ses_open",
+        inboxID: "msg_6",
+        item: item(report, { opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1 } }),
+      });
       await settle();
 
       // Only the read at start, for typed commands.
@@ -301,7 +323,7 @@ describe("V2 quota TUI commands", () => {
       const render = context.ui.dialog.show.mock.calls[0][0] as () => {
         props: Record<string, unknown>;
       };
-      expect(render().props).toMatchObject({ title: "OpenCode Quota", message: "openai 42%" });
+      expect(render().props).toMatchObject({ title: "OpenCode Quota", document });
       expect(rpc.command).not.toHaveBeenCalled();
     });
 
@@ -511,7 +533,14 @@ describe("V2 quota TUI commands", () => {
           type: "user",
           payload: {
             text: formatQuotaReportMessage("openai 42%"),
-            metadata: { opencodeQuota: { command: "quota", title: "OpenCode Quota", at: 1 } },
+            metadata: {
+              opencodeQuota: {
+                command: "quota",
+                title: "OpenCode Quota",
+                at: 1,
+                document: messageDocument("openai 42%"),
+              },
+            },
           },
         },
       });
@@ -576,12 +605,37 @@ describe("V2 quota TUI commands", () => {
         return typeof type === "function" ? type(all) : { type, props: all };
       },
     });
-    const output = Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n");
+    const lines = Array.from({ length: 80 }, (_, index) => `line ${index + 1}`);
+    const generatedAtMs = Date.UTC(2026, 0, 2, 3, 4);
+    const document: ReportDocument = {
+      heading: { title: "Tokens used (Today) (/tokens_today)", generatedAtMs },
+      sections: [
+        {
+          id: "models",
+          title: "Top Models",
+          blocks: [
+            {
+              kind: "table",
+              headers: ["Model", "Cost"],
+              aligns: ["left", "right"],
+              rows: [
+                ["gpt-5", "$1.23"],
+                ["claude-\u001b[31mopus", "$10.00"],
+              ],
+            },
+            { kind: "kv", rows: [{ key: "enabled", value: "true" }] },
+          ],
+        },
+        { id: "empty", blocks: [{ kind: "lines", lines: [] }] },
+        { id: "notes", blocks: [{ kind: "lines", lines }] },
+      ],
+    };
     rpc.command.mockResolvedValue({
       state: "output",
       command: "quota_status",
       title: "Quota Status",
-      output,
+      output: "the chat text",
+      document,
       dialogSize: "xlarge",
     });
     const { context, command, layers } = startTui();
@@ -595,9 +649,33 @@ describe("V2 quota TUI commands", () => {
     const scrollbox = findNode(tree, "scrollbox");
     // 40 terminal rows: three quarters is 30, minus 8 rows of dialog chrome.
     expect(scrollbox?.props.maxHeight).toBe(22);
-    const text = findNode(scrollbox?.props.children, "text");
-    expect(text?.props.children).toBe(output);
-    expect(text?.props.fg).toBe("base");
+    const texts = findNodes(scrollbox?.props.children, "text").map((node) => ({
+      children: node.props.children,
+      fg: node.props.fg,
+      bold: node.props.attributes === TextAttributes.BOLD,
+      wrapMode: node.props.wrapMode,
+    }));
+    expect(texts).toEqual([
+      {
+        children: `Tokens used (Today) (/tokens_today) ${formatLocalCallTimestamp(generatedAtMs)}`,
+        fg: "base",
+        bold: true,
+        wrapMode: undefined,
+      },
+      { children: "Top Models", fg: "base", bold: true, wrapMode: undefined },
+      { children: "Model          Cost", fg: "heading", bold: true, wrapMode: "none" },
+      { children: "gpt-5         $1.23", fg: "base", bold: false, wrapMode: "none" },
+      { children: "claude-opus  $10.00", fg: "base", bold: false, wrapMode: "none" },
+      { children: "- enabled: true", fg: "base", bold: false, wrapMode: undefined },
+      { children: lines.join("\n"), fg: "base", bold: false, wrapMode: undefined },
+    ]);
+    // One blank row between the heading, the sections, and the blocks of a section; a
+    // section title sits directly above its first block.
+    const body = scrollbox?.props.children;
+    expect(body.props.gap).toBe(1);
+    const section = body.props.children[1][0];
+    expect(section.props.gap).toBeUndefined();
+    expect(section.props.children[1].props.gap).toBe(1);
 
     const dialogLayer = layers().find((item) => item.mode === "modal")!;
     expect(dialogLayer.mode).toBe("modal");

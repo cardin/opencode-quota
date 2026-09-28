@@ -4,6 +4,7 @@
  * does not load the quota and token report code.
  */
 import { formatYmd, type Ymd } from "./command-parsing.js";
+import type { ReportDocument } from "./report-document.js";
 
 export type QuotaDialogCommandId =
   | "quota"
@@ -26,7 +27,10 @@ export type QuotaDialogCommandOutputResult =
       state: "output";
       command: QuotaDialogCommandId;
       title: string;
+      /** The report as text, for the chat, the quota_status tool, and the CLI. */
       output: string;
+      /** The same report, structured; the TUI dialog renders it. */
+      document: ReportDocument;
       dialogSize: "medium" | "large" | "xlarge";
     }
   | {

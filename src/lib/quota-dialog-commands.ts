@@ -5,7 +5,6 @@ import {
 } from "./command-parsing.js";
 import type { RuntimeContextRootHints } from "./config-file-utils.js";
 import { isCursorProviderId } from "./cursor-pricing.js";
-import { renderCommandHeading } from "./format-utils.js";
 import {
   BUNDLED_MAINTAINER_ANNOUNCEMENTS,
   getMaintainerAnnouncementsSummary,
@@ -20,7 +19,7 @@ import {
   setPricingSnapshotAutoRefresh,
   setPricingSnapshotSelection,
 } from "./modelsdev-pricing.js";
-import { formatQuotaCommand } from "./quota-command-format.js";
+import { buildQuotaCommandDocument } from "./quota-command-format.js";
 import {
   QUOTA_DIALOG_COMMANDS_BY_ID,
   type QuotaDialogCommandId,
@@ -52,8 +51,15 @@ import {
   SessionNotFoundError,
   type SessionTreeNode,
 } from "./quota-stats.js";
-import { formatQuotaStatsReport } from "./quota-stats-format.js";
-import { buildQuotaStatusReport, type SessionTokenError } from "./quota-status.js";
+import { buildQuotaStatsReportDocument } from "./quota-stats-format.js";
+import { buildQuotaStatusReportDocument, type SessionTokenError } from "./quota-status.js";
+import {
+  messageDocument,
+  type ReportDocument,
+  type ReportKvRow,
+  renderMarkdownReport,
+  renderPlainTextReport,
+} from "./report-document.js";
 import type { PricingSnapshotSource } from "./types.js";
 import { getPackageVersion } from "./version.js";
 
@@ -72,6 +78,13 @@ const TOKEN_REPORT_COMMANDS_BY_ID: ReadonlyMap<TokenReportCommandId, TokenReport
 
 function isTokenReportCommand(cmd: string): cmd is TokenReportCommandId {
   return TOKEN_REPORT_COMMANDS_BY_ID.has(cmd as TokenReportCommandId);
+}
+
+/** A command's report: the document the TUI renders and the text everything else shows. */
+type CommandReport = { document: ReportDocument; output: string };
+
+function plainTextReport(document: ReportDocument): CommandReport {
+  return { document, output: renderPlainTextReport(document) };
 }
 
 function describeQuotaCommandCurrentSelection(params: {
@@ -198,14 +211,14 @@ async function buildQuotaReport(params: {
     nodes: SessionTreeNode[];
   };
   generatedAtMs: number;
-}): Promise<string> {
+}): Promise<CommandReport> {
   const result = await aggregateUsage({
     sinceMs: params.sinceMs,
     untilMs: params.untilMs,
     sessionID: params.filterSessionID,
     sessionIDs: params.filterSessionIDs,
   });
-  return formatQuotaStatsReport({
+  const document = buildQuotaStatsReportDocument({
     title: params.title,
     result,
     topModels: params.topModels,
@@ -220,6 +233,7 @@ async function buildQuotaReport(params: {
       modelNameMaxWidth: TUI_TOKEN_REPORT_MODEL_MAX_WIDTH,
     },
   });
+  return { document, output: renderMarkdownReport(document) };
 }
 
 export interface QuotaStatusReportConfigPayload {
@@ -259,6 +273,7 @@ export interface QuotaStatusReportPayload {
 }
 
 export interface QuotaStatusReportData {
+  document: ReportDocument | null;
   output: string | null;
   payload: QuotaStatusReportPayload | null;
   hasComparableProviderData: boolean;
@@ -285,7 +300,7 @@ export async function buildStatusReportData(params: {
 }): Promise<QuotaStatusReportData> {
   const runtimeConfig = params.runtime.config;
   if (!runtimeConfig.enabled) {
-    return { output: null, payload: null, hasComparableProviderData: false };
+    return { document: null, output: null, payload: null, hasComparableProviderData: false };
   }
   await kickPricingRefresh({
     reason: "status",
@@ -375,7 +390,7 @@ export async function buildStatusReportData(params: {
     enabledProviders: announcementProviderIds,
   });
 
-  const output = await buildQuotaStatusReport({
+  const document = await buildQuotaStatusReportDocument({
     runtimeRoots: params.runtime.roots,
     configSource: params.runtime.configMeta.source,
     configPaths: params.runtime.configMeta.paths,
@@ -436,21 +451,11 @@ export async function buildStatusReportData(params: {
   };
 
   return {
-    output,
+    document,
+    output: renderPlainTextReport(document),
     payload,
     hasComparableProviderData: providerLiveProbes.some((probe) => probe.result.entries.length > 0),
   };
-}
-
-async function buildStatusReport(params: {
-  runtime: QuotaRuntimeContext;
-  sessionID?: string;
-  generatedAtMs: number;
-  lastSessionTokenError?: SessionTokenError;
-  log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
-  onDetectedProviderIds?: (providerIds: string[]) => Promise<void>;
-}): Promise<string | null> {
-  return (await buildStatusReportData(params)).output;
 }
 
 function formatIsoTimestamp(timestampMs: number | undefined): string {
@@ -459,11 +464,11 @@ function formatIsoTimestamp(timestampMs: number | undefined): string {
     : "(none)";
 }
 
-function buildPricingRefreshCommandOutput(params: {
+function buildPricingRefreshCommandReport(params: {
   result: PricingRefreshResult;
   configuredSelection: string;
   generatedAtMs: number;
-}): string {
+}): CommandReport {
   const meta = getPricingSnapshotMeta();
   const activeSource = getPricingSnapshotSource();
   const resultLabel =
@@ -471,61 +476,80 @@ function buildPricingRefreshCommandOutput(params: {
     params.result.state.lastResult ??
     (params.result.updated ? "success" : "unknown");
 
-  const lines = [
-    renderCommandHeading({
-      title: "Pricing Refresh (/pricing_refresh)",
-      generatedAtMs: params.generatedAtMs,
-    }),
-    "",
-    "refresh:",
-    `- attempted: ${params.result.attempted ? "true" : "false"}`,
-    `- result: ${resultLabel}`,
-    `- runtime_snapshot_persisted: ${params.result.updated ? "true" : "false"}`,
+  const refreshRows: ReportKvRow[] = [
+    { key: "attempted", value: params.result.attempted ? "true" : "false" },
+    { key: "result", value: resultLabel },
+    { key: "runtime_snapshot_persisted", value: params.result.updated ? "true" : "false" },
   ];
 
   if (params.result.error) {
-    lines.push(`- error: ${params.result.error}`);
+    refreshRows.push({ key: "error", value: params.result.error });
   }
 
-  lines.push("");
-  lines.push("pricing_snapshot:");
-  lines.push(`- selection: configured=${params.configuredSelection} active=${activeSource}`);
-  lines.push(
-    `- active_snapshot: source=${meta.source} generated_at=${formatIsoTimestamp(meta.generatedAt)} units=${meta.units}`,
-  );
-  lines.push(
-    `- runtime_paths: snapshot=${getRuntimePricingSnapshotPath()} refresh_state=${getRuntimePricingRefreshStatePath()}`,
-  );
+  const snapshotRows: ReportKvRow[] = [
+    { key: "selection", value: `configured=${params.configuredSelection} active=${activeSource}` },
+    {
+      key: "active_snapshot",
+      value: `source=${meta.source} generated_at=${formatIsoTimestamp(meta.generatedAt)} units=${meta.units}`,
+    },
+    {
+      key: "runtime_paths",
+      value: `snapshot=${getRuntimePricingSnapshotPath()} refresh_state=${getRuntimePricingRefreshStatePath()}`,
+    },
+  ];
   if (params.configuredSelection === "bundled" && params.result.updated) {
-    lines.push(
-      "- selection_note: runtime snapshot refreshed locally, but active reports remain pinned to bundled pricing",
-    );
+    snapshotRows.push({
+      key: "selection_note",
+      value:
+        "runtime snapshot refreshed locally, but active reports remain pinned to bundled pricing",
+    });
   }
 
-  return lines.join("\n");
+  return plainTextReport({
+    heading: { title: "Pricing Refresh (/pricing_refresh)", generatedAtMs: params.generatedAtMs },
+    sections: [
+      { id: "refresh", title: "refresh:", blocks: [{ kind: "kv", rows: refreshRows }] },
+      {
+        id: "pricing_snapshot",
+        title: "pricing_snapshot:",
+        blocks: [{ kind: "kv", rows: snapshotRows }],
+      },
+    ],
+  });
 }
 
-function buildTokenReportUnavailableOutput(params: {
+function buildTokenReportUnavailableReport(params: {
   command: `/${string}`;
   generatedAtMs: number;
   error: SessionNotFoundError;
-}): string {
-  const lines = [
-    renderCommandHeading({
+}): CommandReport {
+  return plainTextReport({
+    heading: {
       title: `Token report unavailable (${params.command})`,
       generatedAtMs: params.generatedAtMs,
-    }),
-    "",
-    "session_lookup_error:",
-    `- session_id: ${params.error.sessionID}`,
-    `- error: ${params.error.message}`,
-    `- checked_path: ${params.error.checkedPath}`,
-  ];
-
-  return lines.join("\n");
+    },
+    sections: [
+      {
+        id: "session_lookup_error",
+        title: "session_lookup_error:",
+        blocks: [
+          {
+            kind: "kv",
+            rows: [
+              { key: "session_id", value: params.error.sessionID },
+              { key: "error", value: params.error.message },
+              { key: "checked_path", value: params.error.checkedPath },
+            ],
+          },
+        ],
+      },
+    ],
+  });
 }
 
-async function buildQuotaAnnouncementsCommandOutput(runtime: QuotaRuntimeContext): Promise<string> {
+async function buildQuotaAnnouncementsCommandReport(
+  runtime: QuotaRuntimeContext,
+): Promise<CommandReport> {
   let activeAnnouncements: ReturnType<
     typeof getMaintainerAnnouncementsSummary
   >["activeAnnouncements"] = [];
@@ -546,11 +570,10 @@ async function buildQuotaAnnouncementsCommandOutput(runtime: QuotaRuntimeContext
     activeAnnouncements = summary.activeAnnouncements;
   }
 
-  const lines = ["Maintainer announcements", ""];
+  const lines: string[] = [];
 
   if (activeAnnouncements.length === 0) {
     lines.push("No current announcements.");
-    return lines.join("\n");
   }
 
   for (const evaluation of activeAnnouncements) {
@@ -560,31 +583,37 @@ async function buildQuotaAnnouncementsCommandOutput(runtime: QuotaRuntimeContext
     }
   }
 
-  return lines.join("\n");
+  return plainTextReport({
+    sections: [
+      { id: "title", blocks: [{ kind: "lines", lines: ["Maintainer announcements"] }] },
+      { id: "announcements", blocks: [{ kind: "lines", lines }] },
+    ],
+  });
 }
 
-function outputResult(params: {
-  command: QuotaDialogCommandId;
-  output: string;
-}): QuotaDialogCommandOutputResult {
-  const spec = QUOTA_DIALOG_COMMANDS_BY_ID.get(params.command)!;
+function outputResult(
+  command: QuotaDialogCommandId,
+  report: CommandReport,
+): QuotaDialogCommandOutputResult {
+  const spec = QUOTA_DIALOG_COMMANDS_BY_ID.get(command)!;
   return {
     state: "output",
-    command: params.command,
+    command,
     title: spec.title,
-    output: params.output,
+    output: report.output,
+    document: report.document,
     dialogSize: spec.dialogSize,
   };
 }
 
-async function buildTokenReportCommandOutput(params: {
+async function buildTokenReportCommandReport(params: {
   command: TokenReportCommandId;
   arguments?: string;
   sessionID?: string;
   generatedAtMs: number;
   runtime: QuotaRuntimeContext;
   log?: (message: string, extra?: Record<string, unknown>) => Promise<void>;
-}): Promise<string> {
+}): Promise<CommandReport> {
   const spec = TOKEN_REPORT_COMMANDS_BY_ID.get(params.command)!;
   const sessionID = params.sessionID;
   const untilMs = params.generatedAtMs;
@@ -596,7 +625,7 @@ async function buildTokenReportCommandOutput(params: {
   });
 
   if (!sessionID && (spec.kind === "session" || spec.kind === "session_tree")) {
-    return buildTokenReportUnavailableOutput({
+    return buildTokenReportUnavailableReport({
       command: spec.template,
       generatedAtMs: params.generatedAtMs,
       error: new SessionNotFoundError("(none)", "(none)"),
@@ -607,7 +636,11 @@ async function buildTokenReportCommandOutput(params: {
     if (spec.kind === "between") {
       const parsed = parseQuotaBetweenArgs(params.arguments);
       if (!parsed.ok) {
-        return `Invalid arguments for /${spec.id}\n\n${parsed.error}\n\nExpected: /${spec.id} YYYY-MM-DD YYYY-MM-DD\nExample: /${spec.id} 2026-01-01 2026-01-15`;
+        return plainTextReport(
+          messageDocument(
+            `Invalid arguments for /${spec.id}\n\n${parsed.error}\n\nExpected: /${spec.id} YYYY-MM-DD YYYY-MM-DD\nExample: /${spec.id} 2026-01-01 2026-01-15`,
+          ),
+        );
       }
 
       const sinceMs = startOfLocalDayMs(parsed.startYmd);
@@ -674,7 +707,7 @@ async function buildTokenReportCommandOutput(params: {
     });
   } catch (err) {
     if (err instanceof SessionNotFoundError) {
-      return buildTokenReportUnavailableOutput({
+      return buildTokenReportUnavailableReport({
         command: spec.template,
         generatedAtMs: params.generatedAtMs,
         error: err,
@@ -725,27 +758,29 @@ export async function buildQuotaDialogCommandOutput(params: {
       (reportData.selection?.filteringByCurrentSelection &&
         reportData.selection.filtered.length === 0)
     ) {
-      return outputResult({
-        command: params.command,
-        output: buildQuotaCommandUnavailableMessage(reportData),
-      });
+      return outputResult(
+        params.command,
+        plainTextReport(messageDocument(buildQuotaCommandUnavailableMessage(reportData))),
+      );
     }
 
-    return outputResult({
-      command: params.command,
-      output: formatQuotaCommand({
-        ...reportData.data,
-        generatedAtMs,
-        percentDisplayMode: runtime.config.percentDisplayMode,
-        percentLabelStyle: runtime.config.percentLabelStyle,
-        accountingDetail: runtime.config.accountingDetail,
-        resetTimeSpaced: runtime.config.resetTimeSpaced,
-      }),
-    });
+    return outputResult(
+      params.command,
+      plainTextReport(
+        buildQuotaCommandDocument({
+          ...reportData.data,
+          generatedAtMs,
+          percentDisplayMode: runtime.config.percentDisplayMode,
+          percentLabelStyle: runtime.config.percentLabelStyle,
+          accountingDetail: runtime.config.accountingDetail,
+          resetTimeSpaced: runtime.config.resetTimeSpaced,
+        }),
+      ),
+    );
   }
 
   if (params.command === "quota_status") {
-    const output = await buildStatusReport({
+    const data = await buildStatusReportData({
       runtime,
       sessionID: params.sessionID,
       generatedAtMs,
@@ -753,33 +788,36 @@ export async function buildQuotaDialogCommandOutput(params: {
       log: params.log,
       onDetectedProviderIds: params.onDetectedProviderIds,
     });
-    return output
-      ? outputResult({ command: params.command, output })
+    return data.document && data.output
+      ? outputResult(params.command, { document: data.document, output: data.output })
       : { state: "noop", command: params.command, reason: "disabled" };
   }
 
   if (params.command === "quota_announcements") {
     if ((params.arguments ?? "").trim()) {
-      return outputResult({
-        command: params.command,
-        output:
-          "Invalid arguments for /quota_announcements\n\nThis command does not accept arguments.\n\nUsage: /quota_announcements",
-      });
+      return outputResult(
+        params.command,
+        plainTextReport(
+          messageDocument(
+            "Invalid arguments for /quota_announcements\n\nThis command does not accept arguments.\n\nUsage: /quota_announcements",
+          ),
+        ),
+      );
     }
 
-    return outputResult({
-      command: params.command,
-      output: await buildQuotaAnnouncementsCommandOutput(runtime),
-    });
+    return outputResult(params.command, await buildQuotaAnnouncementsCommandReport(runtime));
   }
 
   if (params.command === "pricing_refresh") {
     if ((params.arguments ?? "").trim()) {
-      return outputResult({
-        command: params.command,
-        output:
-          "Invalid arguments for /pricing_refresh\n\nThis command does not accept arguments.\n\nUsage:\n/pricing_refresh",
-      });
+      return outputResult(
+        params.command,
+        plainTextReport(
+          messageDocument(
+            "Invalid arguments for /pricing_refresh\n\nThis command does not accept arguments.\n\nUsage:\n/pricing_refresh",
+          ),
+        ),
+      );
     }
 
     const result = await maybeRefreshPricingSnapshot({
@@ -788,20 +826,20 @@ export async function buildQuotaDialogCommandOutput(params: {
       snapshotSelection: runtime.config.pricingSnapshot.source,
       allowRefreshWhenSelectionBundled: true,
     });
-    return outputResult({
-      command: params.command,
-      output: buildPricingRefreshCommandOutput({
+    return outputResult(
+      params.command,
+      buildPricingRefreshCommandReport({
         result,
         configuredSelection: runtime.config.pricingSnapshot.source,
         generatedAtMs,
       }),
-    });
+    );
   }
 
   if (isTokenReportCommand(params.command)) {
-    return outputResult({
-      command: params.command,
-      output: await buildTokenReportCommandOutput({
+    return outputResult(
+      params.command,
+      await buildTokenReportCommandReport({
         command: params.command,
         arguments: params.arguments,
         sessionID: params.sessionID,
@@ -809,7 +847,7 @@ export async function buildQuotaDialogCommandOutput(params: {
         runtime,
         log: params.log,
       }),
-    });
+    );
   }
 
   return { state: "noop", command: params.command, reason: "disabled" };

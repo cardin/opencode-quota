@@ -195,7 +195,8 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   // The Enter binding that runs a quota command typed in the TUI prompt.
   let enter: (() => unknown) | undefined;
   const editor = { plainText: "", clear: vi.fn() };
-  // Records the title and scrollbox text of each quota output dialog the TUI shows.
+  // Records the title and scrollbox text of each quota output dialog the TUI shows. The
+  // scrollbox text is every text node in order, one per line, without the blank rows.
   const dialog = vi.fn((_input: { title: string; message: string }) => {});
   type Node = { type: string; props: Record<string, any> };
   const find = (node: unknown, type: string): Node | undefined => {
@@ -205,10 +206,17 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       ? (node as Node)
       : find((node as Node).props?.children, type);
   };
+  const texts = (node: unknown): string[] => {
+    if (Array.isArray(node)) return node.flatMap(texts);
+    if (!node || typeof node !== "object") return [];
+    return (node as Node).type === "text"
+      ? [(node as Node).props.children]
+      : texts((node as Node).props?.children);
+  };
   const show = (render: () => unknown, onClose?: () => void) => {
     const tree = render();
     const title = find(tree, "text")?.props.children;
-    const message = find(find(tree, "scrollbox"), "text")?.props.children;
+    const message = texts(find(tree, "scrollbox")).join("\n");
     dialog({ title, message });
     onClose?.();
   };
@@ -235,6 +243,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       surface: () => ({
         text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
         background: { action: { primary: { focused: "action-bg" } } },
+        markdown: { heading: "heading" },
       }),
     },
     data: {
