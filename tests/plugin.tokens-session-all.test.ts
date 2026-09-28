@@ -122,8 +122,9 @@ describe("/tokens_session_all command", () => {
     plugin.setup({
       client: { rpc },
       keymap: {
-        layer: (build: () => { commands: typeof commands }) => {
-          commands = build().commands;
+        layer: (build: () => { mode?: string; commands: typeof commands }) => {
+          const layer = build();
+          if (layer.mode === "global") commands = layer.commands;
         },
       },
       data: { on: () => () => {} },

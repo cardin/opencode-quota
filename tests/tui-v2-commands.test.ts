@@ -13,6 +13,7 @@ vi.mock("../src/lib/config.js", async (importOriginal) => {
   return { ...original, loadConfig };
 });
 
+import { parseQuotaSlashCommand } from "../src/lib/quota-dialog-command-specs.js";
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
 import plugin from "../src/tui-v2.tsx";
 
@@ -42,6 +43,11 @@ type RegisteredCommand = {
   run: () => Promise<void>;
 };
 type Listener = (event: { data?: Record<string, unknown> }) => void;
+type Layer = {
+  mode?: string;
+  priority?: number;
+  commands: Array<RegisteredCommand & { bind?: string; run: () => unknown }>;
+};
 
 function startTui(
   location?: { directory: string },
@@ -49,8 +55,10 @@ function startTui(
 ) {
   let layer: { commands: RegisteredCommand[] } | undefined;
   const listeners = new Map<string, Listener>();
+  const editor = { plainText: "", clear: vi.fn() };
   const context = {
     location,
+    renderer: { currentFocusedEditor: editor as typeof editor | null },
     client: {
       rpc: vi.fn(() => rpc),
       session: { inbox: { cancel: vi.fn().mockResolvedValue(undefined) } },
@@ -93,7 +101,8 @@ function startTui(
   const commands = layer!.commands;
   const command = (id: string) => commands.find((item) => item.id === `quota.${id}`)!;
   const emit = (name: string, data: Record<string, unknown>) => listeners.get(name)?.({ data });
-  return { context, commands, command, emit };
+  const layers = () => context.keymap.layer.mock.calls.map(([build]) => build() as Layer);
+  return { context, editor, commands, command, emit, layers };
 }
 
 describe("V2 quota TUI commands", () => {
@@ -243,7 +252,8 @@ describe("V2 quota TUI commands", () => {
       });
       await settle();
 
-      expect(loadConfig).not.toHaveBeenCalled();
+      // Only the read at start, for typed commands.
+      expect(loadConfig).toHaveBeenCalledOnce();
       expect(context.ui.dialog.show).not.toHaveBeenCalled();
       expect(context.client.session.inbox.cancel).not.toHaveBeenCalled();
     });
@@ -288,12 +298,139 @@ describe("V2 quota TUI commands", () => {
       });
       await settle();
 
-      expect(loadConfig).toHaveBeenCalledOnce();
-      await expect(loadConfig.mock.results[0].value).resolves.toMatchObject({
+      // The read at start, then the read for the report.
+      expect(loadConfig).toHaveBeenCalledTimes(2);
+      await expect(loadConfig.mock.results[1].value).resolves.toMatchObject({
         tuiCommandDisplay: "inline",
       });
       expect(context.ui.dialog.show).not.toHaveBeenCalled();
       expect(context.client.session.inbox.cancel).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("typed quota slash commands", () => {
+    let projectDir: string;
+
+    beforeEach(() => {
+      projectDir = realpathSync(mkdtempSync(join(tmpdir(), "opencode-quota-tui-typed-")));
+      mkdirSync(join(projectDir, "global"));
+      mkdirSync(join(projectDir, "opencode-quota"));
+      vi.stubEnv("OPENCODE_CONFIG_DIR", join(projectDir, "global"));
+      return () => rmSync(projectDir, { recursive: true, force: true });
+    });
+
+    /** Starts the TUI and waits for its first read of tuiCommandDisplay. */
+    async function startTyped(
+      display: "dialog" | "inline",
+      route: { type: "home" } | { type: "session"; sessionID: string } = { type: "home" },
+    ) {
+      writeFileSync(
+        join(projectDir, "opencode-quota", "quota-toast.json"),
+        JSON.stringify({ tuiCommandDisplay: display }),
+      );
+      const tui = startTui({ directory: projectDir }, route);
+      await loadConfig.mock.results.at(-1)?.value;
+      const enter = tui.layers().find((layer) => layer.priority === 1)!;
+      return { ...tui, enter: enter.commands[0] };
+    }
+
+    it("parses only exact quota command names, with their arguments", () => {
+      expect(parseQuotaSlashCommand("/quota")).toEqual({
+        command: "quota",
+        argumentsText: undefined,
+      });
+      expect(parseQuotaSlashCommand("  /quota_status \n")).toEqual({
+        command: "quota_status",
+        argumentsText: undefined,
+      });
+      expect(parseQuotaSlashCommand("/tokens_between  2026-09-01 2026-09-25 ")).toEqual({
+        command: "tokens_between",
+        argumentsText: "2026-09-01 2026-09-25",
+      });
+      expect(parseQuotaSlashCommand("/pricing_refresh\tnow")).toEqual({
+        command: "pricing_refresh",
+        argumentsText: "now",
+      });
+      for (const text of ["/quotax", "/quota_statu", "quota", "hello /quota", "/", "", "/Quota"]) {
+        expect(parseQuotaSlashCommand(text)).toBeUndefined();
+      }
+    });
+
+    it("registers one Enter binding above OpenCode's prompt, only in the base mode", async () => {
+      const { layers, enter } = await startTyped("dialog");
+
+      const layer = layers().find((item) => item.priority === 1)!;
+      expect(layer.mode).toBeUndefined();
+      expect(layer.commands).toHaveLength(1);
+      expect(enter.bind).toBe("return");
+      expect("id" in enter).toBe(false);
+      expect("slash" in enter).toBe(false);
+    });
+
+    it("dialog mode clears the prompt and runs the command with its arguments, synchronously", async () => {
+      const { context, editor, enter } = await startTyped("dialog", {
+        type: "session",
+        sessionID: "ses_open",
+      });
+      editor.plainText = "/tokens_between 2026-09-01 2026-09-25";
+
+      const result = enter.run();
+
+      // A returned promise would count as handled, so run must not return one.
+      expect(result).toBeUndefined();
+      expect(editor.clear).toHaveBeenCalledOnce();
+      expect(context.ui.dialog.prompt).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(context.ui.dialog.show).toHaveBeenCalledOnce());
+      expect(rpc.command).toHaveBeenCalledExactlyOnceWith(
+        { command: "tokens_between", arguments: "2026-09-01 2026-09-25", sessionID: "ses_open" },
+        expect.anything(),
+      );
+    });
+
+    it("dialog mode runs /quota on Home without a session and without a prompt", async () => {
+      const { context, editor, enter } = await startTyped("dialog");
+      editor.plainText = "/quota ";
+
+      expect(enter.run()).toBeUndefined();
+
+      expect(editor.clear).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(context.ui.dialog.show).toHaveBeenCalledOnce());
+      expect(rpc.command).toHaveBeenCalledExactlyOnceWith(
+        { command: "quota", arguments: undefined, sessionID: undefined },
+        expect.anything(),
+      );
+    });
+
+    it("leaves other text, inline mode, and a missing editor to OpenCode's submit", async () => {
+      const dialog = await startTyped("dialog");
+      for (const text of ["hello", "/quotax", "/help", ""]) {
+        dialog.editor.plainText = text;
+        expect(dialog.enter.run()).toBe(false);
+      }
+      dialog.context.renderer.currentFocusedEditor = null;
+      expect(dialog.enter.run()).toBe(false);
+      expect(dialog.editor.clear).not.toHaveBeenCalled();
+
+      const inline = await startTyped("inline");
+      inline.editor.plainText = "/quota";
+      expect(inline.enter.run()).toBe(false);
+      expect(inline.editor.clear).not.toHaveBeenCalled();
+      expect(rpc.command).not.toHaveBeenCalled();
+    });
+
+    it("reads tuiCommandDisplay again after each typed command", async () => {
+      const { editor, enter } = await startTyped("inline");
+      writeFileSync(
+        join(projectDir, "opencode-quota", "quota-toast.json"),
+        JSON.stringify({ tuiCommandDisplay: "dialog" }),
+      );
+      editor.plainText = "/quota";
+
+      // The setting read at start still applies; the new one applies to the next command.
+      expect(enter.run()).toBe(false);
+      await loadConfig.mock.results.at(-1)?.value;
+      expect(enter.run()).toBeUndefined();
+      expect(editor.clear).toHaveBeenCalledOnce();
     });
   });
 
@@ -318,9 +455,12 @@ describe("V2 quota TUI commands", () => {
           },
         },
       });
-      await vi.waitFor(() => expect(loadConfig).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(loadConfig).toHaveBeenCalledTimes(2));
 
-      expect(loadConfig.mock.calls[0][2]).toEqual({ configRootDir: repo });
+      expect(loadConfig.mock.calls.map((call) => call[2])).toEqual([
+        { configRootDir: repo },
+        { configRootDir: repo },
+      ]);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
@@ -384,7 +524,7 @@ describe("V2 quota TUI commands", () => {
       output,
       dialogSize: "xlarge",
     });
-    const { context, command } = startTui();
+    const { context, command, layers } = startTui();
 
     await command("quota_status").run();
 
@@ -397,10 +537,7 @@ describe("V2 quota TUI commands", () => {
     expect(scrollbox?.props.maxHeight).toBe(22);
     expect(findNode(scrollbox?.props.children, "text")?.props.children).toBe(output);
 
-    const dialogLayer = context.keymap.layer.mock.calls[1][0]() as {
-      mode: string;
-      commands: Array<{ bind: string; run: () => void }>;
-    };
+    const dialogLayer = layers().find((item) => item.mode === "modal")!;
     expect(dialogLayer.mode).toBe("modal");
     expect(dialogLayer.commands.map((item) => item.bind)).toEqual([
       "return",

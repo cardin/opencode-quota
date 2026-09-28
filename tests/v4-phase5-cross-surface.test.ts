@@ -192,6 +192,9 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     for (const callback of events.get(event) ?? []) callback({ data: { sessionID } });
   };
   let commands: Array<{ id: string; run: () => Promise<void> }> = [];
+  // The Enter binding that runs a quota command typed in the TUI prompt.
+  let enter: (() => unknown) | undefined;
+  const editor = { plainText: "", clear: vi.fn() };
   // Records the title and scrollbox text of each quota output dialog the TUI shows.
   const dialog = vi.fn((_input: { title: string; message: string }) => {});
   type Node = { type: string; props: Record<string, any> };
@@ -227,6 +230,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const dispose = tuiPlugin.setup({
     client: { ...client, rpc: createQuotaRpcBridge(handlers) },
     location: { directory: process.cwd() },
+    renderer: { currentFocusedEditor: editor },
     theme: {
       surface: () => ({
         text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
@@ -247,9 +251,10 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
       },
     },
     keymap: {
-      layer: (build: () => { mode: string; commands: typeof commands }) => {
+      layer: (build: () => { mode?: string; priority?: number; commands: typeof commands }) => {
         const layer = build();
         if (layer.mode === "global") commands = layer.commands;
+        if (layer.priority === 1) enter = layer.commands[0].run;
       },
     },
     ui: {
@@ -284,6 +289,10 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     toast,
     emit,
     quota: quota!,
+    typeCommand: (text: string) => {
+      editor.plainText = text;
+      return enter!();
+    },
     renderSidebar: (sessionID: string) =>
       renderSurface("sidebar.content", renderedSurfaces.sidebar, { sessionID }),
     renderSessionPrompt: (sessionID: string) =>
@@ -557,6 +566,11 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(client.session.prompt).not.toHaveBeenCalled();
     const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toMatch(/^Quota \(\/quota\)/);
+    // /quota typed in the TUI prompt opens the same report in the dialog and posts nothing.
+    expect(v2.typeCommand("/quota")).toBeUndefined();
+    await vi.waitFor(() => expect(v2.dialog).toHaveBeenCalledTimes(2));
+    expect(v2.dialog.mock.calls[1][0].message).toMatch(/^Quota \(\/quota\)/);
+    expect(client.session.prompt).not.toHaveBeenCalled();
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);
     expect(serverOutput).toMatch(/→ \[Team Accounting\]\n {2}Month quota/u);

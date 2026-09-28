@@ -9,10 +9,12 @@ import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import {
+  parseQuotaSlashCommand,
   QUOTA_DIALOG_COMMANDS,
   type QuotaDialogCommandId,
 } from "./lib/quota-dialog-command-specs.js";
 import { readQuotaReport, readQuotaReportMetadata } from "./lib/quota-report-message.js";
+import type { TuiCommandDisplay } from "./lib/types.js";
 import {
   QuotaRpc,
   type QuotaRpcCommandInput,
@@ -38,11 +40,12 @@ type Toast = {
 };
 type KeymapCommand = {
   id?: string;
-  title: string;
-  group: string;
+  title?: string;
+  group?: string;
   bind?: string;
   palette?: true;
-  run: () => void | Promise<void>;
+  /** Returning false lets the key continue to the next layer. */
+  run: () => void | false | Promise<void>;
 };
 type DialogTheme = {
   text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA } } };
@@ -69,6 +72,7 @@ type QuotaRpcClient = {
 };
 type TuiContext = {
   location?: { directory: string };
+  renderer: { currentFocusedEditor: { plainText: string; clear: () => void } | null };
   client: {
     rpc: (definition: typeof QuotaRpc) => QuotaRpcClient;
     session: {
@@ -87,7 +91,10 @@ type TuiContext = {
     };
   };
   keymap: {
-    layer: (build: () => { mode: "global" | "modal"; commands: KeymapCommand[] }) => void;
+    /** Without a mode, a layer is active only in OpenCode's base mode. */
+    layer: (
+      build: () => { mode?: "global" | "modal"; priority?: number; commands: KeymapCommand[] },
+    ) => void;
   };
   ui: {
     slot: (
@@ -372,16 +379,20 @@ function showQuotaOutputDialog(
   });
 }
 
-/** Runs a quota command from the command palette. It opens the dialog and posts no message. */
+/**
+ * Runs a quota command from the command palette or the prompt. It opens the dialog and
+ * posts no message. `typed` holds the arguments typed after the command name in the prompt.
+ */
 async function runQuotaCommand(
   context: TuiContext,
   command: QuotaDialogCommandId,
   sessionID: string | undefined,
+  typed?: { argumentsText: string | undefined },
 ): Promise<void> {
   const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.id === command)!;
-  let argumentsText: string | undefined;
+  let argumentsText = typed?.argumentsText;
   // Only /tokens_between needs arguments; the palette asks for them.
-  if (command === "tokens_between") {
+  if (command === "tokens_between" && !typed) {
     const value = await context.ui.dialog.prompt({
       title: spec.title,
       placeholder: "YYYY-MM-DD YYYY-MM-DD",
@@ -411,9 +422,9 @@ async function runQuotaCommand(
 }
 
 /**
- * Typed quota slash commands run on the server, which posts the report into the chat as a
- * pending inbox item. When a report arrives for the session on screen, tuiCommandDisplay
- * decides what the TUI shows: "dialog" opens the report in the dialog and cancels the pending
+ * Quota slash commands that reach the server (from Web or Desktop, queued in the TUI, or
+ * typed in "inline" mode) post the report into the chat as a pending inbox item. When a
+ * report arrives for the session on screen, tuiCommandDisplay decides what the TUI shows: "dialog" opens the report in the dialog and cancels the pending
  * item, so no chat message remains; "inline" leaves the report in the chat.
  * The TUI cannot tell which client typed the command, so in "dialog" mode it also removes a
  * report that Web or Desktop requested for the same session while the TUI shows it.
@@ -464,6 +475,50 @@ function registerQuotaCommands(context: TuiContext): void {
       palette: true,
       run: () => runQuotaCommand(context, spec.id, getRouteSessionID(context)),
     })),
+  }));
+}
+
+/**
+ * Runs typed quota slash commands in the TUI. On Enter, before OpenCode submits the prompt,
+ * a prompt that holds exactly a quota command is cleared and the command opens its dialog.
+ * So the report never shows in the chat, and on Home no session is created for it.
+ * Everything else, and every command in "inline" mode, goes on to OpenCode's submit, and
+ * the server command posts the report as before.
+ * The layer has no mode, so it is off while the "/" list or a dialog is open. tuiCommandDisplay
+ * must be known when Enter is pressed, so it is read at start and again after each typed
+ * quota command; until the first read finishes, typed commands go to the server.
+ */
+function registerTypedQuotaCommands(context: TuiContext): void {
+  let commandDisplay: TuiCommandDisplay | undefined;
+  const readCommandDisplay = () => {
+    void loadConfig(quotaClient(context), undefined, {
+      configRootDir: quotaRoots(context).configRoot,
+    })
+      .then((config) => {
+        commandDisplay = config.tuiCommandDisplay;
+      })
+      .catch(reportFailure);
+  };
+  readCommandDisplay();
+  context.keymap.layer(() => ({
+    // Above OpenCode's textarea layer, which submits the prompt on Enter.
+    priority: 1,
+    commands: [
+      {
+        bind: "return",
+        // Synchronous on purpose: a returned promise counts as handled.
+        run: () => {
+          const editor = context.renderer.currentFocusedEditor;
+          const typed = editor ? parseQuotaSlashCommand(editor.plainText) : undefined;
+          if (!editor || !typed) return false;
+          const display = commandDisplay;
+          readCommandDisplay();
+          if (display !== "dialog") return false;
+          editor.clear();
+          void runQuotaCommand(context, typed.command, getRouteSessionID(context), typed);
+        },
+      },
+    ],
   }));
 }
 
@@ -530,6 +585,7 @@ const plugin = Plugin.define({
       render: () => {
         if (disposeEvents) return null;
         registerQuotaCommands(api);
+        registerTypedQuotaCommands(api);
         const trigger = (event: TuiEvent, reason: "idle" | "compacted" | "question") => {
           const sessionID = getSessionID(event);
           if (!sessionID) return;

@@ -196,9 +196,11 @@ export const QuotaToastPlugin = Plugin.define({
       });
     });
 
-    // Web, Desktop, and the TUI list these in their "/" menu. When a report arrives, the TUI
-    // follows tuiCommandDisplay: "dialog" opens its dialog and cancels the posted report,
-    // "inline" leaves it in the chat. Its command palette runs the same reports without posting them.
+    // Web, Desktop, and the TUI list these in their "/" menu. In "dialog" mode the TUI runs a
+    // typed command itself over the quota RPC, so it never reaches this. When a report does
+    // arrive, the TUI follows tuiCommandDisplay: "dialog" opens its dialog and cancels the
+    // posted report, "inline" leaves it in the chat. Its command palette runs the same reports
+    // without posting them.
     await ctx.command.transform((editor) => {
       for (const spec of QUOTA_DIALOG_COMMANDS) {
         editor.add({

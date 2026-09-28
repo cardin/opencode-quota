@@ -199,3 +199,19 @@ export const QUOTA_DIALOG_COMMANDS_BY_ID: ReadonlyMap<
 export function isQuotaDialogCommand(command: string): command is QuotaDialogCommandId {
   return QUOTA_DIALOG_COMMANDS_BY_ID.has(command as QuotaDialogCommandId);
 }
+
+/**
+ * Reads prompt text as a typed quota slash command. As in OpenCode, the command name ends
+ * at the first whitespace; like the server command, the rest is trimmed into its arguments.
+ * Returns undefined when the text is not exactly one of the quota commands.
+ */
+export function parseQuotaSlashCommand(
+  text: string,
+): { command: QuotaDialogCommandId; argumentsText: string | undefined } | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/")) return undefined;
+  const name = trimmed.slice(1).split(/\s/, 1)[0];
+  const spec = QUOTA_DIALOG_COMMANDS.find((item) => item.slashName === name);
+  if (!spec) return undefined;
+  return { command: spec.id, argumentsText: trimmed.slice(1 + name.length).trim() || undefined };
+}

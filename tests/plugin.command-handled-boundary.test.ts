@@ -52,10 +52,14 @@ function startTui() {
       layer: vi.fn(
         (
           build: () => {
+            mode?: string;
             commands: Array<{ id: string; run: () => Promise<void>; slash?: unknown }>;
           },
         ) => {
-          for (const command of build().commands) commands.set(command.id, command);
+          // The palette layer; the typed-command Enter layer has no mode.
+          const layer = build();
+          if (layer.mode !== "global") return;
+          for (const command of layer.commands) commands.set(command.id, command);
         },
       ),
     },
