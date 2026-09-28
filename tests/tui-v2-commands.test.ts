@@ -595,7 +595,9 @@ describe("V2 quota TUI commands", () => {
     const scrollbox = findNode(tree, "scrollbox");
     // 40 terminal rows: three quarters is 30, minus 8 rows of dialog chrome.
     expect(scrollbox?.props.maxHeight).toBe(22);
-    expect(findNode(scrollbox?.props.children, "text")?.props.children).toBe(output);
+    const text = findNode(scrollbox?.props.children, "text");
+    expect(text?.props.children).toBe(output);
+    expect(text?.props.fg).toBe("base");
 
     const dialogLayer = layers().find((item) => item.mode === "modal")!;
     expect(dialogLayer.mode).toBe("modal");

@@ -349,7 +349,7 @@ function QuotaOutputDialog(props: {
           }}
           maxHeight={maxHeight()}
         >
-          <text fg={theme().text.muted}>{props.message}</text>
+          <text fg={theme().text.base}>{props.message}</text>
         </scrollbox>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
