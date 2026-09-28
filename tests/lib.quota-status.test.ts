@@ -1271,7 +1271,7 @@ describe("buildQuotaStatusReport", () => {
           result: {
             attempted: true,
             entries: [],
-            errors: [{ label: "OpenCode", message: "Request timeout after 10s" }],
+            errors: [{ label: "OpenCode Zen", message: "Request timeout after 10s" }],
             statusDetails: makeStatusDetails({
               console_auth_state: "configured",
               console_server: "https://opencode.ai/console",
