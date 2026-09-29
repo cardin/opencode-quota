@@ -97,6 +97,7 @@ Run `/quota_status` and check `copilot_quota_auth`, `deployment`, `api_host`, `e
 
 | Symptom                                                  | Fix                                                                                                                                                                                                                       |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Logged in on OpenCode 2 but Copilot is missing           | Credentials are read from the `opencode.db` `credential` table first, then `auth.json`. Confirm `oauth_configured: true` in `copilot_quota_auth`. An existing but invalid `copilot-quota-token.json` blocks OAuth entirely (`effective_source: pat`). |
 | OpenCode Copilot works but no personal quota row appears | Check `oauth_accounting_state`, `deployment`, and `api_host`; re-authenticate Copilot in OpenCode if the OAuth token or its stored GHE.com host is invalid.                                                               |
 | Organization or enterprise accounting is missing         | Create `copilot-quota-token.json` as described in [GitHub Copilot setup](providers.md#github-copilot). Public billing reports still need a separate billing credential.                                                   |
 | GHE.com host is rejected                                 | Use the enterprise hostname (for example `acme.ghe.com`) or a host-only HTTPS URL. Do not enter `api.`, a path, query, fragment, port, userinfo, wildcard, HTTP URL, IP/localhost, or another domain.                     |
@@ -116,7 +117,7 @@ Run `/quota_status` and check the OpenAI auth source and token status.
 
 | Symptom               | Fix                                                                                        |
 | --------------------- | ------------------------------------------------------------------------------------------ |
-| OpenAI quota missing  | Confirm OpenCode native OpenAI OAuth is present in `auth.json`.                            |
+| OpenAI quota missing  | Confirm the OpenCode OpenAI OAuth credential exists in the `opencode.db` `credential` table (OpenCode 2) or in `auth.json`.                               |
 | Token expired         | Re-run OpenCode's OpenAI auth flow.                                                        |
 | Provider not detected | Confirm your OpenCode config uses the `openai` provider or a compatible OpenAI auth entry. |
 

@@ -20,6 +20,11 @@ env → opencode.json(c) → opencode.db credential store → auth.json (fallbac
   (`readOpenCodeCredentialsCached`, `normalizeStoredCredential`, source literal
   `OPENCODE_CREDENTIAL_SOURCE = "opencode.credentials"`).
 - Re-exported through `src/lib/opencode-auth.ts`.
+- `readAuthFile()` / `readAuthFileCached()` are layered v2-first too: stored
+  `credential` rows win per integration id, `auth.json` supplies keys the store
+  does not have (plus non-credential metadata such as `enterpriseUrl`), and a
+  missing `opencode.db` falls back to the file unchanged. This is what makes
+  OAuth-only readers (Copilot, XAI, …) work on OpenCode 2.
 - Wired into `src/lib/api-key-resolver.ts` via `credentialIntegrationIds` and
   `resolveOpenCodeCredentialKey` (both simple and invalid-aware policies).
 - New source literal plumbed through `entries.ts`, `quota-state-codec.ts`,

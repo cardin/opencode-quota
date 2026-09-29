@@ -293,7 +293,7 @@ A custom model provider still needs its normal OpenCode provider/model config. `
 
 ### GitHub Copilot
 
-Personal quota works automatically from your OpenCode-managed Copilot OAuth login. GitHub.com uses `api.github.com`; a GHE.com login uses the trusted `enterpriseUrl` stored with that OAuth credential and calls `api.<enterprise-host>`.
+Personal quota works automatically from your OpenCode-managed Copilot OAuth login. On OpenCode 2 that credential lives in the `credential` table of `opencode.db`; opencode-quota reads it there first and falls back to the legacy `auth.json`, so no extra setup is needed after upgrading. GitHub.com uses `api.github.com`; a GHE.com login uses the trusted `enterpriseUrl` stored with that OAuth credential and calls `api.<enterprise-host>`.
 
 Organization and enterprise billing reports need a separate token with billing access. Create `copilot-quota-token.json` in the OpenCode config directory shown by:
 
