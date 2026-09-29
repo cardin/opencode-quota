@@ -590,14 +590,76 @@ describe("formatQuotaCommand", () => {
       {
         label: "Quota",
         barPercent: 86,
-        value: "86% left",
+        value: "86%",
         usage: "42/300",
-        reset: "reset 12h0m",
+        reset: "12h0m",
         notes: ["Runs out lasts past reset"],
       },
       { label: "Usage", value: "9 used", notes: [] },
     ]);
+    expect(block.provider).toBe("Copilot");
+    expect(block.percentMode).toBe("remaining");
     // The RPC output must be plain JSON: no part is undefined.
     expect(JSON.parse(JSON.stringify(block.rows))).toStrictEqual(block.rows);
+  });
+
+  it("names a time window's quota by its window alone in the dialog, and keeps other labels", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+    const params = {
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "OpenAI",
+          label: "5h:",
+          percentRemaining: 100,
+          resetTimeIso: "2026-01-15T11:00:00.000Z",
+        },
+        {
+          accounting: accounting("quota"),
+          name: "OpenAI",
+          semantic: {
+            metric: { kind: "window" as const, window: "week" as const },
+            prominence: "primary" as const,
+          },
+          percentRemaining: 72,
+        },
+        {
+          accounting: accounting("quota"),
+          name: "OpenAI",
+          semantic: {
+            metric: { kind: "window" as const, window: "mcp" as const },
+            prominence: "primary" as const,
+          },
+          percentRemaining: 50,
+        },
+        {
+          accounting: accounting("spend"),
+          name: "OpenAI",
+          group: "[OpenAI] (Business)",
+          label: "Monthly spend:",
+          kind: "value" as const,
+          value: "USD 0.00",
+        },
+      ],
+      errors: [],
+      percentDisplayMode: "used" as const,
+    };
+
+    const document = buildQuotaCommandDocument(params);
+    const block = document.sections[0]?.blocks[0];
+    if (block?.kind !== "quota") throw new Error("expected a quota block");
+    // The dialog's provider rows drop the brackets of an OpenCode login's group.
+    expect(document.sections[1]?.title).toBe("→ [OpenAI] (Business)");
+    expect(document.sections[1]?.blocks[0]).toMatchObject({ provider: "OpenAI (Business)" });
+    expect(block.provider).toBe("OpenAI");
+    // The chat keeps its labels; the dialog's are shorter only for time windows.
+    expect(block.lines.join("\n")).toContain("5h quota");
+    expect(block.rows.map((row) => row.label)).toEqual(["5h", "Weekly", "MCP quota"]);
+    expect(document.sections[1]?.blocks[0]).toMatchObject({ rows: [{ label: "Month spend" }] });
+    // A due reset shows "now"; with percentDisplayMode "used" the percents are the part used.
+    expect(block.rows[0]).toMatchObject({ barPercent: 0, value: "0%", reset: "now" });
+    expect(block.rows[1]).toMatchObject({ barPercent: 28, value: "28%" });
+    expect(block.percentMode).toBe("used");
   });
 });

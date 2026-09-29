@@ -273,10 +273,12 @@ describe("report-document", () => {
             { kind: "table", headers: ["Tok"], fullHeaders: ["Tokens"], rows: [], aligns: [] },
             {
               kind: "quota",
+              provider: "Copilot",
+              percentMode: "remaining",
               lines: ["  Quota  █░  50% left"],
               rows: [
-                { label: "Quota", barPercent: 50, value: "50% left", notes: [] },
-                { label: "Spend", value: "USD 0.00", usage: "1/2", reset: "reset 1h", notes: [] },
+                { label: "Quota", barPercent: 50, value: "50%", notes: [] },
+                { label: "Spend", value: "USD 0.00", usage: "1/2", reset: "1h", notes: [] },
               ],
             },
           ],
@@ -326,7 +328,25 @@ describe("report-document", () => {
         sections: [
           {
             id: "s",
-            blocks: [{ kind: "quota", lines: [], rows: [{ label: "Quota", value: "1%" }] }],
+            blocks: [
+              {
+                kind: "quota",
+                provider: "Copilot",
+                percentMode: "remaining",
+                lines: [],
+                rows: [{ label: "Quota", value: "1%" }],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        sections: [
+          {
+            id: "s",
+            blocks: [
+              { kind: "quota", provider: "Copilot", percentMode: "left", lines: [], rows: [] },
+            ],
           },
         ],
       },

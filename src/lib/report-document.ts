@@ -1,5 +1,6 @@
 import { formatLocalCallTimestamp } from "./format-utils.js";
 import { renderMarkdownTable, type WidthMode } from "./markdown-table.js";
+import type { PercentDisplayMode } from "./types.js";
 
 /**
  * A report's first line. The text shows `line`. The TUI dialog has its own title, so it
@@ -18,18 +19,19 @@ export type ReportKvRow = {
 };
 
 /**
- * One /quota row, split into the parts the TUI dialog lays out in columns. A percent row has
- * `barPercent` and its percent label as `value`; a value row has only its text as `value`.
+ * One /quota row, split into the parts the TUI dialog lays out in its tables. A percent row
+ * has `barPercent` and its percent as `value`; a value row has only its text as `value`.
  */
 export type ReportQuotaRow = {
+  /** The dialog's label, e.g. "5h" for the text's "5h quota" (its table says "window"). */
   label: string;
   /** The displayed percent the bar fills, 0-100 (a percent row only). */
   barPercent?: number;
-  /** The percent label, e.g. "85% left", or a value row's text, e.g. "USD 0.00". */
+  /** The displayed percent, e.g. "85%", or a value row's text, e.g. "USD 0.00". */
   value: string;
   /** Used over limit, e.g. "30.4/200". */
   usage?: string;
-  /** The reset countdown, e.g. "reset 1d 8h 18m". */
+  /** The time until the reset, e.g. "1d 8h 18m" ("now" when it is due). */
   reset?: string;
   /** Lines under the row: the run-out projection and the accounting basis. */
   notes: string[];
@@ -37,8 +39,18 @@ export type ReportQuotaRow = {
 
 export type ReportBlock =
   | { kind: "lines"; lines: string[] }
-  /** /quota rows: the text shows `lines`, the TUI dialog lays out `rows` in columns. */
-  | { kind: "quota"; lines: string[]; rows: ReportQuotaRow[] }
+  /**
+   * One provider's /quota rows: the text shows `lines`, the TUI dialog lays out `rows` in
+   * its tables, under `provider` (e.g. "Copilot (individual)"). `percentMode` tells whether
+   * the percents are the part left or the part used.
+   */
+  | {
+      kind: "quota";
+      provider: string;
+      percentMode: PercentDisplayMode;
+      lines: string[];
+      rows: ReportQuotaRow[];
+    }
   | { kind: "kv"; rows: ReportKvRow[] }
   | {
       kind: "table";
@@ -143,6 +155,8 @@ function isReportBlock(value: unknown): boolean {
       return isStringArray(value.lines);
     case "quota":
       return (
+        typeof value.provider === "string" &&
+        (value.percentMode === "remaining" || value.percentMode === "used") &&
         isStringArray(value.lines) &&
         Array.isArray(value.rows) &&
         value.rows.every(isReportQuotaRow)

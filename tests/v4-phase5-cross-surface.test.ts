@@ -584,7 +584,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const quotaDialog = v2.dialog.mock.calls[0][0];
     expect(quotaDialog.title).toBe("OpenCode Quota");
     expect(quotaDialog.subtitle).toMatch(/^\d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
-    expect(serverOutput).toMatch(/^→ /);
+    expect(serverOutput).toMatch(/^Quota limits\n/);
     expect(serverOutput).not.toContain("(/quota)");
     // /quota typed in the TUI prompt opens the same report in the dialog and posts nothing.
     expect(v2.typeCommand("/quota")).toBeUndefined();
@@ -593,19 +593,22 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
       title: "OpenCode Quota",
       subtitle: quotaDialog.subtitle,
     });
-    expect(v2.dialog.mock.calls[1][0].message).toMatch(/^→ /);
+    expect(v2.dialog.mock.calls[1][0].message).toMatch(/^Quota limits\n/);
     expect(client.session.prompt).not.toHaveBeenCalled();
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);
-    // The dialog lays the rows out in columns, centered: a 120-column terminal leaves them
-    // 84 of 111 columns, 13 blank on the left. Every bar has the same length.
-    expect(serverOutput).toMatch(/→ \[Team Accounting\]\n {2}Month quota/u);
+    // The dialog groups the rows into a quota table and a spending table, each with one
+    // header row and the providers as sub-headers. Every bar is 24 cells long.
+    expect(serverOutput).toMatch(
+      /^Quota limits\nProvider · window +Usage +Left +Used +Resets in\nTeam Accounting\n {2}Month +[█░]{24} +64% +64\/100 +\d+d /u,
+    );
     const serverBars = serverOutput.match(/[█░]+/gu) ?? [];
     expect(serverBars.length).toBeGreaterThan(0);
-    expect(new Set(serverBars.map((bar) => Array.from(bar).length)).size).toBe(1);
-    expect(serverOutput).not.toMatch(/Month quota[^\n]* \| /u);
-    expect(serverOutput).toMatch(/Month quota\s+[█░]{10,24}\s+64% left\s+64\/100\s+reset /);
-    expect(serverOutput).toMatch(/Balance\s+\$12\.34/);
+    expect(serverBars.every((bar) => Array.from(bar).length === 24)).toBe(true);
+    expect(serverOutput).not.toMatch(/ {2}Month [^\n]* \| /u);
+    expect(serverOutput).toMatch(
+      /\nSpending & balances\nProvider · item +Amount\nTeam Accounting\n {2}Balance +\$12\.34\n/u,
+    );
     assertFixtureContent(serverOutput);
     assertTreeSessionTokenTotals(serverOutput);
     expect(serverOutput).toContain("tree-model");
@@ -855,9 +858,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     await v2.quota.run();
     const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toContain("MiniMax Token Plan");
-    expect(serverOutput).toContain("5h quota");
-    expect(serverOutput).toContain("Weekly quota");
-    expect(serverOutput).toContain("0% left");
+    expect(serverOutput).toMatch(/\n {2}5h +░{24} +0% /u);
+    expect(serverOutput).toMatch(/\n {2}Weekly +░{24} +0% /u);
     expect(serverOutput).toContain("Remaining: -5 requests");
     expect(serverOutput).toContain("Remaining: -20 requests");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
@@ -956,7 +958,7 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toContain("Claude");
     expect(serverOutput).toContain("Fable");
-    expect(serverOutput).toContain("98% left");
+    expect(serverOutput).toMatch(/Fable weekly quota +[█░]{24} +98% /u);
 
     v2.emit("session.execution.succeeded", "anthropic-fable-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledOnce());
@@ -1009,10 +1011,8 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const serverOutput = v2.dialog.mock.calls[0][0].message;
     expect(serverOutput).toContain("MiniMax Token Plan");
     expect(serverOutput).toContain("(CN)");
-    expect(serverOutput).toContain("5h quota");
-    expect(serverOutput).toContain("Weekly quota");
-    expect(serverOutput).toContain("33%");
-    expect(serverOutput).toContain("46%");
+    expect(serverOutput).toMatch(/\n {2}5h +[█░]{24} +33% /u);
+    expect(serverOutput).toMatch(/\n {2}Weekly +[█░]{24} +46% /u);
     expect(serverOutput).not.toContain("video");
     expect(serverOutput).not.toContain("Invalid normalized provider result");
 

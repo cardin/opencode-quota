@@ -7,8 +7,17 @@
  * - Includes session token summary (input/output per model)
  */
 
-import { type AccountingRowInterpretation, interpretAccountingRow } from "./accounting-format.js";
-import type { QuotaToastEntry, QuotaToastError, SessionTokensData } from "./entries.js";
+import {
+  type AccountingRowInterpretation,
+  formatAccountingWindowLabel,
+  interpretAccountingRow,
+} from "./accounting-format.js";
+import type {
+  AccountingWindow,
+  QuotaToastEntry,
+  QuotaToastError,
+  SessionTokensData,
+} from "./entries.js";
 import { isPercentEntry, isValueEntry } from "./entries.js";
 import {
   bar,
@@ -34,10 +43,15 @@ import {
 import { SESSION_TOKEN_SECTION_HEADING } from "./session-tokens-format.js";
 import type { QuotaToastConfig } from "./types.js";
 
-function formatCommandReset(iso?: string, spaced?: boolean): string {
+/** The time until the reset, or "reset" when it is due; "" without a valid reset time. */
+function formatCommandCountdown(iso?: string, spaced?: boolean): string {
   if (!iso || !Number.isFinite(new Date(iso).getTime())) return "";
-  const countdown = formatResetCountdown(iso, { spaced });
-  return countdown === "reset" ? countdown : `reset ${countdown}`;
+  return formatResetCountdown(iso, { spaced });
+}
+
+function formatCommandReset(iso?: string, spaced?: boolean): string {
+  const countdown = formatCommandCountdown(iso, spaced);
+  return countdown === "reset" || !countdown ? countdown : `reset ${countdown}`;
 }
 
 export const QUOTA_COMMAND_BAR_WIDTH = 10;
@@ -60,6 +74,32 @@ const COMMAND_WINDOW_LABELS: Readonly<Partial<Record<QuotaWindowKind, string>>> 
 function getCommandWindowLabel(entry: QuotaToastEntry): string | null {
   const kind = classifyQuotaWindowText(normalizeMetricText(entry.label || entry.name));
   return kind ? (COMMAND_WINDOW_LABELS[kind] ?? null) : null;
+}
+
+/** The time windows, which name a quota alone in the TUI dialog. */
+const DIALOG_TIME_WINDOWS: ReadonlySet<AccountingWindow> = new Set([
+  "rpm",
+  "hour",
+  "five_hour",
+  "day",
+  "week",
+  "month",
+  "year",
+]);
+
+/**
+ * The TUI dialog's label for a row: a time window's quota drops "quota" ("5h quota" is
+ * "5h", "Weekly quota" is "Weekly"), since the dialog's table heads that column "window".
+ * Other labels, such as "Month spend" or "Fable weekly quota", stay whole.
+ */
+function getDialogMetricLabel(entry: QuotaToastEntry, metricLabel: string): string {
+  const metric = entry.semantic?.metric;
+  const window = !metric
+    ? getCommandWindowLabel(entry)
+    : metric.kind === "window" && DIALOG_TIME_WINDOWS.has(metric.window)
+      ? formatAccountingWindowLabel(metric.window)
+      : null;
+  return window && metricLabel === `${window} quota` ? window : metricLabel;
 }
 
 function getCommandMetricLabel(entry: QuotaToastEntry, semanticLabel: string): string {
@@ -165,15 +205,17 @@ export function buildQuotaCommandDocument(params: {
       const metricLabel = getCommandMetricLabel(row, interpretation.label);
       const label = padRight(metricLabel, labelWidth);
       const details = formatCommandDetails(row, rightWidth, params.resetTimeSpaced);
+      const dialogLabel = getDialogMetricLabel(row, metricLabel);
       // The RPC output must be plain JSON, so absent parts are left out, never undefined.
       const usage = row.right?.trim();
-      const reset = formatCommandReset(row.resetTimeIso, params.resetTimeSpaced);
+      const countdown = formatCommandCountdown(row.resetTimeIso, params.resetTimeSpaced);
+      const reset = countdown === "reset" ? "now" : countdown;
       const usageAndReset = { ...(usage ? { usage } : {}), ...(reset ? { reset } : {}) };
 
       if (interpretation.display.kind === "value") {
         lines.push(`  ${label}  ${interpretation.display.text}${details}`);
         rows.push({
-          label: metricLabel,
+          label: dialogLabel,
           value: interpretation.display.text,
           ...usageAndReset,
           notes: [],
@@ -197,9 +239,9 @@ export function buildQuotaCommandDocument(params: {
       lines.push(...basisDetails.map((detail) => `    ${detail}`));
       const runway = isPercentEntry(row) ? formatQuotaRunway(row.runway) : "";
       rows.push({
-        label: metricLabel,
+        label: dialogLabel,
         barPercent: displayedPercent,
-        value: pctLabel,
+        value: `${displayedPercent}%`,
         ...usageAndReset,
         notes: [...(runway ? [`Runs out ${runway}`] : []), ...basisDetails],
       });
@@ -207,7 +249,16 @@ export function buildQuotaCommandDocument(params: {
     return {
       id: `group-${index}`,
       title: `→ ${formatGroupedHeader(group.group)}`,
-      blocks: [{ kind: "quota", lines, rows }],
+      blocks: [
+        {
+          kind: "quota",
+          // The dialog's provider rows drop the brackets, as the compact line does.
+          provider: formatGroupedHeader(group.group).replace(/^\[([^\]]+)\]/u, "$1"),
+          percentMode: params.percentDisplayMode ?? "remaining",
+          lines,
+          rows,
+        },
+      ],
     };
   });
 

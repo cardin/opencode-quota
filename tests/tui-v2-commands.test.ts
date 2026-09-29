@@ -806,7 +806,7 @@ describe("V2 quota TUI commands", () => {
     expect(tableLines()).toEqual(["Model        Tok    Cost", "claude-opus  20K  $10.00"]);
   });
 
-  it("lays /quota rows out in centered columns, and falls back to the chat lines when narrow", async () => {
+  it("groups /quota rows into full-width tables, and falls back to the chat lines when narrow", async () => {
     stubRenderingReact();
     const accounting = {
       resultType: "quota",
@@ -823,6 +823,13 @@ describe("V2 quota TUI commands", () => {
           label: "Monthly spend:",
           kind: "value",
           value: "USD 0.00",
+        },
+        {
+          accounting,
+          name: "OpenAI",
+          group: "OpenAI (Business)",
+          label: "5h:",
+          percentRemaining: 100,
         },
       ],
       errors: [{ label: "Z.ai", message: "Authentication expired" }],
@@ -852,39 +859,76 @@ describe("V2 quota TUI commands", () => {
           bold: node.props.attributes === TextAttributes.BOLD,
         };
       });
+    const at = (parts: Array<[number, string]>) =>
+      parts.reduce((line, [start, text]) => line.padEnd(start) + text, "");
 
-    // 120 columns: the report gets 111; the rows take 84 of them, 13 blank columns left.
-    expect(body().props.paddingLeft).toBe(13);
-    expect(body().props.width).toBe(97);
-    // Provider titles are bold accent; labels muted, bar, percent, and values base. With
-    // no reset column, the three gaps share the spare 27 columns. The percent, used/limit,
-    // and the value row's text start at their columns' left edges.
+    // 120 columns: the report gets all 111, left-aligned. The columns (label 17, bar 24,
+    // percent or amount 8, used 6) leave 50 spare columns for the three gaps: 19, 19, 18.
+    expect(body().props.paddingLeft).toBeUndefined();
+    expect(body().props.width).toBeUndefined();
     const bar = `${"█".repeat(20)}${"░".repeat(4)}`;
     expect(texts()).toEqual([
-      { text: "→ [Copilot]", fg: "accent", bold: true },
+      { text: "Quota limits", fg: "base", bold: true },
       {
-        text: `  Quota${" ".repeat(17)}${bar}${" ".repeat(11)}85% left${" ".repeat(11)}30/200`,
+        text: at([
+          [0, "Provider · window"],
+          [36, "Usage"],
+          [79, "Left"],
+          [105, "Used"],
+        ]),
+        fg: "accent",
+        bold: true,
+      },
+      { text: "Copilot", fg: "base", bold: true },
+      {
+        text: at([
+          [0, "  Quota"],
+          [36, bar],
+          [79, " 85%"],
+          [105, "30/200"],
+        ]),
         fg: ["muted", "base", "base", "base"],
         bold: false,
       },
-      { text: "→ [OpenCode Zen]", fg: "accent", bold: true },
+      { text: "OpenAI (Business)", fg: "base", bold: true },
       {
-        text: `  Month spend${" ".repeat(46)}USD 0.00`,
+        text: at([
+          [0, "  5h"],
+          [36, "█".repeat(24)],
+          [79, "100%"],
+        ]),
+        fg: ["muted", "base", "base"],
+        bold: false,
+      },
+      { text: "Spending & balances", fg: "base", bold: true },
+      {
+        text: at([
+          [0, "Provider · item"],
+          [79, "Amount"],
+        ]),
+        fg: "accent",
+        bold: true,
+      },
+      { text: "OpenCode Zen", fg: "base", bold: true },
+      {
+        text: at([
+          [0, "  Month spend"],
+          [79, "USD 0.00"],
+        ]),
         fg: ["muted", "base"],
         bold: false,
       },
       { text: "Partial failures", fg: "base", bold: true },
       { text: "  Z.ai: Authentication expired", fg: "muted", bold: false },
     ]);
-    // The value starts where the percent starts, across providers.
-    expect(texts()[3].text.indexOf("USD 0.00")).toBe(texts()[1].text.indexOf("85% left"));
+    // Every table line spans the report's width.
+    expect(texts()[3].text).toHaveLength(111);
 
-    // 45 columns: the report gets 38, which leaves the bar 5 of the 10 cells it needs.
+    // 45 columns: the report gets 38, too narrow even for a 10-cell bar, compact headers,
+    // and two-space gaps. The dialog shows the chat lines under bold provider titles.
     terminal.width = 45;
-    expect(body().props.paddingLeft).toBeUndefined();
-    expect(body().props.width).toBeUndefined();
     expect(texts().slice(0, 2)).toEqual([
-      { text: "→ [Copilot]", fg: "accent", bold: true },
+      { text: "→ [Copilot]", fg: "base", bold: true },
       {
         text: "  Quota         █████████░   85% left | 30/200",
         fg: "muted",

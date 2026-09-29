@@ -199,16 +199,25 @@ export function fitTableToWidth(params: {
   );
 
   const gapCount = params.headers.length - 1;
-  const gaps = new Array<number>(Math.max(0, gapCount)).fill(2);
-  if (fitting && gapCount > 0) {
-    const spare = params.width - naturalWidth(fitting);
-    for (let i = 0; i < gapCount; i++) {
-      gaps[i] += Math.floor(spare / gapCount) + (i < spare % gapCount ? 1 : 0);
-    }
-  }
+  const gaps = fitting
+    ? spreadTableGaps(gapCount, params.width - naturalWidth(fitting))
+    : new Array<number>(Math.max(0, gapCount)).fill(2);
 
   const table = fitting ?? compact;
   const joinRow = (cells: string[]) =>
     cells.map((cell, i) => (i < gapCount ? cell + " ".repeat(gaps[i]) : cell)).join("");
   return { header: joinRow(table.header), rows: table.rows.map(joinRow) };
+}
+
+/**
+ * The gaps between a table's columns when it spans `spare` more columns than its natural
+ * width: at least two spaces each, the spare width spread over them, the leftmost gaps
+ * taking any remainder.
+ */
+export function spreadTableGaps(gapCount: number, spare: number): number[] {
+  const gaps = new Array<number>(Math.max(0, gapCount)).fill(2);
+  for (let i = 0; i < gapCount; i++) {
+    gaps[i] += Math.floor(spare / gapCount) + (i < spare % gapCount ? 1 : 0);
+  }
+  return gaps;
 }
