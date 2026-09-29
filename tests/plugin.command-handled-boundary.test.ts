@@ -41,6 +41,7 @@ function startTui() {
   const context = {
     location: { directory: process.cwd() },
     client: { rpc: vi.fn(() => rpc) },
+    theme: { text: { base: "base", muted: "muted" } },
     data: {
       session: { get: vi.fn() },
       on: vi.fn((name: string, callback: (event: { data?: Record<string, unknown> }) => void) => {

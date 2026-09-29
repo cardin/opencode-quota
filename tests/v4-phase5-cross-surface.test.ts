@@ -242,10 +242,10 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     location: { directory: process.cwd() },
     renderer: { currentFocusedEditor: editor },
     theme: {
+      text: { base: "base", muted: "muted" },
       surface: () => ({
         text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
         background: { action: { primary: { focused: "action-bg" } } },
-        markdown: { heading: "heading" },
       }),
     },
     data: {

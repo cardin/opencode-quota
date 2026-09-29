@@ -24,6 +24,7 @@ describe("V2 sidebar format style", () => {
     let sidebarRender: ((props: { sessionID: string }) => unknown) | undefined;
     plugin.setup({
       client: { rpc: () => rpc },
+      theme: { text: { base: "base", muted: "muted" } },
       location: { directory: "/work/project" },
       data: { on: vi.fn(() => vi.fn()) },
       keymap: { layer: vi.fn() },

@@ -24,6 +24,7 @@ function setupFooterSlots(
   const renderers = new Map<string, (props?: any) => unknown>();
   plugin.setup({
     client,
+    theme: { text: { base: "base", muted: "muted" } },
     data: {
       location: { default: () => ({ directory: "/work/default" }) },
       on: vi.fn((event: string, handler: (event: unknown) => void) => {

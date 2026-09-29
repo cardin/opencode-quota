@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 
 import { Plugin } from "@opencode/plugin/tui";
-import { RGBA, type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
+import { type RGBA, type ScrollBoxRenderable, TextAttributes } from "@opentui/core";
 import { type JSX, useTerminalDimensions } from "@opentui/solid";
 import { createSignal, onCleanup, Show } from "solid-js";
 
@@ -34,7 +34,6 @@ import {
   type QuotaRpcWriteExportOutput,
 } from "./rpc.js";
 
-const terminalForeground = RGBA.defaultForeground();
 const REFRESH_INTERVAL_MS = 60_000;
 const RPC_TIMEOUT_MS = 60_000;
 
@@ -57,7 +56,6 @@ type KeymapCommand = {
 type DialogTheme = {
   text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA } } };
   background: { action: { primary: { focused: RGBA } } };
-  markdown: { heading: RGBA };
 };
 type QuotaRpcCallOptions = { location: { directory: string }; signal: AbortSignal };
 type QuotaRpcClient = {
@@ -87,7 +85,7 @@ type TuiContext = {
       inbox: { cancel: (input: { sessionID: string; inboxID: string }) => Promise<void> };
     };
   };
-  theme: { surface: (name: "dialog") => DialogTheme };
+  theme: { text: { base: RGBA; muted: RGBA }; surface: (name: "dialog") => DialogTheme };
   data: {
     on: (event: string, handler: (event: TuiEvent) => void) => () => void;
     session: {
@@ -274,7 +272,7 @@ function QuotaFooter(props: {
     <Show when={lines().length}>
       <box flexDirection="column">
         {lines().map((line) => (
-          <text fg={terminalForeground}>{line}</text>
+          <text fg={props.context.theme.text.muted}>{line}</text>
         ))}
       </box>
     </Show>
@@ -296,18 +294,27 @@ function reportFailure(error: unknown): void {
 /**
  * One block of a report. Lines and key-value rows wrap at words. A table keeps each row on
  * one line: its cells are padded to their column widths and joined by two spaces, with the
- * header row bold in the markdown heading color.
+ * header row bold and muted. Like OpenCode's sidebar, labels are muted and values are base.
  */
 function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX.Element {
   const block = props.block;
   if (block.kind === "lines") {
-    return <text fg={props.theme.text.base}>{sanitizeDisplayText(block.lines.join("\n"))}</text>;
+    return <text fg={props.theme.text.muted}>{sanitizeDisplayText(block.lines.join("\n"))}</text>;
   }
   if (block.kind === "kv") {
     return (
-      <text fg={props.theme.text.base}>
-        {sanitizeDisplayText(block.rows.map(renderKvRow).join("\n"))}
-      </text>
+      <box flexDirection="column">
+        {block.rows.map(({ value, ...key }) =>
+          value === undefined ? (
+            <text fg={props.theme.text.muted}>{sanitizeDisplayText(renderKvRow(key))}</text>
+          ) : (
+            <text fg={props.theme.text.muted}>
+              {sanitizeDisplayText(renderKvRow({ ...key, trailingColon: true }))}
+              <span style={{ fg: props.theme.text.base }}> {sanitizeDisplayText(value)}</span>
+            </text>
+          ),
+        )}
+      </box>
     );
   }
   const table = padTableColumns({
@@ -317,7 +324,7 @@ function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX
   });
   return (
     <box flexDirection="column">
-      <text attributes={TextAttributes.BOLD} fg={props.theme.markdown.heading} wrapMode="none">
+      <text attributes={TextAttributes.BOLD} fg={props.theme.text.muted} wrapMode="none">
         {table.header.join("  ")}
       </text>
       {table.rows.map((row) => (
@@ -631,22 +638,32 @@ function SidebarQuotaView(props: { context: TuiContext; sessionID: string }): JS
         onMouseDown={() => expandable() && setOpen((value) => !value)}
       >
         <Show when={expandable()}>
-          <text fg={terminalForeground}>{open() ? "▼" : "▶"}</text>
+          <text fg={props.context.theme.text.base}>{open() ? "▼" : "▶"}</text>
         </Show>
-        <text fg={terminalForeground}>
+        <text fg={props.context.theme.text.base}>
           <b>Quota</b>
           <Show when={expandable() && !open() && quota()?.activeProviderCount}>
             {(count: () => number) => ` (${count()} active)`}
           </Show>
         </text>
       </box>
-      <Show when={quota()} fallback={<text fg={terminalForeground}>No quota data available</text>}>
+      <Show
+        when={quota()}
+        fallback={<text fg={props.context.theme.text.muted}>No quota data available</text>}
+      >
         <Show when={!expandable() || open()}>
-          {lines().map((line) => (
-            <text fg={terminalForeground} wrapMode="none">
-              {line || " "}
-            </text>
-          ))}
+          {lines().map((line) =>
+            // Provider headers such as "[Copilot] (individual)" are bold, like section titles.
+            line.startsWith("[") ? (
+              <text fg={props.context.theme.text.base} wrapMode="none">
+                <b>{line}</b>
+              </text>
+            ) : (
+              <text fg={props.context.theme.text.muted} wrapMode="none">
+                {line || " "}
+              </text>
+            ),
+          )}
         </Show>
       </Show>
     </box>

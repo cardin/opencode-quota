@@ -113,10 +113,10 @@ function startTui(
       session: { inbox: { cancel: vi.fn().mockResolvedValue(undefined) } },
     },
     theme: {
+      text: { base: "base", muted: "muted" },
       surface: vi.fn(() => ({
         text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
         background: { action: { primary: { focused: "action-bg" } } },
-        markdown: { heading: "heading" },
       })),
     },
     data: {
@@ -688,13 +688,23 @@ describe("V2 quota TUI commands", () => {
       bold: node.props.attributes === TextAttributes.BOLD,
       wrapMode: node.props.wrapMode,
     }));
+    // Section titles are bold base, table headers bold muted, and values base. A key-value
+    // row is a muted "- key:" with a base value; plain lines are muted.
     expect(texts).toEqual([
       { children: "Top Models", fg: "base", bold: true, wrapMode: undefined },
-      { children: "Model          Cost", fg: "heading", bold: true, wrapMode: "none" },
+      { children: "Model          Cost", fg: "muted", bold: true, wrapMode: "none" },
       { children: "gpt-5         $1.23", fg: "base", bold: false, wrapMode: "none" },
       { children: "claude-opus  $10.00", fg: "base", bold: false, wrapMode: "none" },
-      { children: "- enabled: true", fg: "base", bold: false, wrapMode: undefined },
-      { children: lines.join("\n"), fg: "base", bold: false, wrapMode: undefined },
+      {
+        children: [
+          "- enabled:",
+          { type: "span", props: { style: { fg: "base" }, children: [" ", "true"] } },
+        ],
+        fg: "muted",
+        bold: false,
+        wrapMode: undefined,
+      },
+      { children: lines.join("\n"), fg: "muted", bold: false, wrapMode: undefined },
     ]);
     // One blank row between the sections and between the blocks of a section; a section
     // title sits directly above its first block.
