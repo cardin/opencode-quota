@@ -28,7 +28,8 @@ npx @slkiser/opencode-quota init
 
 Then restart OpenCode and type `/quota`.
 
-You need OpenCode `2.0.16+` and Node.js `22.13+` or `23.4+`. Still on OpenCode 1? Run `npx @slkiser/opencode-quota@4 init` instead.
+> [!IMPORTANT]
+> You need OpenCode `2.0.16+` and Node.js `22.13+` or `23.4+`. Still on OpenCode 1? Run `npx @slkiser/opencode-quota@4 init` instead.
 
 Upgrading from 4.x? Read [what changed in 5.0](#breaking-changes-in-500).
 
@@ -65,11 +66,12 @@ Restart OpenCode. The updater never moves or deletes secrets. See [Updating safe
 
 ### Breaking changes in 5.0.0
 
-- OpenCode 1 is no longer supported. `init` and `update` keep OpenCode 1 users on 4.x (`@slkiser/opencode-quota@4`).
-- Logins come from OpenCode 2, never from `auth.json`. If a provider is missing, log in again.
-- Web and Desktop get the slash commands, but no toasts or panels.
-- TUI reports open in a popup. To keep them in the chat, set `tuiCommandDisplay: "inline"`.
-- OpenCode Zen uses your OpenCode Console sign-in: `opencode auth login opencode`.
+> [!WARNING]
+> - OpenCode 1 is no longer supported. `init` and `update` keep OpenCode 1 users on 4.x (`@slkiser/opencode-quota@4`).
+> - Logins come from OpenCode 2, never from `auth.json`. If a provider is missing, log in again.
+> - Web and Desktop get the slash commands, but no toasts or panels.
+> - TUI reports open in a popup. To keep them in the chat, set `tuiCommandDisplay: "inline"`.
+> - OpenCode Zen uses your OpenCode Console sign-in: `opencode auth login opencode`.
 
 Full list: [Moving to OpenCode 2](docs/readme/updating.md#moving-to-opencode-2).
 
