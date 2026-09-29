@@ -621,8 +621,11 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     const callsAfterFirstToast = vi.mocked(globalThis.fetch).mock.calls.length;
     v2.emit("session.execution.succeeded", "phase5-session");
     await vi.waitFor(() => expect(v2.toast).toHaveBeenCalledTimes(2));
-    // The failed accounting source is retried on the next V2 CLI event.
-    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(callsAfterFirstToast + 1);
+    // POSIX caches the successful sources and retries only the failed 503 source.
+    // Windows has no protected identity key, so every remote source is fetched again.
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(
+      callsAfterFirstToast + (POSIX_IDENTITY_STORAGE ? 1 : PHASE5_QUOTA_PROVIDERS.length),
+    );
     assertFixtureContent(getV2ToastMessage(v2.toast, 1));
 
     const statusOutput = (await v2.tool.execute({}, { sessionID: "phase5-session" })).content;
