@@ -17,8 +17,28 @@ export type ReportKvRow = {
   trailingColon?: boolean;
 };
 
+/**
+ * One /quota row, split into the parts the TUI dialog lays out in columns. A percent row has
+ * `barPercent` and its percent label as `value`; a value row has only its text as `value`.
+ */
+export type ReportQuotaRow = {
+  label: string;
+  /** The displayed percent the bar fills, 0-100 (a percent row only). */
+  barPercent?: number;
+  /** The percent label, e.g. "85% left", or a value row's text, e.g. "USD 0.00". */
+  value: string;
+  /** Used over limit, e.g. "30.4/200". */
+  usage?: string;
+  /** The reset countdown, e.g. "reset 1d 8h 18m". */
+  reset?: string;
+  /** Lines under the row: the run-out projection and the accounting basis. */
+  notes: string[];
+};
+
 export type ReportBlock =
   | { kind: "lines"; lines: string[] }
+  /** /quota rows: the text shows `lines`, the TUI dialog lays out `rows` in columns. */
+  | { kind: "quota"; lines: string[]; rows: ReportQuotaRow[] }
   | { kind: "kv"; rows: ReportKvRow[] }
   | {
       kind: "table";
@@ -44,6 +64,7 @@ export type ReportDocument = {
 function hasBlockContent(block: ReportBlock): boolean {
   switch (block.kind) {
     case "lines":
+    case "quota":
       return block.lines.length > 0;
     case "kv":
       return block.rows.length > 0;
@@ -103,11 +124,29 @@ function isReportKvRow(value: unknown): boolean {
   );
 }
 
+function isReportQuotaRow(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    typeof value.label === "string" &&
+    isOptional(value.barPercent, "number") &&
+    typeof value.value === "string" &&
+    isOptional(value.usage, "string") &&
+    isOptional(value.reset, "string") &&
+    isStringArray(value.notes)
+  );
+}
+
 function isReportBlock(value: unknown): boolean {
   if (!isObject(value)) return false;
   switch (value.kind) {
     case "lines":
       return isStringArray(value.lines);
+    case "quota":
+      return (
+        isStringArray(value.lines) &&
+        Array.isArray(value.rows) &&
+        value.rows.every(isReportQuotaRow)
+      );
     case "kv":
       return Array.isArray(value.rows) && value.rows.every(isReportKvRow);
     case "table":
@@ -167,6 +206,7 @@ export function renderKvRow(row: ReportKvRow): string {
 function renderPlainTextBlock(block: ReportBlock): string[] {
   switch (block.kind) {
     case "lines":
+    case "quota":
       return block.lines;
     case "kv":
       return block.rows.map(renderKvRow);
@@ -185,6 +225,7 @@ function renderPlainTextBlock(block: ReportBlock): string[] {
 function renderMarkdownBlock(block: ReportBlock): string[] {
   switch (block.kind) {
     case "lines":
+    case "quota":
       return block.lines;
     case "kv":
       return block.rows.map(renderKvRow);

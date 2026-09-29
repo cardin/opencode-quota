@@ -271,6 +271,14 @@ describe("report-document", () => {
               widthMode: "markdown-conceal",
             },
             { kind: "table", headers: ["Tok"], fullHeaders: ["Tokens"], rows: [], aligns: [] },
+            {
+              kind: "quota",
+              lines: ["  Quota  █░  50% left"],
+              rows: [
+                { label: "Quota", barPercent: 50, value: "50% left", notes: [] },
+                { label: "Spend", value: "USD 0.00", usage: "1/2", reset: "reset 1h", notes: [] },
+              ],
+            },
           ],
         },
       ],
@@ -311,6 +319,14 @@ describe("report-document", () => {
             blocks: [
               { kind: "table", headers: ["A"], fullHeaders: ["A", "B"], rows: [], aligns: [] },
             ],
+          },
+        ],
+      },
+      {
+        sections: [
+          {
+            id: "s",
+            blocks: [{ kind: "quota", lines: [], rows: [{ label: "Quota", value: "1%" }] }],
           },
         ],
       },

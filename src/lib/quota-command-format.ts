@@ -27,6 +27,7 @@ import { classifyQuotaWindowText, type QuotaWindowKind } from "./quota-entry-dis
 import { formatQuotaRunway } from "./quota-exhaustion-projection.js";
 import {
   type ReportDocument,
+  type ReportQuotaRow,
   type ReportSection,
   renderPlainTextReport,
 } from "./report-document.js";
@@ -114,15 +115,13 @@ function formatCommandDetails(
   return ` | ${details.join(" | ")}`;
 }
 
-function getCommandBasisLines(basis: AccountingRowInterpretation["basis"]): string[] {
+function getCommandBasisDetails(basis: AccountingRowInterpretation["basis"]): string[] {
   if (!basis) return [];
-  const details =
-    basis.kind === "detailed"
-      ? basis.facts.map((fact) => fact.text)
-      : basis.text
-        ? [basis.text]
-        : [];
-  return details.map((detail) => `    ${detail}`);
+  return basis.kind === "detailed"
+    ? basis.facts.map((fact) => fact.text)
+    : basis.text
+      ? [basis.text]
+      : [];
 }
 
 export function buildQuotaCommandDocument(params: {
@@ -139,6 +138,7 @@ export function buildQuotaCommandDocument(params: {
 
   const sections: ReportSection[] = groups.map((group, index) => {
     const lines: string[] = [];
+    const rows: ReportQuotaRow[] = [];
     const interpretedRows = group.entries.map((entry) => ({
       entry,
       interpretation: interpretAccountingRow(entry, {
@@ -162,11 +162,22 @@ export function buildQuotaCommandDocument(params: {
         ),
     );
     for (const { entry: row, interpretation } of interpretedRows) {
-      const label = padRight(getCommandMetricLabel(row, interpretation.label), labelWidth);
+      const metricLabel = getCommandMetricLabel(row, interpretation.label);
+      const label = padRight(metricLabel, labelWidth);
       const details = formatCommandDetails(row, rightWidth, params.resetTimeSpaced);
+      // The RPC output must be plain JSON, so absent parts are left out, never undefined.
+      const usage = row.right?.trim();
+      const reset = formatCommandReset(row.resetTimeIso, params.resetTimeSpaced);
+      const usageAndReset = { ...(usage ? { usage } : {}), ...(reset ? { reset } : {}) };
 
       if (interpretation.display.kind === "value") {
         lines.push(`  ${label}  ${interpretation.display.text}${details}`);
+        rows.push({
+          label: metricLabel,
+          value: interpretation.display.text,
+          ...usageAndReset,
+          notes: [],
+        });
         continue;
       }
 
@@ -182,12 +193,21 @@ export function buildQuotaCommandDocument(params: {
       lines.push(
         `  ${label}  ${bar(displayedPercent, QUOTA_COMMAND_BAR_WIDTH)}  ${padLeft(pctLabel, Math.max(9, pctLabel.length))}${details}`,
       );
-      lines.push(...getCommandBasisLines(interpretation.basis));
+      const basisDetails = getCommandBasisDetails(interpretation.basis);
+      lines.push(...basisDetails.map((detail) => `    ${detail}`));
+      const runway = isPercentEntry(row) ? formatQuotaRunway(row.runway) : "";
+      rows.push({
+        label: metricLabel,
+        barPercent: displayedPercent,
+        value: pctLabel,
+        ...usageAndReset,
+        notes: [...(runway ? [`Runs out ${runway}`] : []), ...basisDetails],
+      });
     }
     return {
       id: `group-${index}`,
       title: `→ ${formatGroupedHeader(group.group)}`,
-      blocks: [{ kind: "lines", lines }],
+      blocks: [{ kind: "quota", lines, rows }],
     };
   });
 

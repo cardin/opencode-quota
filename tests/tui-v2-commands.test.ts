@@ -806,6 +806,90 @@ describe("V2 quota TUI commands", () => {
     expect(tableLines()).toEqual(["Model        Tok    Cost", "claude-opus  20K  $10.00"]);
   });
 
+  it("lays /quota rows out in centered columns, and falls back to the chat lines when narrow", async () => {
+    stubRenderingReact();
+    const accounting = {
+      resultType: "quota",
+      acquisitionMethod: "remote_api",
+      ownership: "maintained",
+      authority: "provider_reported",
+    } as const;
+    const document = buildQuotaCommandDocument({
+      entries: [
+        { accounting, name: "Copilot", label: "Quota:", right: "30/200", percentRemaining: 85 },
+        {
+          accounting: { ...accounting, resultType: "spend" },
+          name: "OpenCode Zen",
+          label: "Monthly spend:",
+          kind: "value",
+          value: "USD 0.00",
+        },
+      ],
+      errors: [{ label: "Z.ai", message: "Authentication expired" }],
+    });
+    rpc.command.mockResolvedValue({
+      state: "output",
+      command: "quota",
+      title: "Quota",
+      output: "the chat text",
+      document,
+      dialogSize: "xlarge",
+    });
+    const { context, command } = startTui();
+    await command("quota").run();
+    const render = context.ui.dialog.show.mock.calls[0][0] as () => unknown;
+    const body = () => findNode(render(), "scrollbox")?.props.children;
+    const texts = () =>
+      findNodes(body(), "text").map((node) => {
+        const children = node.props.children;
+        return {
+          text: Array.isArray(children)
+            ? children.map((span: Node) => span.props.children).join("")
+            : children,
+          fg: Array.isArray(children)
+            ? children.map((span: Node) => span.props.style.fg)
+            : node.props.fg,
+          bold: node.props.attributes === TextAttributes.BOLD,
+        };
+      });
+
+    // 120 columns: the report gets 111; the rows take 84 of them, 13 blank columns left.
+    expect(body().props.paddingLeft).toBe(13);
+    expect(body().props.width).toBe(97);
+    // Provider titles are bold accent; labels muted, bar, percent, and values base. With
+    // no reset column, the three gaps share the spare 27 columns.
+    const bar = `${"█".repeat(20)}${"░".repeat(4)}`;
+    expect(texts()).toEqual([
+      { text: "→ [Copilot]", fg: "accent", bold: true },
+      {
+        text: `  Quota${" ".repeat(17)}${bar}${" ".repeat(11)}85% left${" ".repeat(11)}30/200`,
+        fg: ["muted", "base", "base", "base"],
+        bold: false,
+      },
+      { text: "→ [OpenCode Zen]", fg: "accent", bold: true },
+      {
+        text: `  Month spend${" ".repeat(63)}USD 0.00`,
+        fg: ["muted", "base"],
+        bold: false,
+      },
+      { text: "Partial failures", fg: "base", bold: true },
+      { text: "  Z.ai: Authentication expired", fg: "muted", bold: false },
+    ]);
+
+    // 45 columns: the report gets 38, which leaves the bar 5 of the 10 cells it needs.
+    terminal.width = 45;
+    expect(body().props.paddingLeft).toBeUndefined();
+    expect(body().props.width).toBeUndefined();
+    expect(texts().slice(0, 2)).toEqual([
+      { text: "→ [Copilot]", fg: "accent", bold: true },
+      {
+        text: "  Quota         █████████░   85% left | 30/200",
+        fg: "muted",
+        bold: false,
+      },
+    ]);
+  });
+
   it("shows every command's report title once, as the dialog title, with the subtitle under it", async () => {
     stubRenderingReact();
     const generatedAtMs = Date.UTC(2026, 8, 29, 14, 0);

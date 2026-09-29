@@ -9,6 +9,7 @@ import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { fitTableToWidth } from "./lib/markdown-table.js";
+import { fitQuotaColumns, layoutQuotaRow, type QuotaColumns } from "./lib/quota-columns.js";
 import {
   parseQuotaSlashCommand,
   QUOTA_DIALOG_COMMANDS,
@@ -18,6 +19,7 @@ import { readQuotaReportMetadata } from "./lib/quota-report-message.js";
 import {
   type ReportBlock,
   type ReportDocument,
+  type ReportQuotaRow,
   renderableSections,
   renderKvRow,
 } from "./lib/report-document.js";
@@ -295,20 +297,62 @@ function reportFailure(error: unknown): void {
 /** OpenCode's dialog widths (dialogWidth in its ui/dialog.tsx). */
 const DIALOG_WIDTHS: Record<DialogSize, number> = { medium: 60, large: 88, xlarge: 116 };
 
+function sanitizeQuotaRow(row: ReportQuotaRow): ReportQuotaRow {
+  return {
+    ...row,
+    label: sanitizeDisplayText(row.label),
+    value: sanitizeDisplayText(row.value),
+    usage: row.usage === undefined ? undefined : sanitizeDisplayText(row.usage),
+    reset: row.reset === undefined ? undefined : sanitizeDisplayText(row.reset),
+    notes: row.notes.map(sanitizeDisplayText),
+  };
+}
+
+/** The /quota rows of a report, sanitized, for fitQuotaColumns and layoutQuotaRow. */
+function quotaRows(block: ReportBlock): ReportQuotaRow[] {
+  return block.kind === "quota" ? block.rows.map(sanitizeQuotaRow) : [];
+}
+
 /**
  * One block of a report. Lines and key-value rows wrap at words. A table keeps each row on
  * one line and spans `width` columns when it fits (see fitTableToWidth), with the header
- * row bold in OpenCode's primary accent (its text color for a selected tab). Like OpenCode's
- * sidebar, labels are muted and values are base.
+ * row bold in OpenCode's primary accent (its text color for a selected tab). /quota rows
+ * sit in `quotaColumns` when the report's rows fit them, else they show their chat lines.
+ * Like OpenCode's sidebar, labels are muted and values are base.
  */
 function ReportBlockView(props: {
   block: ReportBlock;
   theme: DialogTheme;
   width: number;
+  quotaColumns: QuotaColumns | undefined;
 }): JSX.Element {
   const block = props.block;
   if (block.kind === "lines") {
     return <text fg={props.theme.text.muted}>{sanitizeDisplayText(block.lines.join("\n"))}</text>;
+  }
+  if (block.kind === "quota") {
+    // Read in the JSX, so the rows are laid out again when the terminal is resized.
+    return (
+      <box flexDirection="column">
+        {props.quotaColumns ? (
+          quotaRows(block)
+            .flatMap((row) => layoutQuotaRow(row, props.quotaColumns!))
+            .map((line) => (
+              <text fg={props.theme.text.base} wrapMode="none">
+                {line.map((segment) => (
+                  <span
+                    style={{ fg: segment.muted ? props.theme.text.muted : props.theme.text.base }}
+                  >
+                    {segment.text}
+                  </span>
+                ))}
+              </text>
+            ))
+        ) : (
+          <text fg={props.theme.text.muted}>{sanitizeDisplayText(block.lines.join("\n"))}</text>
+        )}
+      </box>
+    );
   }
   if (block.kind === "kv") {
     return (
@@ -356,26 +400,49 @@ function ReportBlockView(props: {
 /**
  * Draws a report document's sections with the same spacing as its plain text: one blank row
  * between the sections and between the blocks of a section, and a section title directly
- * above its first block. Section titles are bold. The dialog shows the heading's subtitle
- * under its own title, so the heading line is left out.
+ * above its first block. Section titles are bold; a /quota provider title is in OpenCode's
+ * primary accent. When the /quota rows fit their columns (see fitQuotaColumns), the whole
+ * report takes the columns' width, centered, so its other lines wrap there too. The dialog
+ * shows the heading's subtitle under its own title, so the heading line is left out.
  */
 function ReportDocumentView(props: {
   document: ReportDocument;
   theme: DialogTheme;
   width: number;
 }): JSX.Element {
+  const sections = renderableSections(props.document);
+  const rows = sections.flatMap((section) => section.blocks.flatMap(quotaRows));
+  // Read in the JSX, so the columns are fitted again when the terminal is resized.
+  const columns = () => (rows.length > 0 ? fitQuotaColumns(rows, props.width) : undefined);
   return (
-    <box flexDirection="column" gap={1}>
-      {renderableSections(props.document).map((section) => (
+    <box
+      flexDirection="column"
+      gap={1}
+      paddingLeft={columns()?.indent}
+      width={columns() ? columns()!.indent + columns()!.width : undefined}
+    >
+      {sections.map((section) => (
         <box flexDirection="column">
           {section.title ? (
-            <text attributes={TextAttributes.BOLD} fg={props.theme.text.base}>
+            <text
+              attributes={TextAttributes.BOLD}
+              fg={
+                section.blocks.some((block) => block.kind === "quota")
+                  ? props.theme.text.action.primary.selected
+                  : props.theme.text.base
+              }
+            >
               {sanitizeDisplayText(section.title)}
             </text>
           ) : null}
           <box flexDirection="column" gap={1}>
             {section.blocks.map((block) => (
-              <ReportBlockView block={block} theme={props.theme} width={props.width} />
+              <ReportBlockView
+                block={block}
+                theme={props.theme}
+                width={props.width}
+                quotaColumns={columns()}
+              />
             ))}
           </box>
         </box>

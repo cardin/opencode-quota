@@ -197,7 +197,7 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const editor = { plainText: "", clear: vi.fn() };
   // Records the title, subtitle, and scrollbox text of each quota output dialog the TUI
   // shows. The scrollbox text is every text node in order, one per line, without the blank
-  // rows.
+  // rows; a text node made of spans is their text joined.
   const dialog = vi.fn((_input: { title: string; subtitle?: string; message: string }) => {});
   type Node = { type: string; props: Record<string, any> };
   const find = (node: unknown, type: string): Node | undefined => {
@@ -210,9 +210,13 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const texts = (node: unknown): string[] => {
     if (Array.isArray(node)) return node.flatMap(texts);
     if (!node || typeof node !== "object") return [];
-    return (node as Node).type === "text"
-      ? [(node as Node).props.children]
-      : texts((node as Node).props?.children);
+    if ((node as Node).type !== "text") return texts((node as Node).props?.children);
+    const children = (node as Node).props.children;
+    return [
+      Array.isArray(children)
+        ? children.map((span: Node) => span.props.children).join("")
+        : children,
+    ];
   };
   const show = (render: () => unknown, onClose?: () => void) => {
     const tree = render();
@@ -593,11 +597,14 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(client.session.prompt).not.toHaveBeenCalled();
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);
+    // The dialog lays the rows out in columns, centered: a 120-column terminal leaves them
+    // 84 of 111 columns, 13 blank on the left. Every bar has the same length.
     expect(serverOutput).toMatch(/→ \[Team Accounting\]\n {2}Month quota/u);
     const serverBars = serverOutput.match(/[█░]+/gu) ?? [];
     expect(serverBars.length).toBeGreaterThan(0);
-    expect(serverBars.every((bar) => Array.from(bar).length === 10)).toBe(true);
-    expect(serverOutput).toMatch(/Month quota\s+[█░]{10}\s+64% left \| 64\/100 \| reset /);
+    expect(new Set(serverBars.map((bar) => Array.from(bar).length)).size).toBe(1);
+    expect(serverOutput).not.toMatch(/Month quota[^\n]* \| /u);
+    expect(serverOutput).toMatch(/Month quota\s+[█░]{10,24}\s+64% left\s+64\/100\s+reset /);
     expect(serverOutput).toMatch(/Balance\s+\$12\.34/);
     assertFixtureContent(serverOutput);
     assertTreeSessionTokenTotals(serverOutput);

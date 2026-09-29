@@ -553,4 +553,51 @@ describe("formatQuotaCommand", () => {
       expect(document.sections[0]?.title).toBe("→ [Copilot]");
     }
   });
+
+  it("gives the dialog each row's parts beside the unchanged chat lines", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T12:00:00.000Z"));
+    const params = {
+      entries: [
+        {
+          accounting: accounting("quota"),
+          name: "Copilot",
+          label: "Quota:",
+          right: "42/300",
+          percentRemaining: 86,
+          resetTimeIso: "2026-01-16T00:00:00.000Z",
+          runway: { kind: "lasts_past_reset" as const },
+        },
+        {
+          accounting: accounting("usage"),
+          name: "Copilot",
+          label: "Usage:",
+          kind: "value" as const,
+          value: "9 used",
+        },
+      ],
+      errors: [],
+    };
+
+    const document = buildQuotaCommandDocument(params);
+
+    const block = document.sections[0]?.blocks[0];
+    expect(block?.kind).toBe("quota");
+    if (block?.kind !== "quota") return;
+    // The text shows the lines, exactly as formatQuotaCommand prints them.
+    expect(formatQuotaCommand(params).split("\n").slice(3)).toEqual(block.lines);
+    expect(block.rows).toEqual([
+      {
+        label: "Quota",
+        barPercent: 86,
+        value: "86% left",
+        usage: "42/300",
+        reset: "reset 12h0m",
+        notes: ["Runs out lasts past reset"],
+      },
+      { label: "Usage", value: "9 used", notes: [] },
+    ]);
+    // The RPC output must be plain JSON: no part is undefined.
+    expect(JSON.parse(JSON.stringify(block.rows))).toStrictEqual(block.rows);
+  });
 });
