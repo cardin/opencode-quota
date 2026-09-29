@@ -985,7 +985,7 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
   if (plan.quickSetupNotes.length > 0) {
     lines.push("Quick setup reminders:");
     for (const note of plan.quickSetupNotes) {
-      lines.push(`  - ${note.label}: README.md#${note.anchor}`);
+      lines.push(`  - ${note.label}: docs/readme/providers.md#${note.anchor}`);
     }
   }
 
@@ -1539,7 +1539,7 @@ export async function runInitInstaller(params?: {
     if (plan.quickSetupNotes.length > 0) {
       prompts.log.info("Manual quick-setup still needed:");
       for (const note of plan.quickSetupNotes) {
-        prompts.log.info(`- ${note.label}: README.md#${note.anchor}`);
+        prompts.log.info(`- ${note.label}: docs/readme/providers.md#${note.anchor}`);
       }
     }
 

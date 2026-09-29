@@ -18,6 +18,7 @@ import {
   runInitInstaller,
 } from "../src/lib/init-installer.js";
 import { parseJsonOrJsonc } from "../src/lib/jsonc.js";
+import { QUOTA_PROVIDER_SHAPES } from "../src/lib/provider-metadata.js";
 
 // The release workflow syncs package.json to the release tag before `pnpm verify`,
 // so these tests pin the running package version instead of reading package.json.
@@ -218,6 +219,7 @@ describe("init installer planning and merge behavior", () => {
         anchor: "anthropic-claude",
       },
     ]);
+    expect(plan.summaryLines).toContain("  - Anthropic: docs/readme/providers.md#anthropic-claude");
 
     const result = await applyInitInstallerPlan(plan);
     expect(result.writtenPaths).toEqual([
@@ -1056,6 +1058,69 @@ describe("init installer planning and merge behavior", () => {
     expect(existsSync(join(tempDir, "tui.json"))).toBe(false);
     const quotaConfig = readJson(join(tempDir, "opencode-quota", "quota-toast.json"));
     expect(quotaConfig.maintainerAnnouncements).toEqual({ enabled: false });
+  });
+
+  it("prints manual quick-setup reminders that link to the providers guide", async () => {
+    const prompts = createPromptStub({
+      selectValues: [
+        "tui",
+        "project",
+        "jsonc",
+        "inline",
+        "manual",
+        "singleWindow",
+        "remaining",
+        "yes",
+        "current",
+      ],
+      multiselectValues: [["toast"], ["cursor"]],
+      confirmValues: [true, true],
+    });
+
+    const code = await runInitInstaller({ cwd: tempDir, prompts: prompts as any });
+
+    expect(code).toBe(0);
+    expect(prompts.infoCalls).toContain("- Cursor: docs/readme/providers.md#cursor");
+  });
+
+  it("links every quick-setup reminder to an anchor that exists in the providers guide", async () => {
+    const providersGuide = readFileSync(
+      new URL("../docs/readme/providers.md", import.meta.url),
+      "utf8",
+    );
+    const guideAnchors = new Set<string>();
+    for (const line of providersGuide.split("\n")) {
+      const heading = /^#{1,6}\s+(.+)$/.exec(line);
+      if (heading) {
+        guideAnchors.add(
+          heading[1]
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9 _-]/g, "")
+            .replace(/ /g, "-"),
+        );
+      }
+      const explicitAnchor = /<a id="([^"]+)"><\/a>/.exec(line);
+      if (explicitAnchor) {
+        guideAnchors.add(explicitAnchor[1]);
+      }
+    }
+    const quickSetupProviderIds = QUOTA_PROVIDER_SHAPES.filter(
+      (shape) => shape.quickSetupAnchor && shape.autoSetup === "needs_quick_setup",
+    ).map((shape) => shape.id);
+
+    const plan = await planSelections({
+      providerMode: "manual",
+      manualProviders: quickSetupProviderIds,
+    });
+    const reminderLines = plan.summaryLines.filter((line) => line.includes(".md#"));
+
+    expect(reminderLines).toHaveLength(quickSetupProviderIds.length);
+    for (const line of reminderLines) {
+      const link = /: (\S+)#(\S+)$/.exec(line);
+      expect(link?.[1], line).toBe("docs/readme/providers.md");
+      expect(guideAnchors.has(link?.[2] ?? ""), line).toBe(true);
+    }
   });
 
   it("creates only opencode and quota configs for toast + sidebar mode with popup toasts enabled", async () => {
