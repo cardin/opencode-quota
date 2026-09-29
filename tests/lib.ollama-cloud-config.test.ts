@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
     { path: "/trusted/opencode.jsonc", isJsonc: true },
     { path: "/trusted/opencode.json", isJsonc: false },
   ]),
-  getAuthPaths: vi.fn(() => ["/trusted/auth.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/trusted/opencode.db"]),
   readAuthFile: vi.fn(),
 }));
 
@@ -26,7 +26,7 @@ vi.mock("../src/lib/api-key-resolver.js", () => ({
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: mocks.getAuthPaths,
+  getCredentialDatabasePaths: mocks.getCredentialDatabasePaths,
   readAuthFile: mocks.readAuthFile,
 }));
 
@@ -42,7 +42,7 @@ describe("ollama-cloud API key config", () => {
     vi.clearAllMocks();
   });
 
-  it("uses only the documented API key and trusted Ollama Cloud sources", () => {
+  it("uses only the documented API key and trusted Ollama Cloud sources", async () => {
     expect(mocks.config).toMatchObject({
       envVars: [{ name: "OLLAMA_API_KEY", source: "env:OLLAMA_API_KEY" }],
       providerKeys: ["ollama-cloud"],
@@ -51,11 +51,14 @@ describe("ollama-cloud API key config", () => {
       configJsoncSource: "opencode.jsonc",
       getConfigCandidates: mocks.getGlobalOpencodeConfigCandidatePaths,
       auth: {
-        readAuth: mocks.readAuthFile,
-        getAuthPaths: mocks.getAuthPaths,
-        authSource: "auth.json",
+        readAuth: expect.any(Function),
+        getCredentialDatabasePaths: mocks.getCredentialDatabasePaths,
+        authSource: "opencode.db",
       },
     });
+    const auth = mocks.config?.auth as { readAuth: () => Promise<unknown> };
+    await auth.readAuth();
+    expect(mocks.readAuthFile).toHaveBeenCalledWith({ integrationIds: ["ollama-cloud"] });
     expect(JSON.stringify(mocks.config)).not.toContain("OLLAMA_USAGE_COOKIE");
     expect(JSON.stringify(mocks.config)).not.toContain("ollama-usage");
     expect(getOpencodeConfigCandidatePaths()).toEqual([
@@ -70,7 +73,7 @@ describe("ollama-cloud API key config", () => {
       configured: true,
       source: "env:OLLAMA_API_KEY" as const,
       checkedPaths: ["env:OLLAMA_API_KEY"],
-      authPaths: ["/trusted/auth.json"],
+      credentialDatabasePaths: ["/trusted/opencode.db"],
     };
     mocks.resolve.mockResolvedValueOnce(resolved);
     mocks.has.mockResolvedValueOnce(true);

@@ -6,6 +6,7 @@ import {
   QUOTA_TOAST_SETTING_SOURCE_KEYS,
   type QuotaToastSettingSources,
 } from "./config.js";
+import type { RuntimeContextRoots } from "./config-file-utils.js";
 import {
   sanitizeQuotaProviderResult,
   sanitizeSingleLineDisplaySnippet,
@@ -30,18 +31,21 @@ import {
   readPricingRefreshState,
   hasProvider as snapshotHasProvider,
 } from "./modelsdev-pricing.js";
-import { getAuthPath, getAuthPaths } from "./opencode-auth.js";
+import { getCredentialSourceDiagnostics } from "./opencode-auth.js";
+import { getOpenCodeDbPath } from "./opencode-db-path.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
-import {
-  getOpenCodeDbPath,
-  getOpenCodeDbPathCandidates,
-  getOpenCodeDbStats,
-} from "./opencode-storage.js";
+import { getOpenCodeDbStats } from "./opencode-storage.js";
 import { getQuotaProviderDisplayLabel } from "./provider-metadata.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import { isMaintainedQuotaProviderTuning } from "./quota-providers.js";
 import { aggregateUsage } from "./quota-stats.js";
-import { type ReportKvRow, type ReportSection, renderPlainTextReport } from "./report-document.js";
+import {
+  commandHeading,
+  type ReportDocument,
+  type ReportKvRow,
+  type ReportSection,
+  renderPlainTextReport,
+} from "./report-document.js";
 import { totalTokenBuckets } from "./token-buckets.js";
 import type {
   CursorQuotaPlan,
@@ -85,7 +89,7 @@ const OPENCODE_GO_STATUS_DETAIL_KEYS = new Set([
   "auth_state",
   "auth_source",
   "auth_checked_paths",
-  "auth_paths",
+  "credential_database_paths",
   "auth_error",
   "selected_windows",
   "rolling_usage",
@@ -93,6 +97,10 @@ const OPENCODE_GO_STATUS_DETAIL_KEYS = new Set([
   "monthly_usage",
   "live_fetch_error",
   "opencode_go_state",
+  "go_source",
+  "console_error",
+  "console_auth_state",
+  "console_server",
 ]);
 type ProviderLiveProbe = {
   providerId: string;
@@ -327,8 +335,8 @@ function getQuotaProviderCredentialCategory(
     case "global_opencode_json":
     case "global_opencode_jsonc":
       return "trusted_global_config";
-    case "auth_json":
-      return "auth_json";
+    case "opencode_db":
+      return "opencode_db";
     default:
       return "none";
   }
@@ -415,7 +423,7 @@ function createQuotaProvidersSection(params: {
     }
 
     const checkedPaths = diagnostic
-      ? [...new Set([...diagnostic.checkedPaths, ...diagnostic.authPaths])]
+      ? [...new Set([...diagnostic.checkedPaths, ...diagnostic.credentialDatabasePaths])]
       : [];
     rows.push({
       key: `provider_${definition.id}`,
@@ -667,23 +675,14 @@ function supportedProviderPricingRow(params: {
   };
 }
 
-export async function buildQuotaStatusReport(params: {
+type QuotaStatusReportParams = {
   configSource: string;
   configPaths: string[];
   globalConfigPaths?: string[];
   workspaceConfigPaths?: string[];
   settingSources?: QuotaToastSettingSources;
   configIssues?: LoadConfigIssue[];
-  tuiDiagnostics?: {
-    workspaceRoot: string;
-    configRoot: string;
-    configured: boolean;
-    inferredSelectedPath: string | null;
-    presentPaths: string[];
-    candidatePaths: string[];
-    quotaPluginConfigured: boolean;
-    quotaPluginConfigPaths: string[];
-  };
+  runtimeRoots?: RuntimeContextRoots;
   enabledProviders: string[] | "auto";
   anthropicBinaryPath?: string;
   cursorPlan: CursorQuotaPlan;
@@ -704,7 +703,15 @@ export async function buildQuotaStatusReport(params: {
     summary: MaintainerAnnouncementsSummary;
   };
   generatedAtMs?: number;
-}): Promise<string> {
+};
+
+export async function buildQuotaStatusReport(params: QuotaStatusReportParams): Promise<string> {
+  return renderPlainTextReport(await buildQuotaStatusReportDocument(params));
+}
+
+export async function buildQuotaStatusReportDocument(
+  params: QuotaStatusReportParams,
+): Promise<ReportDocument> {
   const version = await getPackageVersion();
   const v = version ?? "unknown";
   const modelDisplay = params.currentModel
@@ -736,25 +743,9 @@ export async function buildQuotaStatusReport(params: {
       );
     }
   }
-  if (params.tuiDiagnostics) {
-    toastLines.push("");
-    toastLines.push("tui:");
-    toastLines.push(`- workspace_root: ${params.tuiDiagnostics.workspaceRoot}`);
-    toastLines.push(`- config_root: ${params.tuiDiagnostics.configRoot}`);
-    toastLines.push(`- config_configured: ${params.tuiDiagnostics.configured ? "true" : "false"}`);
-    toastLines.push(
-      `- inferred_selected_config_path: ${params.tuiDiagnostics.inferredSelectedPath ?? "(none)"}`,
-    );
-    toastLines.push(`- present_config_paths: ${joinOrNone(params.tuiDiagnostics.presentPaths)}`);
-    toastLines.push(
-      `- candidate_config_paths: ${joinOrNone(params.tuiDiagnostics.candidatePaths)}`,
-    );
-    toastLines.push(
-      `- quota_plugin_configured: ${params.tuiDiagnostics.quotaPluginConfigured ? "true" : "false"}`,
-    );
-    toastLines.push(
-      `- quota_plugin_paths: ${joinOrNone(params.tuiDiagnostics.quotaPluginConfigPaths)}`,
-    );
+  if (params.runtimeRoots) {
+    toastLines.push(`- workspace_root: ${params.runtimeRoots.workspaceRoot}`);
+    toastLines.push(`- config_root: ${params.runtimeRoots.configRoot}`);
   }
   toastLines.push("- providers:");
   for (const p of params.providerAvailability) {
@@ -799,33 +790,10 @@ export async function buildQuotaStatusReport(params: {
     key: "opencode_dirs",
     value: `data=${runtime.dataDir} config=${runtime.configDir} cache=${runtime.cacheDir} state=${runtime.stateDir}`,
   });
-  const authCandidates = getAuthPaths();
-  const authPresent: string[] = [];
-  await Promise.all(
-    authCandidates.map(async (p) => {
-      try {
-        await stat(p);
-        authPresent.push(p);
-      } catch {
-        // ignore missing/unreadable
-      }
-    }),
-  );
+  const dbPath = getOpenCodeDbPath();
   pathsRows.push({
-    key: "auth.json",
-    value: `preferred=${getAuthPath()} present=${joinOrNone(authPresent)} candidates=${joinOrNone(authCandidates)}`,
-  });
-  const dbCandidates = getOpenCodeDbPathCandidates();
-  const dbSelected = getOpenCodeDbPath();
-  const dbPresent: string[] = [];
-  await Promise.all(
-    dbCandidates.map(async (p) => {
-      if (await pathExists(p)) dbPresent.push(p);
-    }),
-  );
-  pathsRows.push({
-    key: "opencode db",
-    value: `preferred=${dbSelected} present=${joinOrNone(dbPresent)} candidates=${joinOrNone(dbCandidates)}`,
+    key: "opencode.db",
+    value: `path=${dbPath} present=${(await pathExists(dbPath)) ? "true" : "false"} (session and token history)`,
   });
 
   appendProviderStatusDetailRows(
@@ -836,12 +804,34 @@ export async function buildQuotaStatusReport(params: {
       "alibaba auth configured",
       "alibaba_api_key_source",
       "alibaba_api_key_checked_paths",
-      "alibaba_api_key_auth_paths",
+      "alibaba_api_key_credential_database_paths",
       "alibaba_coding_plan",
       "alibaba_auth_error",
     ]),
   );
   sections.push(createKvSection("paths", "paths:", pathsRows));
+
+  // === credential_source ===
+  const credentialSource = getCredentialSourceDiagnostics();
+  sections.push(
+    createKvSection("credential_source", "credential_source:", [
+      {
+        key: "source",
+        value: credentialSource.state === "bound" ? credentialSource.kind : "unbound",
+      },
+      { key: "list_error", value: credentialSource.lastListError?.detail ?? "(none)" },
+      {
+        key: "failures",
+        value: joinOrNone(
+          credentialSource.failures.map((failure) =>
+            [failure.integrationId, failure.label, failure.category, failure.detail]
+              .map((part) => sanitizeSingleLineDisplayText(part))
+              .join(":"),
+          ),
+        ),
+      },
+    ]),
+  );
 
   for (const [id, providerId] of [
     ["openai", "openai"],
@@ -1138,11 +1128,12 @@ export async function buildQuotaStatusReport(params: {
   }
   sections.push(createKvSection("unknown_pricing", "unknown_pricing:", unknownRows));
 
-  return renderPlainTextReport({
-    heading: {
+  return {
+    heading: commandHeading({
       title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
+      detail: `opencode-quota v${v}`,
       generatedAtMs: params.generatedAtMs,
-    },
+    }),
     sections,
-  });
+  };
 }

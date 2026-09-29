@@ -2,6 +2,7 @@ import { abbreviateDisplayedModelName } from "./format-utils.js";
 import type { WidthMode } from "./markdown-table.js";
 import type { AggregateResult, SessionTreeNode, TokenBuckets } from "./quota-stats.js";
 import {
+  commandHeading,
   type ReportDocument,
   type ReportSection,
   renderMarkdownReport,
@@ -23,6 +24,18 @@ type QuotaStatsReportTableOptions = {
   compactHeaders?: boolean;
   modelNameMaxWidth?: number;
 };
+
+/**
+ * A table's header labels: the compact ones when asked for, else the full ones. The full
+ * labels also ride along, so the TUI dialog can show them when the table fits with them.
+ */
+function tableHeaders(
+  options: QuotaStatsReportTableOptions,
+  compact: string[],
+  full: string[],
+): { headers: string[]; fullHeaders: string[] } {
+  return { headers: options.compactHeaders ? compact : full, fullHeaders: full };
+}
 
 function hasRenderableSessionUsage(row: SessionReportRow): boolean {
   return totalTokenBuckets(row.tokens) > 0 || row.costUsd > 0;
@@ -154,13 +167,15 @@ function truncateTitle(title: string | undefined): string {
   return trimmed.slice(0, 10) + "…" + trimmed.slice(-10);
 }
 
-export function formatQuotaStatsReport(params: {
+type QuotaStatsReportParams = {
   title: string;
+  /** Facts in the title that the TUI dialog title lacks, like the date range; see commandHeading. */
+  titleDetail?: string;
   result: AggregateResult;
   topModels?: number;
   topSessions?: number;
   focusSessionID?: string;
-  /** When true, hides Window/Sessions columns and Top Sessions section (for session-only reports) */
+  /** When true, hides Window/Sessions columns and the Top sessions section (for session-only reports) */
   sessionOnly?: boolean;
   reportKind?: QuotaStatsReportKind;
   sessionTree?: {
@@ -169,7 +184,13 @@ export function formatQuotaStatsReport(params: {
   };
   generatedAtMs?: number;
   tableOptions?: QuotaStatsReportTableOptions;
-}): string {
+};
+
+export function formatQuotaStatsReport(params: QuotaStatsReportParams): string {
+  return renderMarkdownReport(buildQuotaStatsReportDocument(params));
+}
+
+export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): ReportDocument {
   const topModels = params.topModels ?? 12;
   const topSessions = params.topSessions ?? 8;
   const r = params.result;
@@ -195,9 +216,7 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Msgs", "Tok", "Cost"]
-            : ["Messages", "Tokens", "Cost"],
+          ...tableHeaders(tableOptions, ["Msgs", "Tok", "Cost"], ["Messages", "Tokens", "Cost"]),
           aligns: ["right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -216,9 +235,11 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Msgs", "Sess", "Tok", "Cost"]
-            : ["Messages", "Sessions", "Tokens", "Cost"],
+          ...tableHeaders(
+            tableOptions,
+            ["Msgs", "Sess", "Tok", "Cost"],
+            ["Messages", "Sessions", "Tokens", "Cost"],
+          ),
           aligns: ["right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -238,9 +259,11 @@ export function formatQuotaStatsReport(params: {
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Window", "Msgs", "Sess", "Tok", "Cost"]
-            : ["Window", "Messages", "Sessions", "Tokens", "Cost"],
+          ...tableHeaders(
+            tableOptions,
+            ["Window", "Msgs", "Sess", "Tok", "Cost"],
+            ["Window", "Messages", "Sessions", "Tokens", "Cost"],
+          ),
           aligns: ["left", "right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -262,16 +285,18 @@ export function formatQuotaStatsReport(params: {
     r.totals.unknown.reasoning > 0 ||
     r.totals.unpriced.reasoning > 0;
 
-  const headers = tableOptions.compactHeaders
-    ? ["Source", "Model", "In", "Out", "C.Rd", "C.Wr"]
-    : ["Source", "Model", "Input", "Output", "C.Read", "C.Write"];
+  const compactLabels = ["Source", "Model", "In", "Out", "C.Rd", "C.Wr"];
+  const fullLabels = ["Source", "Model", "Input", "Output", "Cache read", "Cache write"];
   const aligns: Array<"left" | "right"> = ["left", "left", "right", "right", "right", "right"];
   if (hasAnyReasoning) {
-    headers.push(tableOptions.compactHeaders ? "Rsn" : "Reasoning");
+    compactLabels.push("Rsn");
+    fullLabels.push("Reasoning");
     aligns.push("right");
   }
-  headers.push(tableOptions.compactHeaders ? "Tok" : "Total", "Cost");
+  compactLabels.push("Tok", "Cost");
+  fullLabels.push("Tokens", "Cost");
   aligns.push("right", "right");
+  const { headers, fullHeaders } = tableHeaders(tableOptions, compactLabels, fullLabels);
 
   const rows: string[][] = [];
   const grouped = new Map<string, AggregateResult["bySourceModel"]>();
@@ -318,11 +343,12 @@ export function formatQuotaStatsReport(params: {
   if (rows.length > 0) {
     sections.push({
       id: "models",
-      title: "Models",
+      title: "Model breakdown",
       blocks: [
         {
           kind: "table",
           headers,
+          fullHeaders,
           rows,
           aligns,
           widthMode: TABLE_WIDTH_MODE,
@@ -348,13 +374,15 @@ export function formatQuotaStatsReport(params: {
 
     sections.push({
       id: "session-tree",
-      title: "Session Tree",
+      title: "Session tree",
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Rel", "Parent", "Session", "Cost", "Tok", "Msgs", "Title"]
-            : ["Relation", "Parent", "Session", "Cost", "Tokens", "Msgs", "Title"],
+          ...tableHeaders(
+            tableOptions,
+            ["Rel", "Parent", "Session", "Cost", "Tok", "Msgs", "Title"],
+            ["Relation", "Parent", "Session", "Cost", "Tokens", "Messages", "Title"],
+          ),
           aligns: ["left", "left", "left", "right", "right", "right", "left"],
           widthMode: TABLE_WIDTH_MODE,
           rows: sessionTreeRows,
@@ -363,7 +391,7 @@ export function formatQuotaStatsReport(params: {
     });
   }
 
-  // Skip Top Sessions for session-scoped reports (e.g., /tokens_session, /tokens_session_all).
+  // Skip Top sessions for session-scoped reports (e.g., /tokens_session, /tokens_session_all).
   if (reportKind === "standard") {
     const sessionRows: string[][] = [];
     const visibleSessions = r.bySession.filter(hasRenderableSessionUsage);
@@ -398,15 +426,17 @@ export function formatQuotaStatsReport(params: {
 
     sections.push({
       id: "top-sessions",
-      title: "Top Sessions",
+      title: "Top sessions",
       blocks:
         sessionRows.length > 0
           ? [
               {
                 kind: "table",
-                headers: tableOptions.compactHeaders
-                  ? ["Cur", "Session", "Cost", "Tok", "Msgs", "Title"]
-                  : ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
+                ...tableHeaders(
+                  tableOptions,
+                  ["Cur", "Session", "Cost", "Tok", "Msgs", "Title"],
+                  ["Current", "Session", "Cost", "Tokens", "Messages", "Title"],
+                ),
                 aligns: ["left", "left", "right", "right", "right", "left"],
                 widthMode: TABLE_WIDTH_MODE,
                 rows: sessionRows,
@@ -419,13 +449,15 @@ export function formatQuotaStatsReport(params: {
   if (r.unpriced.length > 0) {
     sections.push({
       id: "unpriced-models",
-      title: "Unpriced Models",
+      title: "Models with no token prices",
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Source", "Model", "Map", "Reason", "Tok", "Msgs"]
-            : ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
+          ...tableHeaders(
+            tableOptions,
+            ["Source", "Model", "Map", "Reason", "Tok", "Msgs"],
+            ["Source", "Model", "Mapped", "Reason", "Tokens", "Messages"],
+          ),
           aligns: ["left", "left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unpriced.slice(0, 20).map((u) => {
@@ -447,13 +479,15 @@ export function formatQuotaStatsReport(params: {
   if (r.unknown.length > 0) {
     sections.push({
       id: "unknown-pricing",
-      title: "Unknown Pricing",
+      title: "Models without pricing",
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Source", "Model", "Map", "Tok", "Msgs"]
-            : ["Source", "Model", "Mapped", "Tokens", "Msgs"],
+          ...tableHeaders(
+            tableOptions,
+            ["Source", "Model", "Map", "Tok", "Msgs"],
+            ["Source", "Model", "Mapped", "Tokens", "Messages"],
+          ),
           aligns: ["left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unknown.slice(0, 20).map((u) => {
@@ -488,13 +522,12 @@ export function formatQuotaStatsReport(params: {
     });
   }
 
-  const document: ReportDocument = {
-    heading: {
+  return {
+    heading: commandHeading({
       title: params.title,
+      detail: params.titleDetail,
       generatedAtMs: params.generatedAtMs,
-    },
+    }),
     sections,
   };
-
-  return renderMarkdownReport(document);
 }

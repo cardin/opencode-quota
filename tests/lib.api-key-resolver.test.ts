@@ -3,12 +3,6 @@ import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [join(homedir(), ".local", "share", "opencode")],
-    configDirs: [join(homedir(), ".config", "opencode")],
-    cacheDirs: [join(homedir(), ".cache", "opencode")],
-    stateDirs: [join(homedir(), ".local", "state", "opencode")],
-  }),
   getOpencodeRuntimeDirs: () => ({
     dataDir: join(homedir(), ".local", "share", "opencode"),
     configDir: join(homedir(), ".config", "opencode"),
@@ -28,6 +22,7 @@ vi.mock("fs/promises", () => ({
 import {
   createProviderApiKeyResolver,
   extractAuthApiKeyEntry,
+  extractProviderOptionsApiKey,
   getApiKeyCheckedPaths,
   resolveApiKey,
   resolveApiKeyFromEnvAndConfig,
@@ -51,7 +46,7 @@ describe("api-key-resolver", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps environment first, trusted JSONC before JSON, and auth.json last", async () => {
+  it("keeps environment first, trusted JSONC before JSON, and opencode.db last", async () => {
     const { existsSync } = await import("fs");
     const { readFile } = await import("fs/promises");
     const trustedJsoncPath = join(homedir(), ".config", "opencode", "opencode.jsonc");
@@ -68,7 +63,7 @@ describe("api-key-resolver", () => {
           : null,
       configJsonSource: "opencode.json" as const,
       configJsoncSource: "opencode.jsonc" as const,
-      authSource: "auth.json" as const,
+      authSource: "opencode.db" as const,
     };
 
     process.env.TEST_PROVIDER_KEY = "env-key";
@@ -101,7 +96,7 @@ describe("api-key-resolver", () => {
     (readFile as any).mockReset();
     await expect(resolveApiKey(config, readAuth)).resolves.toEqual({
       key: "auth-key",
-      source: "auth.json",
+      source: "opencode.db",
     });
     expect(readAuth).toHaveBeenCalledOnce();
   });
@@ -161,20 +156,20 @@ describe("api-key-resolver", () => {
     const simpleReadAuth = vi.fn().mockResolvedValue({
       provider: { type: "oauth", key: "ignored-key" },
     });
-    const simple = createProviderApiKeyResolver<"config" | "auth.json">({
+    const simple = createProviderApiKeyResolver<"config" | "opencode.db">({
       envVars: [],
       providerKeys: ["provider"],
       configJsonSource: "config",
       configJsoncSource: "config",
       getConfigCandidates: () => [],
-      auth: { readAuth: simpleReadAuth, authSource: "auth.json" },
+      auth: { readAuth: simpleReadAuth, authSource: "opencode.db" },
     });
     await expect(simple.resolve()).resolves.toBeNull();
 
     const invalidReadAuth = vi.fn().mockResolvedValue({
       provider: { type: "oauth", key: "ignored-key" },
     });
-    const invalidAware = createProviderApiKeyResolver<"config" | "auth.json", "auth.json">({
+    const invalidAware = createProviderApiKeyResolver<"config" | "opencode.db", "opencode.db">({
       envVars: [],
       providerKeys: ["provider"],
       configJsonSource: "config",
@@ -183,11 +178,11 @@ describe("api-key-resolver", () => {
       auth: {
         policy: "invalid-aware-api-key",
         authKeys: ["provider"],
-        authSource: "auth.json",
+        authSource: "opencode.db",
         displayName: "Provider",
         defaultMaxAgeMs: 5_000,
         readAuth: invalidReadAuth,
-        getAuthPaths: () => ["/tmp/auth.json"],
+        getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
       },
     });
 
@@ -197,6 +192,55 @@ describe("api-key-resolver", () => {
       error: 'Unsupported Provider auth type: "oauth"',
     });
     expect(invalidReadAuth).toHaveBeenCalledWith(0);
+  });
+
+  it("reads OpenCode 2 native provider settings before the legacy provider options", () => {
+    const params = { providerKeys: ["deepseek"], allowedEnvVars: ["DEEPSEEK_API_KEY"] };
+
+    expect(
+      extractProviderOptionsApiKey(
+        { providers: { deepseek: { settings: { apiKey: " native-key " } } } },
+        params,
+      ),
+    ).toBe("native-key");
+    expect(
+      extractProviderOptionsApiKey(
+        {
+          provider: { deepseek: { options: { apiKey: "legacy-key" } } },
+          providers: { deepseek: { settings: { apiKey: "native-key" } } },
+        },
+        params,
+      ),
+    ).toBe("native-key");
+    expect(
+      extractProviderOptionsApiKey(
+        {
+          provider: { deepseek: { options: { apiKey: "legacy-key" } } },
+          providers: { deepseek: { name: "DeepSeek" } },
+        },
+        params,
+      ),
+    ).toBeNull();
+    expect(
+      extractProviderOptionsApiKey(
+        { provider: { deepseek: { options: { apiKey: "legacy-key" } } } },
+        params,
+      ),
+    ).toBe("legacy-key");
+
+    process.env.TEST_PROVIDER_KEY = "templated-key";
+    expect(
+      extractProviderOptionsApiKey(
+        { providers: { deepseek: { settings: { apiKey: "{env:TEST_PROVIDER_KEY}" } } } },
+        params,
+      ),
+    ).toBeNull();
+    expect(
+      extractProviderOptionsApiKey(
+        { providers: { deepseek: { settings: { apiKey: "{env:TEST_PROVIDER_KEY}" } } } },
+        { providerKeys: ["deepseek"], allowedEnvVars: ["TEST_PROVIDER_KEY"] },
+      ),
+    ).toBe("templated-key");
   });
 
   it("extracts only strict api key auth entries", () => {
@@ -222,6 +266,16 @@ describe("api-key-resolver", () => {
       extractAuthApiKeyEntry(
         {
           provider: { type: "oauth", key: "auth-key" },
+        },
+        ["provider"],
+      ),
+    ).toBeNull();
+
+    // A login OpenCode could not return carries no key, so strict resolvers see nothing.
+    expect(
+      extractAuthApiKeyEntry(
+        {
+          provider: { type: "api", resolveError: "refresh_failed: HTTP 400" },
         },
         ["provider"],
       ),

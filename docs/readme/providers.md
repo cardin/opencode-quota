@@ -12,7 +12,7 @@
 
 ## Pre-configured providers
 
-Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
+Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`, read through OpenCode 2's plugin API. If you have several logins for one provider, each one gets its own rows and `(active)` marks the one OpenCode uses. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
 
 ### American providers
 
@@ -31,7 +31,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the c
 | Ollama Cloud       | Automatic                              | Remote API         | Quota and usage    |
 | OpenAI             | Automatic                              | Remote API         | Quota              |
 | OpenCode Go        | Automatic                              | Remote API         | Quota              |
-| OpenCode Zen       | [Needs setup](#opencode-zen)           | Remote API         | Budget and balance |
+| OpenCode Zen       | Automatic                              | Remote API         | Budget and balance |
 | OpenRouter         | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                              | Remote API         | Quota              |
 | xAI                | Automatic                              | Remote API         | Quota              |
@@ -51,7 +51,7 @@ Most providers work automatically. `Automatic` means OpenCode Quota reuses the c
 | Google AGY              | [Needs setup](#google-agy-quick-setup) | Remote API         | Quota              |
 | NanoGPT                 | Automatic                              | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                              | Remote API         | Quota              |
-| OpenCode Zen            | [Needs setup](#opencode-zen)           | Remote API         | Budget and balance |
+| OpenCode Zen            | Automatic                              | Remote API         | Budget and balance |
 | OpenRouter              | Automatic                              | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                              | Remote API         | Quota              |
 | xAI                     | Automatic                              | Remote API         | Quota              |
@@ -129,7 +129,7 @@ Custom providers can report quota, rate limit, usage, spend, budget, balance, or
 Run the guided setup:
 
 ```bash
-npx @slkiser/opencode-quota@4 provider add
+npx @slkiser/opencode-quota@latest provider add
 ```
 
 It asks only how the provider works, previews the exact global config change, and asks before writing. It does not ask for a response body, credential, or secret value.
@@ -273,7 +273,7 @@ Credentials are checked in this order:
 
 1. The environment variable named by `apiKeyEnv`.
 2. Trusted global `provider.<providerId>.options.apiKey`.
-3. An API-key entry in OpenCode `auth.json`.
+3. An API-key login saved in OpenCode 2 (`opencode.db`) for that provider id.
 
 Project secrets are never read. Custom definitions cannot add scripts, methods, headers, templates, executable mappings, regular expressions, JSONPath, or automatic endpoint discovery.
 
@@ -391,16 +391,16 @@ Official references: [AI Credit billing reports](https://docs.github.com/en/rest
 
 ### Anthropic (Claude)
 
-OpenCode's existing Anthropic OAuth credential is sufficient; a separate Claude Code installation is not required. To use Claude Code as the local quota source and credential fallback, install it, authenticate it, and make sure `claude` is on your `PATH`:
+OpenCode's existing Anthropic OAuth credential is sufficient; a separate Claude Code installation is not required. To use Claude Code as the local quota source and credential fallback, install it and authenticate it. OpenCode Quota runs `claude` from OpenCode's `PATH`, or else from the first of `~/.claude/local/claude`, `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, and `/usr/local/bin/claude` that works (not on Windows):
 
 ```bash
 claude auth login
 claude auth status
 ```
 
-If Claude lives at a custom path, set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`.
+If Claude lives elsewhere, or on Windows when `claude` is not on OpenCode's `PATH`, set `anthropicBinaryPath` in `opencode-quota/quota-toast.json`. `/quota_status` shows the one it ran as `binary_path`.
 
-When Claude Code does not expose quota windows itself, quota is read from Anthropic's OAuth usage endpoint using the first usable access token: OpenCode's own `anthropic` OAuth credential from `auth.json`, then Claude Code's credentials. `/quota_status` reports which store answered as `oauth_credential_source`.
+When Claude Code does not expose quota windows itself, quota is read from Anthropic's OAuth usage endpoint using the first usable access token: OpenCode's own `anthropic` OAuth login, then Claude Code's credentials. `/quota_status` reports which store answered as `oauth_credential_source`.
 
 When that OAuth response includes enabled Usage Credits with numeric utilization, quota displays show a separate monthly **Claude Usage Credits** group; missing or invalid credit data leaves the regular 5-hour and weekly rows unchanged.
 
@@ -410,11 +410,15 @@ If that response includes Anthropic's model-scoped Fable weekly window, OpenCode
 
 ### Cursor
 
-Use companion plugin [`@playwo/opencode-cursor-oauth`](https://github.com/PoolPirate/opencode-cursor#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate once:
+Use companion plugin [`cursor-opencode-provider`](https://github.com/oakimov/cursor-opencode-provider#readme). Add its OpenCode 2 entry before `@slkiser/opencode-quota` in `opencode.json`:
 
-```bash
-opencode auth login --provider cursor
+```jsonc
+{
+  "plugin": ["cursor-opencode-provider/plugin/opencode2", "@slkiser/opencode-quota"],
+}
 ```
+
+Restart OpenCode, run `/connect`, choose **Cursor**, then sign in with **Cursor account (browser login)** or paste an **API key** from [cursor.com/settings](https://cursor.com/settings). A `CURSOR_API_KEY` environment variable also works. OpenCode 1 Cursor plugins such as `@playwo/opencode-cursor-oauth` and `@rama_nigg/open-cursor` do not run on OpenCode 2; replace them with this entry.
 
 Cursor estimates the current local billing cycle from OpenCode history. With complete model coverage and a positive configured/preset allowance, it shows an **API budget** percentage with used, limit, and remaining USD facts. If any Cursor model is unknown, it shows only **Known API spend** plus a partial-data issue; it never presents that partial spend as total account spend or a percentage. Without an allowance it shows **API spend**. **Auto+Composer spend** is supplementary and appears in detailed output when space allows.
 
@@ -431,7 +435,7 @@ npm install -g bailian-cli
 bl auth login --console
 ```
 
-OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute PATH directories outside the workspace. On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
+OpenCode Quota runs only `bl usage token-plan --output json`. It does not install `bl`, open a login flow, read console cookies, or accept a custom command. macOS and Linux resolve `bl` from absolute directories on the `PATH`: the OpenCode service's inside OpenCode, your shell's from the terminal command. Relative entries are ignored, and so is anything inside the project folder quota is shown for, including a `bl` that links into it. Your home folder does not count as a project, so `~/.local/bin` and nvm folders work. On Windows, use WSL. Native Windows `bl.exe` and `.cmd` shims are not supported in this release.
 
 Team plans, China-only `alibaba-token-plan-cn` runtimes, and cookie-based console scraping are out of scope. After you change the CLI's active console account, restart OpenCode or wait for the next live probe. `/quota_status` has an `alibaba_token_plan` live probe that stays separate from Alibaba Coding Plan diagnostics.
 
@@ -443,13 +447,15 @@ OpenCode Quota's Google integrations use independent community companion plugins
 
 ### Google AGY
 
-Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://github.com/anthonyhaussman/opencode-agy-auth). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
+Use companion plugin [`@anthonyhaussman/opencode-agy-auth`](https://github.com/anthonyhaussman/opencode-agy-auth). OpenCode 2 needs its OpenCode 2 build, currently the alpha: `@anthonyhaussman/opencode-agy-auth@alpha`. Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once and choose **Antigravity CLI (OAuth)**:
 
 Google AGY reports the companion's grouped weekly and five-hour quota windows for each account.
 
 ```bash
-opencode auth login --provider google-agy
+opencode auth login google-agy
 ```
+
+AGY logins copied from OpenCode 1 keep working.
 
 If you use manual provider selection, include `google-agy` in `enabledProviders`.
 
@@ -459,13 +465,13 @@ If you use manual provider selection, include `google-agy` in `enabledProviders`
 }
 ```
 
-If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_ID` or `provider.google-agy.options.projectId`.
+If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_ID` or `projectId` in your user/global `opencode.json` (the OpenCode 1 form `provider.google-agy.options.projectId` also works):
 
 ```jsonc
 {
-  "provider": {
+  "providers": {
     "google-agy": {
-      "options": {
+      "settings": {
         "projectId": "your-google-cloud-project",
       },
     },
@@ -479,10 +485,10 @@ If the AGY auth entry does not include a project id, set `OPENCODE_AGY_PROJECT_I
 
 Gemini CLI works only with Gemini Code Assist Standard or Enterprise (organization) accounts. Google ended personal Gemini Code Assist accounts (individual, AI Pro, and AI Ultra) on 2026-06-18; see [Google's notice](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals). Personal Google users should use [Google AGY](#google-agy-quick-setup).
 
-Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme). Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once:
+Use companion plugin [`opencode-gemini-auth`](https://github.com/jenslys/opencode-gemini-auth#readme) 2.x, which supports OpenCode 2. Add it before `@slkiser/opencode-quota` in `opencode.json`, then authenticate Google once and choose **OAuth with Google (Gemini CLI)**:
 
 ```bash
-opencode auth login --provider google
+opencode auth login google
 ```
 
 If you use manual provider selection, include `google-gemini-cli` in `enabledProviders`.
@@ -537,7 +543,7 @@ Credentials resolve in this order:
 
 1. `KILO_API_KEY`
 2. Trusted user/global OpenCode config: `provider.kilo.options.apiKey`
-3. A strict `kilo` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`
+3. A `kilo` API-key login saved in OpenCode 2 (`opencode.db`)
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. The canonical OpenCode provider ID is `kilo`; if you use manual provider selection, include `kilo` in `enabledProviders`.
 
@@ -592,7 +598,7 @@ Credentials resolve in this order:
 
 1. `OLLAMA_API_KEY`
 2. Trusted user/global OpenCode config: `provider.ollama-cloud.options.apiKey`
-3. A strict `ollama-cloud` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`
+3. An `ollama-cloud` API-key login saved in OpenCode 2 (`opencode.db`)
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. The old `OLLAMA_USAGE_COOKIE`, `ollama-cloud.json`, and `ollama-usage/config.yaml` cookie setup is no longer supported.
 
@@ -600,13 +606,13 @@ Project-local `opencode.json` and `opencode.jsonc` files are not read for this s
 
 ### OpenCode Go
 
-OpenCode Go reads subscription quota from the official `https://opencode.ai/zen/go/v1/usage` API. OpenCode Quota automatically resolves the API key in this order:
+If you are signed in to the OpenCode Console in OpenCode 2, OpenCode Go first reads the Console's `/api/go/status`; if you are not signed in, the sign-in expired or cannot be read, or that call fails, it reads the official `https://opencode.ai/zen/go/v1/usage` API with your API key. Without an API key, a sign-in OpenCode cannot return shows as an OpenCode Go error, and a failed Console call shows no Go quota (`/quota_status` lists `console_error`). If the Console reports no Go subscription (for example HTTP 404), no Go rows appear. An HTTP 403 counts as a failed Console call. OpenCode Quota automatically resolves the API key in this order:
 
 1. `OPENCODE_API_KEY`
 2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
 3. Trusted user/global fallback: `provider.opencode.options.apiKey`
-4. A strict `opencode-go` API-key entry in OpenCode `auth.json`: `{ "type": "api", "key": "..." }`. This is the key the OpenCode CLI writes via `opencode auth login -p opencode-go`.
-5. A strict legacy `opencode` API-key entry in `auth.json` as the final fallback.
+4. An `opencode-go` API-key login saved in OpenCode 2 (`opencode.db`). `opencode auth login opencode-go` creates it.
+5. A legacy `opencode` API-key login as the final fallback.
 
 Project-local `opencode.json` and `opencode.jsonc` files are not read for this secret. Use `opencodeGoWindows` to choose which validated API results appear across surfaces and in the expanded sidebar: **Five-hour**, **Weekly**, and/or **Monthly**. To keep those rows expanded but prefer one while the sidebar is collapsed, set `tuiSidebarPanel.opencodeGoPreferredWindow` to `rolling`, `weekly`, or `monthly`; an unset or unavailable preference keeps the lowest-remaining selection. These settings do not change authentication or the API request.
 
@@ -618,13 +624,13 @@ The updater reports obsolete `OPENCODE_GO_WORKSPACE_ID`, `OPENCODE_GO_AUTH_COOKI
 
 ### OpenCode Zen
 
-OpenCode Zen reads billing and usage from unofficial OpenCode Console routes (`/api/billing/status`, `/api/billing/account`, `/api/billing/auto-recharge`, `/api/budgets/org`, and `/api/usage/cost-by-day`), so OpenCode may change them. It uses the Console session that OpenCode stores after `opencode console login`; no cookie or workspace ID is needed.
+OpenCode Zen reads billing and usage from unofficial OpenCode Console routes (`/api/billing/status`, `/api/billing/account`, `/api/billing/auto-recharge`, `/api/budgets/org`, and `/api/usage/cost-by-day`), so OpenCode may change them. It uses your OpenCode Console sign-in from OpenCode 2; no cookie or workspace ID is needed.
 
-1. In a terminal, run `opencode console login` and sign in.
-2. If you belong to several organizations, run `opencode console switch` and pick the one to track.
+1. In a terminal, run `opencode auth login opencode`, sign in to the Console in your browser, and pick the organization to track.
+2. To track another organization, sign in again and pick it. With several saved Console sign-ins, `opencode auth switch opencode` chooses the active one, and Zen follows it.
 3. Check it with `/quota_status` in OpenCode, or `opencode-quota status` in a terminal.
 
-OpenCode Quota only reads that session from OpenCode's local database; it never refreshes or writes tokens. When the session expires, Zen asks you to run `opencode console login` again; with no active organization, it asks for `opencode console switch`. Without a Console sign-in, auto mode skips Zen.
+When Zen reads the sign-in inside OpenCode, OpenCode refreshes its token if needed; the terminal command does not. If the sign-in fails or the Console rejects it, Zen asks you to run `opencode auth login opencode` again. Without a Console sign-in (an OpenCode API key alone is not one), auto mode skips Zen; include `opencode` in `enabledProviders` to see the sign-in hint instead.
 
 > The old `opencode-quota/opencode.json` file (`workspaceId` + `consoleSessionCookie`) and the `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE` variables are no longer read. Remove them after Zen works; see [Updating safely](updating.md#opencode-zen-findings).
 

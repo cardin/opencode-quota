@@ -2,20 +2,24 @@ export const UPSTREAM_PLUGIN_REFERENCE_ROOT = "references/upstream-plugins";
 
 const RAW_UPSTREAM_PLUGIN_SPECS = [
   {
-    pluginId: "opencode-cursor-oauth",
-    packageName: "@playwo/opencode-cursor-oauth",
-    repoOwner: "PoolPirate",
-    repoName: "opencode-cursor",
+    pluginId: "cursor-opencode-provider",
+    packageName: "cursor-opencode-provider",
+    distTag: "latest",
+    repoOwner: "oakimov",
+    repoName: "cursor-opencode-provider",
   },
   {
     pluginId: "opencode-gemini-auth",
     packageName: "opencode-gemini-auth",
+    distTag: "latest",
     repoOwner: "jenslys",
     repoName: "opencode-gemini-auth",
   },
   {
     pluginId: "opencode-agy-auth",
     packageName: "@anthonyhaussman/opencode-agy-auth",
+    // The OpenCode 2 build ships only on the alpha dist-tag; `latest` is the OpenCode 1 build.
+    distTag: "alpha",
     repoOwner: "anthonyhaussman",
     repoName: "opencode-agy-auth",
     allowMissingRepositoryMetadata: true,

@@ -1,40 +1,24 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 
 import { openOpenCodeSqliteReadOnly } from "../src/lib/opencode-sqlite.js";
 
-const runtimePaths = vi.hoisted(() => ({ dataDirs: [] as string[] }));
+const runtimePaths = vi.hoisted(() => ({ dataDir: "" }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({ dataDirs: runtimePaths.dataDirs }),
+  getOpencodeRuntimeDirs: () => ({ dataDir: runtimePaths.dataDir }),
 }));
-
-async function importNodeSqlite(): Promise<typeof import("node:sqlite") | null> {
-  try {
-    return await import("node:sqlite");
-  } catch {
-    return null;
-  }
-}
 
 describe("opencode sqlite adapter", () => {
   it("reads an OpenCode SQLite database through node:sqlite on Node runtimes", async () => {
-    const sqlite = await importNodeSqlite();
-
-    if (!sqlite) {
-      console.warn(
-        "Skipping node:sqlite adapter coverage because this Node runtime does not provide node:sqlite.",
-      );
-      return;
-    }
-
     const dir = await mkdtemp(join(tmpdir(), "opencode-sqlite-"));
     const dbPath = join(dir, "opencode.db");
 
     try {
-      const writer = new sqlite.DatabaseSync(dbPath);
+      const writer = new DatabaseSync(dbPath);
       writer.exec(`
         CREATE TABLE usage (
           id INTEGER PRIMARY KEY,
@@ -72,49 +56,45 @@ describe("opencode sqlite adapter", () => {
   });
 
   it("reads authoritative completed assistant rows by completion time", async () => {
-    const sqlite = await importNodeSqlite();
-
-    if (!sqlite) {
-      console.warn(
-        "Skipping completed accounting integration coverage because this Node runtime does not provide node:sqlite.",
-      );
-      return;
-    }
-
     const dir = await mkdtemp(join(tmpdir(), "opencode-accounting-"));
     const dbPath = join(dir, "opencode.db");
     const cutoff = Date.parse("2026-07-16T00:00:00.000Z");
 
     try {
-      runtimePaths.dataDirs = [dir];
-      const writer = new sqlite.DatabaseSync(dbPath);
+      runtimePaths.dataDir = dir;
+      const writer = new DatabaseSync(dbPath);
       writer.exec(`
-        CREATE TABLE "message" (
+        CREATE TABLE "session_v2" (
+          id TEXT PRIMARY KEY
+        );
+        CREATE TABLE "session_message" (
           id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          seq INTEGER NOT NULL,
           time_created INTEGER NOT NULL,
           time_updated INTEGER NOT NULL,
           data TEXT NOT NULL
         );
       `);
       const insert = writer.prepare(
-        `INSERT INTO "message" (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO "session_message" (id, session_id, type, seq, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       );
       const add = (
         id: string,
-        role: "assistant" | "user",
+        type: "assistant" | "user",
         created: number,
         completed?: number,
       ): void => {
         insert.run(
           id,
           "ses_accounting",
+          type,
+          created,
           created,
           completed ?? created,
           JSON.stringify({
-            role,
-            providerID: "alibaba-coding-plan",
-            modelID: "qwen-plus",
+            model: { id: "qwen-plus", providerID: "alibaba-coding-plan" },
             time: completed === undefined ? { created } : { created, completed },
           }),
         );
@@ -143,7 +123,7 @@ describe("opencode sqlite adapter", () => {
       ]);
       expect(messages.every((message) => typeof message.time?.completed === "number")).toBe(true);
     } finally {
-      runtimePaths.dataDirs = [];
+      runtimePaths.dataDir = "";
       await rm(dir, { recursive: true, force: true });
     }
   });

@@ -76,7 +76,8 @@ describe("quota provider four-surface formatting", () => {
     }
     expect(command).toContain("one source unavailable");
     expect(toast).toContain("one source unavailable");
-    expect(sidebar).toContain("one source unavailable");
+    // The sidebar wraps long error rows to its width.
+    expect(sidebar.replaceAll("\n", " ")).toContain("one source unavailable");
     expect(compact).toContain("issue");
   });
 });

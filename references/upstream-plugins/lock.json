@@ -1,20 +1,20 @@
 {
   "plugins": {
+    "cursor-opencode-provider": {
+      "npmUrl": "https://www.npmjs.com/package/cursor-opencode-provider/v/0.7.3",
+      "packageName": "cursor-opencode-provider",
+      "publishedAt": "2026-09-25T23:54:22.656Z",
+      "referenceDir": "references/upstream-plugins/cursor-opencode-provider",
+      "repo": "oakimov/cursor-opencode-provider",
+      "version": "0.7.3"
+    },
     "opencode-agy-auth": {
-      "npmUrl": "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.2.11",
+      "npmUrl": "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.2.11-alpha.0",
       "packageName": "@anthonyhaussman/opencode-agy-auth",
-      "publishedAt": "2026-09-25T06:33:34.440Z",
+      "publishedAt": "2026-09-25T06:34:38.455Z",
       "referenceDir": "references/upstream-plugins/opencode-agy-auth",
       "repo": "anthonyhaussman/opencode-agy-auth",
-      "version": "1.2.11"
-    },
-    "opencode-cursor-oauth": {
-      "npmUrl": "https://www.npmjs.com/package/%40playwo/opencode-cursor-oauth/v/0.4.3",
-      "packageName": "@playwo/opencode-cursor-oauth",
-      "publishedAt": "2026-04-08T14:04:58.057Z",
-      "referenceDir": "references/upstream-plugins/opencode-cursor-oauth",
-      "repo": "PoolPirate/opencode-cursor",
-      "version": "0.4.3"
+      "version": "1.2.11-alpha.0"
     },
     "opencode-gemini-auth": {
       "npmUrl": "https://www.npmjs.com/package/opencode-gemini-auth/v/2.0.1",

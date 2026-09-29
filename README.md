@@ -23,48 +23,52 @@
 ## Quick start
 
 ```bash
-npx @slkiser/opencode-quota@4 init
+npx @slkiser/opencode-quota init
 ```
 
 > [!IMPORTANT]
-> Node.js `>= 22` is required.
+> Requires OpenCode `2.0.16` or newer. On OpenCode 1? Use `npx @slkiser/opencode-quota@4 init`. Node.js `22.13+` is required for `npx @slkiser/opencode-quota ...` (on Node 23, `23.4+`).
 
-Upgrading from v3? Read the [v4 migration guide](docs/readme/v4-migration.md).
+Upgrading from 4.x? Read [what changed in 5.0](#breaking-changes-in-500).
 
 After installation:
 
 1. Restart OpenCode.
-2. Run a slash command in OpenCode, or use `opencode-quota show` from your terminal.
+2. Run `/quota` in the OpenCode TUI, or `opencode-quota show` in a terminal.
 3. If you enabled the sidebar, open the session sidebar and look for `Quota`.
 4. If you enabled the compact status line, look at the bottom of Home or below the message input.
 
 ## Updating
 
-OpenCode 1 users stay on 4.x: OpenCode Quota 5 needs OpenCode 2. The updater pins your plugin to `@4`.
-
 1. Close OpenCode.
 2. Preview the update:
 
    ```bash
-   npx @slkiser/opencode-quota@4 update --dry-run
+   npx @slkiser/opencode-quota@latest update --dry-run
    ```
 
 3. Inspect the safe setting/cache changes and manual credential findings, then apply:
 
    ```bash
-   npx @slkiser/opencode-quota@4 update
+   npx @slkiser/opencode-quota@latest update
    ```
 
 4. Restart OpenCode.
 
-The updater prints the complete preview before its own config or cache changes. `--yes` authorizes only the previewed safe config edits and manifest-verified cache cleanup; it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md) for detailed behavior and manual credential steps.
+The updater always shows a preview first. `--yes` applies only the safe edits it previewed, and it never moves or deletes secrets. See [Updating safely](docs/readme/updating.md).
 
-**Breaking changes since 4.10.3:**
+### Breaking changes in 5.0.0
 
-- Qwen Code was removed because Qwen ended its OAuth free tier; use Alibaba Coding Plan.
-- Google Antigravity was removed because its companion plugin is archived and Google rejects it; use Google AGY.
-- Personal Google accounts can no longer use Gemini CLI because Google ended them on 2026-06-18; use Google AGY.
-- OpenCode Zen now uses your `opencode console login` session; the copied Console cookie file is no longer read. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
+> [!WARNING]
+> - OpenCode 1 is no longer supported. `init` and `update` detect OpenCode 1 and keep you on 4.x (`@slkiser/opencode-quota@4`).
+> - Logins come from OpenCode 2 (it keeps them in `opencode.db`), never from `auth.json`. If a provider is missing, log in again.
+> - Inside OpenCode, logins go through the plugin API and quota is computed in OpenCode's background service, so `PATH` and environment variables come from the service. See [Service environment](docs/readme/troubleshooting.md#service-environment). The terminal command reads `opencode.db` read-only and uses your terminal's environment.
+> - Web and Desktop get the slash commands (report posts in the chat) but no toasts or panels.
+> - One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
+> - TUI slash reports now open in a popup. Set `tuiCommandDisplay: "inline"` to keep them in the chat.
+> - OpenCode Zen uses your OpenCode Console sign-in (`opencode auth login opencode`); the copied Console cookie file is no longer read. See [OpenCode Zen setup](docs/readme/providers.md#opencode-zen).
+>
+> Details: [Moving to OpenCode 2](docs/readme/updating.md#moving-to-opencode-2).
 
 ## Choose your setup
 
@@ -97,18 +101,21 @@ The updater prints the complete preview before its own config or cache changes. 
 
 More ways to use it:
 
-- Check quota anywhere: use `opencode-quota show` in a terminal or the same slash commands in the TUI, Web, and Desktop.
-- Automate quota checks with JSON output for scripts, status bars, and CI. Optional OpenTelemetry metrics support monitoring tools.
-- Customize the display with [`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings), OpenCode Go's preferred collapsed-sidebar window, spaced reset countdowns by default with a `resetTimeSpaced: false` dense opt-out, decimal reset precision, bare percent labels, and [`accountingDetail`](docs/readme/configuration.md#show-accounting-detail).
-- Optionally estimate **Runs out ≈ 1h 50m** for supported fixed windows with [`quotaProjection: "runway"`](docs/readme/configuration.md#estimate-when-fixed-quota-runs-out). It is off by default and leaves JSON output unchanged.
-- Choose current-session or descendant-tree token totals. Get reset popups for selected windows with [`resetNotifications`](docs/readme/configuration.md#notify-when-quota-becomes-available-again).
-- Troubleshoot authentication, quota sources, pricing, and maintainer notices.
+- **Terminal:** run `npx @slkiser/opencode-quota show` (works with OpenCode closed). In Web and Desktop, slash commands post the report in the chat, and the AI can call the `quota_status` tool.
+- **Several logins:** each login for a provider gets its own rows; `(active)` marks the one OpenCode uses.
+- **Scripts and CI:** JSON output and optional OpenTelemetry metrics. See [External integration](docs/readme/external-integration.md).
+- **Display:** a quota bar under the prompt ([`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings)), OpenCode Go's collapsed-sidebar row ([`tuiSidebarPanel.opencodeGoPreferredWindow`](docs/readme/configuration.md#tui-settings)), reset countdown style ([`resetTimeSpaced`](docs/readme/configuration.md#common-changes), [`resetTimeDecimals`](docs/readme/configuration.md#common-changes)), bare `81%` labels ([`percentLabelStyle`](docs/readme/configuration.md#common-changes)), and extra accounting rows ([`accountingDetail`](docs/readme/configuration.md#show-accounting-detail)).
+- **Runs-out estimate:** [`quotaProjection: "runway"`](docs/readme/configuration.md#estimate-when-fixed-quota-runs-out) shows **Runs out ≈ 1h 50m** for supported fixed windows. Off by default; JSON is unchanged.
+- **Tokens and resets:** include subagent sessions with [`sessionTokenScope: "tree"`](docs/readme/configuration.md#include-subagent-session-tokens); get a popup when quota comes back with [`resetNotifications`](docs/readme/configuration.md#notify-when-quota-becomes-available-again).
+- **Troubleshooting:** `/quota_status` checks logins, quota sources, pricing, and maintainer notices.
 
 See [Configuration](docs/readme/configuration.md) for UI options and [Manual install](docs/readme/manual-install.md) for setup details.
 
 ## Commands
 
 ### Core slash commands
+
+Type these in OpenCode. Add arguments after the command, like `/tokens_between 2026-09-01 2026-09-25`. See [Web and Desktop notes](docs/readme/manual-install.md#web-and-desktop-notes).
 
 | Command                                 | Use when                                                        |
 | --------------------------------------- | --------------------------------------------------------------- |
@@ -131,13 +138,13 @@ Use the CLI for setup, updates, terminal checks, and custom providers.
 
 | Command                                                  | What it does                                |
 | -------------------------------------------------------- | ------------------------------------------- |
-| `npx @slkiser/opencode-quota@4 init`                | Set up OpenCode Quota                       |
-| `npx @slkiser/opencode-quota@4 provider add`        | Add or update a custom provider             |
-| `npx @slkiser/opencode-quota@4 show`                | Show current quota                          |
-| `npx @slkiser/opencode-quota@4 status`              | Check configuration and provider problems  |
-| `npx @slkiser/opencode-quota@4 update`              | Update an existing installation             |
+| `npx @slkiser/opencode-quota@latest init`                | Set up OpenCode Quota                       |
+| `npx @slkiser/opencode-quota@latest provider add`        | Add or update a custom provider             |
+| `npx @slkiser/opencode-quota@latest show`                | Show current quota                          |
+| `npx @slkiser/opencode-quota@latest status`              | Check configuration and provider problems  |
+| `npx @slkiser/opencode-quota@latest update`              | Update an existing installation             |
 
-Run `npx @slkiser/opencode-quota@4 --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
+`show` and `status` work with OpenCode closed: they read logins from `opencode.db` read-only, never refresh a token (a sign-in can show as expired, for example `Token expired`, until you open OpenCode), take `PATH` and API-key variables from your shell, and use the settings of the folder you run them in (a project's `opencode-quota/quota-toast.jsonc` applies). Run `npx @slkiser/opencode-quota@latest --help` for command options. See [External integration](docs/readme/external-integration.md#1-get-json-from-a-command) for JSON, scripts, and CI examples.
 
 ## Providers
 
@@ -158,7 +165,7 @@ Run `npx @slkiser/opencode-quota@4 --help` for command options. See [External in
 | Ollama Cloud       | Automatic                                                      | Remote API         | Quota and usage    |
 | OpenAI             | Automatic                                                      | Remote API         | Quota              |
 | OpenCode Go        | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen       | [Needs setup](docs/readme/providers.md#opencode-zen)           | Remote API         | Budget and balance |
+| OpenCode Zen       | Automatic                                                      | Remote API         | Budget and balance |
 | OpenRouter         | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic          | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok      | Automatic                                                      | Remote API         | Quota              |
@@ -178,7 +185,7 @@ Run `npx @slkiser/opencode-quota@4 --help` for command options. See [External in
 | Google AGY              | [Needs setup](docs/readme/providers.md#google-agy-quick-setup) | Remote API         | Quota              |
 | NanoGPT                 | Automatic                                                      | Remote API         | Quota and balance  |
 | OpenAI                  | Automatic                                                      | Remote API         | Quota              |
-| OpenCode Zen            | [Needs setup](docs/readme/providers.md#opencode-zen)           | Remote API         | Budget and balance |
+| OpenCode Zen            | Automatic                                                      | Remote API         | Budget and balance |
 | OpenRouter              | Automatic                                                      | Remote API         | Budget and spend   |
 | Synthetic               | Automatic                                                      | Remote API         | Quota              |
 | xAI SuperGrok           | Automatic                                                      | Remote API         | Quota              |
@@ -227,7 +234,7 @@ These vendors offer team or business plans, but the current integrations report 
 Add a provider that uses a remote quota API or tracks a local usage estimate:
 
 ```bash
-npx @slkiser/opencode-quota@4 provider add
+npx @slkiser/opencode-quota@latest provider add
 ```
 
 The guided setup previews the change before saving. See the [custom-provider guide](docs/readme/providers.md#custom-providers) for details.
@@ -236,8 +243,8 @@ The guided setup previews the change before saving. See the [custom-provider gui
 
 If quota or token data looks wrong:
 
-1. Run `/quota_status` in OpenCode, or `opencode-quota status` from a terminal for the same diagnostics. Use `opencode-quota show` for a quick quota glance.
-2. Confirm the expected provider appears in the detected provider list.
+1. Run `/quota_status` in the OpenCode TUI, or `opencode-quota status` from a terminal for the same diagnostics. Use `opencode-quota show` for a quick quota glance.
+2. Confirm the expected provider appears in the detected provider list. If it is missing, log in to it again in OpenCode 2. `credential_source` lists logins OpenCode could not return.
 3. Confirm companion auth plugins are before `@slkiser/opencode-quota` in `opencode.json`.
 4. If token reports are empty, start OpenCode once so it creates `opencode.db`, then run a session with model usage.
 5. Check [Troubleshooting](docs/readme/troubleshooting.md) for common symptoms and provider-specific fixes.
@@ -251,6 +258,7 @@ Project guides:
 - [Providers](docs/readme/providers.md)
 - [Troubleshooting](docs/readme/troubleshooting.md)
 - [External integration](docs/readme/external-integration.md)
+- [Updating safely](docs/readme/updating.md)
 
 External references:
 

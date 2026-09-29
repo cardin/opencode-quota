@@ -2,12 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-type RuntimeDirCandidates = {
-  dataDirs: string[];
-  configDirs: string[];
-  cacheDirs: string[];
-  stateDirs: string[];
-};
+import type { OpencodeRuntimeDirs } from "../../src/lib/opencode-runtime-paths.js";
 
 type ConfigLoaderWorkspaceOptions = {
   nestedPath?: string[];
@@ -21,19 +16,19 @@ export type ConfigLoaderWorkspace = {
   xdgDataHome: string;
   xdgCacheHome: string;
   xdgStateHome: string;
-  appDataRoaming: string;
-  appDataLocal: string;
   opencodeConfigDir: string;
-  runtimeDirs: RuntimeDirCandidates;
+  runtimeDirs: OpencodeRuntimeDirs;
   cleanup: () => void;
 };
 
-export function createEmptyRuntimeDirCandidates(): RuntimeDirCandidates {
+/** Runtime dirs under `root/unused-runtime`, which tests never create. */
+export function createUnusedRuntimeDirs(root: string): OpencodeRuntimeDirs {
+  const base = join(root, "unused-runtime");
   return {
-    dataDirs: [],
-    configDirs: [],
-    cacheDirs: [],
-    stateDirs: [],
+    dataDir: join(base, "data"),
+    configDir: join(base, "config"),
+    cacheDir: join(base, "cache"),
+    stateDir: join(base, "state"),
   };
 }
 
@@ -50,8 +45,6 @@ export function createConfigLoaderWorkspace(
   const xdgDataHome = join(tempDir, "xdg-data");
   const xdgCacheHome = join(tempDir, "xdg-cache");
   const xdgStateHome = join(tempDir, "xdg-state");
-  const appDataRoaming = join(tempDir, "appdata", "roaming");
-  const appDataLocal = join(tempDir, "appdata", "local");
   const opencodeConfigDir = join(xdgConfigHome, "opencode");
 
   mkdirSync(nestedDir, { recursive: true });
@@ -65,14 +58,12 @@ export function createConfigLoaderWorkspace(
     xdgDataHome,
     xdgCacheHome,
     xdgStateHome,
-    appDataRoaming,
-    appDataLocal,
     opencodeConfigDir,
     runtimeDirs: {
-      dataDirs: [join(xdgDataHome, "opencode")],
-      configDirs: [opencodeConfigDir],
-      cacheDirs: [join(xdgCacheHome, "opencode")],
-      stateDirs: [join(xdgStateHome, "opencode")],
+      dataDir: join(xdgDataHome, "opencode"),
+      configDir: opencodeConfigDir,
+      cacheDir: join(xdgCacheHome, "opencode"),
+      stateDir: join(xdgStateHome, "opencode"),
     },
     cleanup: () => rmSync(tempDir, { recursive: true, force: true }),
   };
@@ -80,7 +71,7 @@ export function createConfigLoaderWorkspace(
 
 export function createConfigLoaderEnv(
   workspace: ConfigLoaderWorkspace,
-  options: { home?: string; includePlatformAppData?: boolean } = {},
+  options: { home?: string } = {},
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     XDG_CONFIG_HOME: workspace.xdgConfigHome,
@@ -91,11 +82,6 @@ export function createConfigLoaderEnv(
 
   if (options.home !== undefined) {
     env.HOME = options.home;
-  }
-
-  if (options.includePlatformAppData) {
-    env.APPDATA = workspace.appDataRoaming;
-    env.LOCALAPPDATA = workspace.appDataLocal;
   }
 
   return env;

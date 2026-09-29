@@ -67,6 +67,14 @@ describe("anthropic auth resolution", () => {
     });
   });
 
+  it("reports a login OpenCode could not return as failed", () => {
+    expect(
+      resolveAnthropicOAuth({
+        anthropic: { type: "oauth", resolveError: "refresh_failed: HTTP 500" },
+      }),
+    ).toEqual({ state: "failed", error: "refresh_failed: HTTP 500" });
+  });
+
   it("returns none when auth data is missing", () => {
     expect(resolveAnthropicOAuth(null)).toEqual({ state: "none" });
     expect(resolveAnthropicOAuth({})).toEqual({ state: "none" });
@@ -83,6 +91,7 @@ describe("anthropic auth resolution", () => {
     });
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_ANTHROPIC_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["anthropic"],
     });
   });
 
@@ -90,6 +99,9 @@ describe("anthropic auth resolution", () => {
     mocks.readAuthFileCached.mockResolvedValueOnce(null);
 
     await expect(resolveAnthropicOAuthCached({ maxAgeMs: -1 })).resolves.toEqual({ state: "none" });
-    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
+    expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+      maxAgeMs: 0,
+      integrationIds: ["anthropic"],
+    });
   });
 });

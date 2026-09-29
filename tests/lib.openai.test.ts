@@ -113,12 +113,44 @@ describe("openai auth resolution", () => {
     });
   });
 
+  it("keeps a login OpenCode could not return present, with no identity and a clear error", async () => {
+    const failed = { openai: { type: "oauth", resolveError: "refresh_failed: HTTP 400" } };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(resolveOpenAIOAuth(failed)).toEqual({
+      state: "failed",
+      sourceKey: "openai",
+      error: "refresh_failed: HTTP 400",
+    });
+    mocks.readAuthFileCached.mockResolvedValue(failed);
+    await expect(hasOpenAIOAuthCached()).resolves.toBe(true);
+    await expect(resolveOpenAIAuthIdentity()).resolves.toBeNull();
+    await expect(queryOpenAIQuota()).resolves.toEqual({
+      success: false,
+      error:
+        "OpenAI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth login openai`.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.deriveResolvedAuthIdentity).not.toHaveBeenCalled();
+  });
+
+  it("lets a failed openai login win over a later compatibility key, as a configured one would", () => {
+    expect(
+      resolveOpenAIOAuth({
+        openai: { type: "oauth", resolveError: "resolve_empty: no value" },
+        codex: { type: "oauth", access: "codex-token" },
+      }),
+    ).toEqual({ state: "failed", sourceKey: "openai", error: "resolve_empty: no value" });
+  });
+
   it("returns null when quota is not configured", async () => {
     mocks.readAuthFileCached.mockResolvedValueOnce({});
 
     await expect(queryOpenAIQuota()).resolves.toBeNull();
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["openai", "codex", "chatgpt"],
     });
   });
 
@@ -184,38 +216,24 @@ describe("openai auth resolution", () => {
     expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(80);
   });
 
-  it("reads auth from opencode when higher-priority keys are unusable", async () => {
+  it("never treats the OpenCode Console login under opencode as an OpenAI login", async () => {
+    // OpenCode 2 imports a legacy console login as `methodID: "device"`, often without an orgID.
     mocks.readAuthFileCached.mockResolvedValueOnce({
       codex: { type: "oauth", access: "   " },
       openai: { type: "api", access: "ignored" },
       chatgpt: { type: "oauth", access: "   " },
-      opencode: { type: "oauth", access: "a.b.c", expires: Date.now() + 60_000 },
-    });
+      opencode: {
+        type: "oauth",
+        methodID: "device",
+        access: "console-token",
+        expires: Date.now() + 60_000,
+      },
+    } as any);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              plan_type: "free",
-              rate_limit: {
-                limit_reached: false,
-                primary_window: {
-                  used_percent: 50,
-                  limit_window_seconds: 18_000,
-                  reset_after_seconds: 3600,
-                },
-                secondary_window: null,
-              },
-            }),
-            { status: 200 },
-          ),
-      ) as any,
-    );
-
-    const out = await queryOpenAIQuota();
-    expect(out && out.success ? out.windows.hourly?.percentRemaining : -1).toBe(50);
+    await expect(queryOpenAIQuota()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses cached auth reads for hasOpenAIOAuthCached", async () => {
@@ -226,6 +244,7 @@ describe("openai auth resolution", () => {
     await expect(hasOpenAIOAuthCached()).resolves.toBe(true);
     expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["openai", "codex", "chatgpt"],
     });
   });
 

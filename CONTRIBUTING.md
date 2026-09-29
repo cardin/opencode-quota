@@ -22,7 +22,7 @@ Thanks for contributing. This repo has strict local-only behavior and regression
 
 ## Development Setup
 
-- The published package runtime supports Node.js `>=22.0.0` (matches `package.json` engines).
+- The published package runtime supports Node.js `^22.13.0 || >=23.4.0` (matches `package.json` engines; `node:sqlite` needs no flag from those versions).
 - Repository development uses pnpm v11, which requires Node.js `>=22` for the pnpm CLI.
 - Enable the pinned package manager and install dependencies with:
 
@@ -52,28 +52,6 @@ It checks Biome linting and formatting, the pinned TypeScript toolchain, reposit
 
 Use `pnpm run test:watch` for local iteration. Use `pnpm run build:check` when you need the build plus package dry-run check.
 
-## Maintainer stabilization checks
-
-These commands are for maintainers. They do not replace `pnpm verify`.
-
-### Connected OpenCode
-
-`pnpm run test:stabilization:tui` builds this worktree, copies `$OPENCODE_CONFIG_DIR` or the default OpenCode config directory into a `0700` temp directory, points only the OpenCode Quota plugin entries at this worktree's `dist/index.js` and `dist/tui.js`, enables sidebar/toast/compact with the prompt bar off, and launches real `opencode`. Companion plugin order and other copied settings stay as they were. The real config is never edited. OpenCode is launched only with the temp copy. That copy is deleted on exit, on prepare/copy/transform failure, and after forwarded `SIGINT`/`SIGTERM`/`SIGHUP`. After those signals, the runner waits a bounded grace period, then force-terminates the child (process group where safe) so cleanup cannot wait forever.
-
-This uses real credentials and makes real quota/API calls.
-
-After the first TUI session exits, the script offers a second session with the prompt bar on. Use `pnpm run test:stabilization:tui:prompt-bar` to skip the first stage. Use `pnpm run test:stabilization:web` to launch `opencode web` instead.
-
-Web mode runs the fixed `opencode models` command directly, without a shell or model request, in the same isolated environment used for `opencode web`. Plain catalog lines count as usable models. Structured catalog entries must explicitly report a usable state; aliases and disabled, hidden, unavailable, or unknown entries are rejected. If the copied default is stale, the runner prefers the first usable same-provider model using locale-independent ordering and rewrites only the temp JSONC copy. Comments and plugin order stay intact. An empty, failed, or unusable catalog stops the Web launch and prints click/select steps. The real config is not edited. After choosing a model, run `/quota`, then `/quota_status`.
-
-Web diagnostics live outside the temp config in a `0700` directory with a `0600` file. Runner output, server output, each log read, the number of log files, and the final file all have fixed limits and use a truncation marker. Header and cookie values, credentials, request and response bodies, serialized config, and marked private content are replaced with redaction markers. Log capture starts at the pre-launch offsets rather than copying full historical logs. Diagnostic creation, reads, and writes are best-effort; a failure cannot replace the Web child exit result, and the path prints only after a successful write. Classification requires markers in order. A generic send failure, or a busy marker without earlier successful output evidence, is `unknown-unclassified`. #272 requires hook entry, successful output evidence, and an affirmative session-busy marker. A model error is `invalid-model-before-hook` only when no hook-entry marker exists. Signals stop preflight or Web, escalate after the grace period when needed, clean the temp config, and retain the original signal exit code.
-
-The prompt bar is a fixed 12-cell bar. The label is the provider plus window, for example `OpenAI 5h`. When you resize the terminal, check placement and clipping. The bar does not grow.
-
-### Fake-data fixtures
-
-`pnpm run test:stabilization:fixtures` runs a frozen Vitest set for config symlinks, config write targets, atomic JSON, OpenCode Go, Synthetic empty responses/surfaces, OpenRouter diagnostics/surfaces, Alibaba Token Plan process/provider, quota status, prompt selection, prompt-bar identity, TUI runtime, quota export, API-key query/config, and contribution guidance. It does not use real credentials, network provider calls, or the real `bl` executable. Before Vitest starts, the runner creates a `0700` temp HOME/XDG sandbox, strips known provider credential/session env vars and `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`, then deletes the sandbox on success, error, or signal.
-
 ## CI Checks (Automated)
 
 PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
@@ -81,7 +59,7 @@ PR and `main` pushes trigger `.github/workflows/ci.yml` (`CI` workflow):
 - Job: `pnpm-quality` on Node `24.x`
 - Steps: frozen install, `pnpm verify`, then one exact npm artifact pack and upload
 - Job: `runtime-smoke` on Node `22.x` and `24.x`
-- Runtime smoke installs that exact packed artifact as a consumer and verifies the default/server imports, TUI export payload, CLI help, and `engines.node >=22.0.0`
+- Runtime smoke installs that exact packed artifact as a consumer and verifies the default/server imports, TUI export payload, CLI help, and `engines.node ^22.13.0 || >=23.4.0`
 
 Release workflow `.github/workflows/publish-npm.yml` first checks the release tag, SHA, and package version, then runs `pnpm verify` on Node 24. After that, it packs one exact artifact, smoke-tests that artifact on Node 22 and 24, verifies it again before provenance publishing, and backfills the release version. Run `pnpm run release:check` on Node 24 when the release environment is available; it adds the release-version assertion after the canonical gate.
 
@@ -100,13 +78,12 @@ Recommended settings for `main`:
 
 - Never invoke an LLM/model API to compute toast/report output. Everything must remain local and deterministic.
 - Rich accounting currency quantities must preserve the provider's uppercase ISO code and render through the shared formatter (for example, `USD 12.50`), never a provider-formatted currency string, bare symbol, decorative glyph, conversion, or cross-currency sum.
-- The server plugin is the sole owner of deterministic slash commands for TUI and Desktop/server. It registers each `cfg.command` once, injects exactly one ignored/no-reply output message with `session.prompt({ noReply: true, ignored: true })`, and must throw `handled()` so OpenCode does not continue into `prompt(...)`.
-- The TUI plugin owns only Sidebar, Compact status, home-bottom, prompt-wrapper, refresh, and resource-lifecycle surfaces. It must not register keymap commands or render native slash-command dialogs.
-- Slash commands (`/quota`, `/quota_status`, `/quota_announcements`, `/pricing_refresh`, `/tokens_*`) must route through `buildQuotaDialogCommandOutput()`; do not duplicate command-output logic in `src/plugin.ts`.
-- The handled-sentinel path can surface popup/log noise until upstream adds a clean cancellation API; keep docs aligned with anomalyco/opencode#18554 and anomalyco/opencode#18559.
-- Keep `handled()` / `isCommandHandledError(...)` tests aligned with the server/web/desktop handled-sentinel boundary.
-- `injectRawOutput()` is shared by inline slash commands and the server `tool.quota_status` compatibility path.
-- Keep `tests/plugin.command-handled-boundary.test.ts`, `tests/tui-smoke.test.ts`, and `tests/command-handled.test.ts` aligned with these invariants.
+- OpenCode Quota supports only OpenCode 2. Do not add OpenCode 1 code paths, plugin APIs, or database tables.
+- The server plugin (`src/plugin.ts`) registers the `quota_status` tool, the slash commands, and the `slkiser.opencode-quota` RPC, and computes the text of every surface. OpenCode 2 gives plugins no Web or Desktop UI hooks, so Web and Desktop get slash commands but no toasts or panels. Commands never call a model.
+- The TUI plugin (`src/tui-v2.tsx`) only renders: toasts, the Sidebar panel, the compact line and prompt bar below the prompt, the Home footer line, and report popups. It gets every text through the RPC and imports no provider or credential module (`tests/tui-dist-import-graph.test.ts`, `tests/plugin.command-handled-boundary.test.ts`).
+- Slash commands (`/quota`, `/quota_status`, `/quota_announcements`, `/pricing_refresh`, `/tokens_*`), the `quota_status` tool, and the RPC `command` method must route through `buildQuotaDialogCommandOutput()`; do not duplicate command-output logic in `src/plugin.ts` or `src/tui-v2.tsx`.
+- Read OpenCode credentials only through `ctx.integration`, inside `src/lib/opencode-auth.ts`, never from `auth.json` or the `credential` table. The one exception: the terminal command (`src/lib/cli-show.ts`) binds the read-only reader in `src/lib/opencode-auth-sqlite.ts`, the only code that queries the `credential` table; `src/plugin.ts` and `src/tui-v2.tsx` must never reach it (`tests/tui-dist-import-graph.test.ts`). Every reader call still names its integration ids.
+- Keep `tests/plugin.command-handled-boundary.test.ts` aligned with these invariants.
 
 Additional boundary tests to keep healthy when touching plugin/provider logic:
 

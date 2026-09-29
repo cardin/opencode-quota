@@ -1,10 +1,14 @@
 import { sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
-import type { OpenCodeZenConsoleAccount } from "./opencode-zen-config.js";
+import {
+  consoleBaseUrl,
+  consoleHeaders,
+  type OpenCodeConsoleCredential,
+} from "./opencode-console-auth.js";
 
 const CONSOLE_TIMEOUT_MS = 10_000;
 const SESSION_ERROR =
-  "OpenCode Console session expired or invalid — run `opencode console login` to sign in again";
+  "OpenCode Console session expired or invalid. Run `opencode auth login opencode` to sign in again.";
 
 /**
  * The OpenCode Console reports amounts in micro-cents:
@@ -12,11 +16,17 @@ const SESSION_ERROR =
  */
 export const OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR = 100_000_000;
 
+/**
+ * Where the monthly limit and usage come from: the org budget (budgets/org), or the
+ * credit limit (billing/account) plus this month's usage costs (usage/cost-by-day).
+ */
+export type OpenCodeZenBudgetSource = "org_budget" | "credit_limit";
+
 export interface OpenCodeZenBillingData {
   balance: number;
-  /** Credit limit in USD; null when the account has no limit or billing/account failed. */
+  /** Monthly limit in USD from `budgetSource`; null when there is no limit or its route failed. */
   monthlyLimit: number | null;
-  /** Current-month usage in billing units; null when usage/cost-by-day failed. */
+  /** Current-month usage in billing units from `budgetSource`; null when its route failed. */
   monthlyUsage: number | null;
   lastPayment: number | null;
   /** Auto-reload state; null (unknown) when billing/auto-recharge failed. */
@@ -25,6 +35,7 @@ export interface OpenCodeZenBillingData {
   reloadTrigger: number | null;
   /** Org-budget reset ISO timestamp; only set when budgets/org supplies the monthly budget. */
   budgetResetIso: string | null;
+  budgetSource: OpenCodeZenBudgetSource;
 }
 
 /**
@@ -154,7 +165,11 @@ function parseOrgBudget(json: unknown): {
   };
 }
 
-function sanitizeMessage(text: string, secrets: string[] = [], maxLength = 120): string {
+function sanitizeMessage(
+  text: string,
+  secrets: Array<string | undefined> = [],
+  maxLength = 120,
+): string {
   let sanitized = sanitizeDisplayText(text).replace(/\s+/g, " ").trim();
   for (const secret of secrets) {
     if (secret) sanitized = sanitized.split(secret).join("[redacted]");
@@ -164,20 +179,16 @@ function sanitizeMessage(text: string, secrets: string[] = [], maxLength = 120):
 
 async function fetchConsoleRoute<T>(params: {
   route: ConsoleRoute;
-  account: OpenCodeZenConsoleAccount;
+  credential: OpenCodeConsoleCredential;
   timeoutMs: number;
   parse: (json: unknown) => T;
 }): Promise<ConsoleRouteResult<T>> {
   try {
-    return await fetchWithTimeout(`${params.account.baseUrl}/api/${params.route}`, {
+    return await fetchWithTimeout(`${consoleBaseUrl(params.credential)}/api/${params.route}`, {
       request: {
         method: "GET",
         redirect: "manual",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${params.account.accessToken}`,
-          "x-org-id": params.account.activeOrgId,
-        },
+        headers: consoleHeaders(params.credential),
       },
       timeoutMs: params.timeoutMs,
       consume: async (response): Promise<ConsoleRouteResult<T>> => {
@@ -211,19 +222,19 @@ async function fetchConsoleRoute<T>(params: {
     });
   } catch (error) {
     const message = sanitizeMessage(error instanceof Error ? error.message : String(error), [
-      params.account.accessToken,
-      params.account.activeOrgId,
+      params.credential.accessToken,
+      params.credential.orgId,
     ]);
     return { success: false, error: `OpenCode Console ${params.route} request failed: ${message}` };
   }
 }
 
 export async function queryOpenCodeZenQuota(
-  account: OpenCodeZenConsoleAccount,
+  credential: OpenCodeConsoleCredential,
   options: { requestTimeoutMs?: number } = {},
 ): Promise<OpenCodeZenResult> {
   const request = {
-    account,
+    credential,
     timeoutMs: options.requestTimeoutMs ?? CONSOLE_TIMEOUT_MS,
   };
   const now = new Date();
@@ -250,6 +261,7 @@ export async function queryOpenCodeZenQuota(
   let monthlyLimit = creditLimit.success ? creditLimit.data : null;
   let usage = monthlyUsage.success ? monthlyUsage.data : null;
   let budgetResetIso: string | null = null;
+  let budgetSource: OpenCodeZenBudgetSource = "credit_limit";
   if (orgBudget.success) {
     const { limitMicroCents, spentMicroCents, resetsAt } = orgBudget.data;
     if (
@@ -260,6 +272,7 @@ export async function queryOpenCodeZenQuota(
     ) {
       monthlyLimit = limitMicroCents / OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR;
       usage = spentMicroCents;
+      budgetSource = "org_budget";
       // Normalize to canonical ISO so downstream result validation never sees a
       // parseable-but-non-ISO reset (e.g. "0") and drops the whole result.
       const resetTimeMs = resetsAt === null ? Number.NaN : Date.parse(resetsAt);
@@ -278,6 +291,7 @@ export async function queryOpenCodeZenQuota(
         ? autoRecharge.data
         : { reload: null, reloadAmount: null, reloadTrigger: null }),
       budgetResetIso,
+      budgetSource,
     },
     errors: optional.flatMap((result) => (result.success ? [] : [result.error])),
   };

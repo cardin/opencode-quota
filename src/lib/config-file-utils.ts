@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
-import { dirname, isAbsolute, join, resolve } from "path";
+import { dirname, join } from "path";
 
-export type ConfigFileKind = "opencode" | "tui";
+export type ConfigFileKind = "opencode";
 export type ConfigFileFormat = "json" | "jsonc";
 
 export interface EditableConfigPath {
@@ -44,29 +44,6 @@ function pickFirstNonEmptyString(items: Array<string | null | undefined>): strin
   return null;
 }
 
-/**
- * Returns the effective config root directory.
- *
- * Priority:
- * 1. `OPENCODE_CONFIG_DIR` environment variable (if set and non-empty)
- * 2. The provided fallback directory
- *
- * This matches OpenCode's own behavior: when `OPENCODE_CONFIG_DIR` is set,
- * config files are resolved relative to it rather than the current working directory.
- */
-export function getEffectiveConfigRoot(fallback: string): string {
-  const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
-  if (!envDir) {
-    return fallback;
-  }
-
-  if (isAbsolute(envDir)) {
-    return envDir;
-  }
-
-  return resolve(fallback, envDir);
-}
-
 export function resolveRuntimeContextRoots(params: RuntimeContextRootHints): RuntimeContextRoots {
   const workspaceRoot =
     pickFirstNonEmptyString([
@@ -78,7 +55,7 @@ export function resolveRuntimeContextRoots(params: RuntimeContextRootHints): Run
   const explicitConfigRoot = pickFirstNonEmptyString([params.configRoot]);
   const computedConfigRoot =
     pickFirstNonEmptyString([workspaceRoot, params.activeDirectory]) ?? workspaceRoot;
-  const configRoot = explicitConfigRoot ?? getEffectiveConfigRoot(computedConfigRoot);
+  const configRoot = explicitConfigRoot ?? computedConfigRoot;
 
   return { workspaceRoot, configRoot };
 }
@@ -97,6 +74,17 @@ export function findGitWorktreeRoot(startDir: string): string | null {
     }
     current = parent;
   }
+}
+
+/**
+ * Roots for an OpenCode location, shared by the server plugin and the TUI so both
+ * read the same project config: the enclosing Git worktree, else the location directory.
+ */
+export function resolveOpenCodeLocationRoots(
+  directory: string,
+): RuntimeContextRoots & { fallbackDirectory: string } {
+  const workspaceRoot = findGitWorktreeRoot(directory) ?? directory;
+  return { workspaceRoot, configRoot: workspaceRoot, fallbackDirectory: directory };
 }
 
 export function getConfigFileCandidatePaths(dir: string, kind: ConfigFileKind): string[] {
@@ -153,13 +141,18 @@ export function resolveEditableConfigPath(params: {
   };
 }
 
+/** Reads the package spec from a legacy `plugin` entry or an OpenCode 2 native `plugins` entry. */
 export function getPluginSpecFromEntry(entry: unknown): string | null {
   const spec =
     typeof entry === "string"
       ? entry
       : Array.isArray(entry) && typeof entry[0] === "string"
         ? entry[0]
-        : null;
+        : entry &&
+            typeof entry === "object" &&
+            typeof (entry as { package?: unknown }).package === "string"
+          ? (entry as { package: string }).package
+          : null;
 
   if (typeof spec !== "string") {
     return null;
@@ -181,6 +174,10 @@ export function extractPluginSpecsFromParsedConfig(parsed: unknown): string[] {
     pluginEntries.push(...root.plugin);
   }
 
+  if (Array.isArray(root.plugins)) {
+    pluginEntries.push(...root.plugins);
+  }
+
   if (root.tui && typeof root.tui === "object" && !Array.isArray(root.tui)) {
     const tuiRoot = root.tui as Record<string, unknown>;
     if (Array.isArray(tuiRoot.plugin)) {
@@ -200,15 +197,19 @@ export function extractProviderIdsFromParsedConfig(parsed: unknown): string[] {
     return [];
   }
 
+  // OpenCode 2 reads both the legacy `provider` map and the native `providers` map.
   const root = parsed as Record<string, unknown>;
-  if (!root.provider || typeof root.provider !== "object" || Array.isArray(root.provider)) {
-    return [];
+  const providerIds: string[] = [];
+  for (const providerMap of [root.provider, root.providers]) {
+    if (providerMap && typeof providerMap === "object" && !Array.isArray(providerMap)) {
+      providerIds.push(...Object.keys(providerMap));
+    }
   }
 
-  return dedupeNonEmptyStrings(Object.keys(root.provider));
+  return dedupeNonEmptyStrings(providerIds);
 }
 
-export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
+export function isQuotaPluginSpec(spec: string): boolean {
   const normalized = spec.replace(/\\/g, "/").toLowerCase();
 
   if (normalized.includes("@slkiser/opencode-quota")) {
@@ -219,7 +220,5 @@ export function isQuotaPluginSpec(spec: string, kind: ConfigFileKind): boolean {
     return true;
   }
 
-  return kind === "tui"
-    ? normalized.includes("opencode-quota/dist/tui.tsx")
-    : normalized.includes("opencode-quota/dist/index.js");
+  return normalized.includes("opencode-quota/dist/index.js");
 }

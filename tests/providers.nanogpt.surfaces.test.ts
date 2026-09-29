@@ -110,8 +110,11 @@ describe("NanoGPT structured four-surface formatting", () => {
 
     for (const output of [outputs.command, outputs.toast, outputs.sidebar]) {
       expect(output).toContain("26.71801147 NANO");
-      expect(output).toContain("invalid usd_balance decimal");
     }
+    expect(outputs.command).toContain("invalid usd_balance decimal");
+    expect(outputs.toast).toContain("invalid usd_balance decimal");
+    // The sidebar wraps long error rows to its width.
+    expect(outputs.sidebar.replaceAll("\n", " ")).toContain("invalid usd_balance decimal");
     expect(outputs.compact).toContain("26.71801147 NANO");
     expect(outputs.compact).toContain("1 issue");
   });

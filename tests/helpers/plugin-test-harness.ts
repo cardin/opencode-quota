@@ -56,47 +56,6 @@ interface PluginRuntimeRoot {
   stateDir: string;
 }
 
-interface PluginRuntimePathCandidates {
-  cacheDirs: string[];
-  configDirs: string[];
-  dataDirs: string[];
-  stateDirs: string[];
-}
-
-interface PluginRuntimePathsMockOptions {
-  includeCandidates?: boolean;
-}
-
-interface PluginTuiConfigInspectionOverrides {
-  candidatePaths?: string[];
-  configRoot?: string;
-  configured?: boolean;
-  inferredSelectedPath?: string | null;
-  presentPaths?: string[];
-  quotaPluginConfigPaths?: string[];
-  quotaPluginConfigured?: boolean;
-  workspaceRoot?: string;
-}
-
-function createSchemaChain() {
-  const chain: any = {};
-  chain.optional = () => chain;
-  chain.describe = () => chain;
-  chain.int = () => chain;
-  chain.min = () => chain;
-  return chain;
-}
-
-export function createPluginToolMockModule() {
-  const toolFn = ((definition: unknown) => definition) as any;
-  toolFn.schema = {
-    boolean: () => createSchemaChain(),
-    number: () => createSchemaChain(),
-  };
-
-  return { tool: toolFn };
-}
-
 export function createConfigModuleMock(loadConfig: MockFunction) {
   return {
     loadConfig,
@@ -151,43 +110,11 @@ export function createPluginBootstrapRuntimeRoot(root: string): PluginRuntimeRoo
   };
 }
 
-export function createPluginRuntimePathCandidates(root: string): PluginRuntimePathCandidates {
-  return {
-    dataDirs: [`${root}/data`],
-    configDirs: [`${root}/config`],
-    cacheDirs: [`${root}/cache`],
-    stateDirs: [`${root}/state`],
-  };
-}
-
-export function createPluginRuntimePathsMockModule(
-  root: string,
-  options: PluginRuntimePathsMockOptions = {},
-) {
+export function createPluginRuntimePathsMockModule(root: string) {
   const runtimeRoot = createPluginBootstrapRuntimeRoot(root);
-  const candidates = createPluginRuntimePathCandidates(root);
 
   return {
     getOpencodeRuntimeDirs: () => ({ ...runtimeRoot }),
-    ...(options.includeCandidates
-      ? { getOpencodeRuntimeDirCandidates: () => ({ ...candidates }) }
-      : {}),
-  };
-}
-
-export function createPluginTuiConfigInspection(
-  root: string,
-  overrides: PluginTuiConfigInspectionOverrides = {},
-) {
-  return {
-    workspaceRoot: overrides.workspaceRoot ?? root,
-    configRoot: overrides.configRoot ?? root,
-    configured: overrides.configured ?? false,
-    inferredSelectedPath: overrides.inferredSelectedPath ?? null,
-    presentPaths: overrides.presentPaths ?? [],
-    candidatePaths: overrides.candidatePaths ?? [],
-    quotaPluginConfigured: overrides.quotaPluginConfigured ?? false,
-    quotaPluginConfigPaths: overrides.quotaPluginConfigPaths ?? [],
   };
 }
 
@@ -280,7 +207,7 @@ export function seedDefaultPluginBootstrapMocks(
   vi.clearAllMocks();
 
   if (options.resetModules || options.resetPluginState) {
-    // Fresh module instances clear singleton state such as src/lib/cache.ts.
+    // Fresh module instances clear module-level singleton state.
     vi.resetModules();
   }
 

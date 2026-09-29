@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 import {
   createRuntimePathsMockModule,
@@ -14,8 +15,10 @@ import {
 } from "./helpers/trusted-config-test-harness.js";
 
 const authMocks = vi.hoisted(() => ({
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db"]),
   readAuthFileCached: vi.fn(),
+  readCredentialRows: vi.fn(async () => []),
+  formatCredentialDisplayNames: vi.fn(),
   queryOpenCodeGoQuota: vi.fn(),
   readFile: vi.fn(),
   lstat: vi.fn(),
@@ -33,9 +36,12 @@ vi.mock("node:fs/promises", async (importOriginal) => ({
   readFile: authMocks.readFile,
   lstat: authMocks.lstat,
 }));
-vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: authMocks.getAuthPaths,
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  getCredentialDatabasePaths: authMocks.getCredentialDatabasePaths,
   readAuthFileCached: authMocks.readAuthFileCached,
+  readCredentialRows: authMocks.readCredentialRows,
+  formatCredentialDisplayNames: authMocks.formatCredentialDisplayNames,
 }));
 vi.mock("../src/lib/opencode-go.js", () => ({
   queryOpenCodeGoQuota: authMocks.queryOpenCodeGoQuota,
@@ -74,7 +80,7 @@ function resetFixture(): void {
     delete process.env[name];
   }
   resetFsConfigMocks(fsMocks);
-  authMocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json"]);
+  authMocks.getCredentialDatabasePaths.mockReset().mockReturnValue(["/tmp/opencode.db"]);
   authMocks.readAuthFileCached.mockReset().mockResolvedValue(null);
   authMocks.lstat
     .mockReset()
@@ -127,7 +133,7 @@ describe("OpenCode Go auth resolution", () => {
     }
   });
 
-  it("accepts the opencode-go auth.json key written by `opencode auth login -p opencode-go`", () => {
+  it("accepts the opencode-go opencode.db key written by `opencode auth login opencode-go`", () => {
     expect(resolveOpenCodeGoAuth({ "opencode-go": { type: "api", key: "cli-key" } })).toEqual({
       state: "configured",
       apiKey: "cli-key",
@@ -139,7 +145,7 @@ describe("OpenCode Go auth resolution", () => {
     });
   });
 
-  it("prefers the opencode-go auth.json key over the legacy opencode fallback", () => {
+  it("prefers the opencode-go opencode.db key over the legacy opencode fallback", () => {
     const auth = {
       "opencode-go": { type: "api", key: "cli-key" },
       opencode: { type: "api", key: "legacy-key" },
@@ -237,7 +243,7 @@ describe("OpenCode Go auth resolution", () => {
     const readsBeforeAudit = authMocks.readFile.mock.calls.length;
     const findings = await auditObsoleteUpdateSources({
       env: process.env,
-      configDirs: [configDir],
+      configDir,
     });
     expect(authMocks.readFile).toHaveBeenCalledTimes(readsBeforeAudit);
     expect(process.env.OPENCODE_GO_WORKSPACE_ID).toBe("obsolete-go-workspace-canary");
@@ -267,7 +273,7 @@ describe("OpenCode Go auth resolution", () => {
     expect(authMocks.readAuthFileCached).not.toHaveBeenCalled();
   });
 
-  it("continues past blank env and unusable config to canonical auth.json", async () => {
+  it("continues past blank env and unusable config to canonical opencode.db", async () => {
     process.env.OPENCODE_API_KEY = " ";
     mockTrustedConfigFile(
       fsMocks,
@@ -282,7 +288,68 @@ describe("OpenCode Go auth resolution", () => {
     });
     expect(authMocks.readAuthFileCached).toHaveBeenCalledWith({
       maxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: ["opencode-go", "opencode"],
+      methods: ["key"],
     });
+  });
+
+  it("never resolves the OpenCode Console sign-in while looking for a Go key", async () => {
+    const actual = await vi.importActual<typeof import("../src/lib/opencode-auth.js")>(
+      "../src/lib/opencode-auth.js",
+    );
+    const consoleSignIn = {
+      integrationId: "opencode",
+      id: "cred_console",
+      label: "default",
+      registered: true,
+      method: "oauth" as const,
+      value: {
+        type: "oauth",
+        methodID: "device",
+        access: "console-access",
+        refresh: "console-refresh",
+        expires: 0,
+      },
+    };
+    const workspaceKey = {
+      integrationId: "opencode",
+      id: "cred_workspace",
+      label: "default",
+      registered: true,
+      method: "key" as const,
+      value: { type: "key", key: "workspace-key" },
+    };
+    authMocks.readAuthFileCached.mockImplementation(actual.readAuthFileCached);
+
+    const signedIn = createFakeIntegration([consoleSignIn, workspaceKey]);
+    const unbindSignedIn = actual.bindCredentialSource(
+      actual.createIntegrationCredentialSource(signedIn as never),
+    );
+    try {
+      await expect(resolveOpenCodeGoAuthCached({ maxAgeMs: 0 })).resolves.toEqual({
+        state: "none",
+      });
+      expect(signedIn.connection.active.mock.calls).toEqual([["opencode-go"], ["opencode"]]);
+      expect(signedIn.connection.resolve).not.toHaveBeenCalled();
+    } finally {
+      unbindSignedIn();
+      actual.notifyCredentialsChanged();
+    }
+
+    // A key login that is active under `opencode` is still read.
+    const keyOnly = createFakeIntegration([workspaceKey]);
+    const unbindKeyOnly = actual.bindCredentialSource(
+      actual.createIntegrationCredentialSource(keyOnly as never),
+    );
+    try {
+      await expect(resolveOpenCodeGoAuthCached({ maxAgeMs: 0 })).resolves.toEqual({
+        state: "configured",
+        apiKey: "workspace-key",
+      });
+    } finally {
+      unbindKeyOnly();
+      actual.notifyCredentialsChanged();
+    }
   });
 
   it("uses a fixed unsupported-type error without leaking type or key secrets", async () => {
@@ -301,13 +368,17 @@ describe("OpenCode Go auth resolution", () => {
     const diagnostics = await getOpenCodeGoAuthDiagnostics({ maxAgeMs: -1 });
     expect(diagnostics).toEqual({
       state: "invalid",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: expect.any(Array),
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
       error: "OpenCode Go auth entry has unsupported type",
     });
     expect(JSON.stringify(diagnostics)).not.toContain(secret);
-    expect(authMocks.readAuthFileCached).toHaveBeenLastCalledWith({ maxAgeMs: 0 });
+    expect(authMocks.readAuthFileCached).toHaveBeenLastCalledWith({
+      maxAgeMs: 0,
+      integrationIds: ["opencode-go", "opencode"],
+      methods: ["key"],
+    });
 
     const { opencodeGoProvider } = await import("../src/providers/opencode-go.js");
     const result = await opencodeGoProvider.fetch(createProviderAvailabilityContext());
@@ -326,7 +397,7 @@ describe("OpenCode Go auth resolution", () => {
       state: "configured",
       source: "env:OPENCODE_API_KEY",
       checkedPaths: ["env:OPENCODE_API_KEY"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     expect(getOpencodeConfigCandidatePaths()).toEqual([
       { path: trustedPaths.jsonc, isJsonc: true },

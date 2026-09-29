@@ -50,7 +50,6 @@ describe("quota provider Phase 7 documentation consistency", () => {
     const troubleshooting = read("docs/readme/troubleshooting.md");
     const external = read("docs/readme/external-integration.md");
     const manualInstall = read("docs/readme/manual-install.md");
-    const migration = read("docs/readme/v4-migration.md");
 
     const readmeCommands = readMarkdownSection(readme, /^Commands$/);
     const readmeCustomProviders = readMarkdownSection(readme, /^Custom providers$/);
@@ -59,7 +58,7 @@ describe("quota provider Phase 7 documentation consistency", () => {
     const troubleshootingProviderFixes = readMarkdownSection(troubleshooting, /^Provider fixes$/);
     const externalJsonBasics = readMarkdownSection(external, /^JSON basics$/);
 
-    const providerAddCommand = "npx @slkiser/opencode-quota@4 provider add";
+    const providerAddCommand = "npx @slkiser/opencode-quota@latest provider add";
     expect(readmeCommands).toContain(providerAddCommand);
     expect(readmeCustomProviders).toContain(providerAddCommand);
     expect(
@@ -75,7 +74,6 @@ describe("quota provider Phase 7 documentation consistency", () => {
       troubleshooting,
       external,
       manualInstall,
-      migration,
     ]) {
       expect(document).not.toContain("accounting-v1");
     }
@@ -84,11 +82,12 @@ describe("quota provider Phase 7 documentation consistency", () => {
     expect(configuration).toContain("experimental.quotaToast");
     expect(configuration).toContain("quotaProviders");
     expect(configuration).toContain("JSONC");
+    expect(configuration).toContain("do not duplicate it in a second file");
 
     for (const document of [configuration, providers]) {
       expect(document).toContain("apiKeyEnv");
       expect(document).toContain("provider.<providerId>.options.apiKey");
-      expect(document).toContain("auth.json");
+      expect(document).toContain("opencode.db");
       expect(document).toContain("quota-providers");
     }
 

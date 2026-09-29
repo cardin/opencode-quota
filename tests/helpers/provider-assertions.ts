@@ -279,6 +279,12 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "locally_derived",
     },
     {
+      resultType: "spend",
+      acquisitionMethod: "remote_api",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+    {
       resultType: "status",
       acquisitionMethod: "remote_api",
       ownership: "maintained",

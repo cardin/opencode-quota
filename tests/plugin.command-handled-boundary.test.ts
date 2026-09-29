@@ -1,519 +1,223 @@
-import { rm } from "fs/promises";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCommandHandledError } from "../src/lib/command-handled.js";
-import {
-  createPluginTestClient as createClient,
-  createConfigModuleMock,
-  createPluginToolMockModule,
-  createPricingModuleMock,
-  createProvidersRegistryModuleMock,
-  getPromptText,
-  makeQuotaToastTestConfig,
-  seedDefaultPluginBootstrapMocks,
-} from "./helpers/plugin-test-harness.js";
+import { QUOTA_DIALOG_COMMANDS } from "../src/lib/quota-dialog-command-specs.js";
+import tuiPlugin from "../src/tui-v2.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 
-const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-plugin-command-boundary-tests";
-
+// The TUI must never read logins or build reports itself: the server plugin does both.
 const mocks = vi.hoisted(() => ({
-  loadConfig: vi.fn(),
-  getProviders: vi.fn(),
-  getPricingSnapshotMeta: vi.fn(),
-  getPricingSnapshotSource: vi.fn(),
-  getRuntimePricingRefreshStatePath: vi.fn(),
-  getRuntimePricingSnapshotPath: vi.fn(),
-  maybeRefreshPricingSnapshot: vi.fn(),
-  setPricingSnapshotAutoRefresh: vi.fn(),
-  setPricingSnapshotSelection: vi.fn(),
+  build: vi.fn(),
+  readAuthFile: vi.fn(),
+  readAuthFileCached: vi.fn(),
+  readCredentialRows: vi.fn(),
+}));
+vi.mock("../src/lib/quota-dialog-commands.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/quota-dialog-commands.js")>()),
+  buildQuotaDialogCommandOutput: mocks.build,
+}));
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readAuthFile: mocks.readAuthFile,
+  readAuthFileCached: mocks.readAuthFileCached,
+  readCredentialRows: mocks.readCredentialRows,
 }));
 
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
-
-vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
-
-vi.mock("../src/providers/registry.js", () =>
-  createProvidersRegistryModuleMock(mocks.getProviders),
-);
-
-vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
-
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: `${TEST_RUNTIME_ROOT}/data`,
-    configDir: `${TEST_RUNTIME_ROOT}/config`,
-    cacheDir: `${TEST_RUNTIME_ROOT}/cache`,
-    stateDir: `${TEST_RUNTIME_ROOT}/state`,
-  }),
-}));
-
-type PluginHooks = {
-  config?: (input: unknown) => Promise<void> | void;
-  "command.execute.before"?: (input: {
-    command: string;
-    arguments?: string;
-    sessionID: string;
-  }) => Promise<void> | void;
+// Canned answers of the server plugin's quota RPC.
+const rpc = {
+  surface: vi.fn(),
+  footer: vi.fn(),
+  writeExport: vi.fn(),
+  command: vi.fn(),
 };
 
-type PluginConfigFixture = {
-  command?: Record<string, { template: string; description: string }>;
-  agent?: Record<string, unknown>;
-  default_agent?: string;
-};
-
-const AGENT_NORMALIZATION_CASES = [
-  {
-    name: "exact",
-    agent: { "\u200Bplanner": {} },
-    defaultAgent: "\u200Bplanner",
-    expectedDefaultAgent: "\u200Bplanner",
-  },
-  {
-    name: "unique",
-    agent: { "\u200Bplanner": {}, coder: {} },
-    defaultAgent: "planner",
-    expectedDefaultAgent: "\u200Bplanner",
-  },
-  {
-    name: "ambiguous",
-    agent: { "\u200Bplanner": {}, "\u200Cplanner": {} },
-    defaultAgent: "planner",
-    expectedDefaultAgent: "planner",
-  },
-] as const;
-
-const PLUGIN_ORDERS = ["quota-first", "remapper-first"] as const;
-
-async function loadPluginHooks(client: ReturnType<typeof createClient>): Promise<PluginHooks> {
-  const { QuotaToastPlugin } = await import("../src/plugin.js");
-  return (await QuotaToastPlugin({ client } as any)) as PluginHooks;
-}
-
-async function expectHandled(promise: Promise<unknown> | unknown): Promise<void> {
-  try {
-    await promise;
-  } catch (err) {
-    expect(isCommandHandledError(err)).toBe(true);
-    return;
-  }
-  throw new Error("expected handled sentinel");
-}
-
-async function runServerCommand(params: {
-  command: string;
-  arguments?: string;
-  client?: ReturnType<typeof createClient>;
-  sessionID?: string;
-}) {
-  const client = params.client ?? createClient();
-  const hooks = await loadPluginHooks(client);
-  const commandHook = hooks["command.execute.before"];
-  expect(commandHook).toBeDefined();
-
-  await expectHandled(
-    commandHook?.({
-      command: params.command,
-      arguments: params.arguments,
-      sessionID: params.sessionID ?? "session-command",
-    }),
-  );
-
-  return { client, hooks };
-}
-
-async function buildDialogOutput(params: {
-  command: "quota" | "pricing_refresh" | "tokens_daily" | "tokens_session_all";
-  client: ReturnType<typeof createClient>;
-  sessionID?: string;
-}) {
-  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
-  return buildQuotaDialogCommandOutput({
-    command: params.command,
-    client: params.client,
-    roots: {
-      workspaceRoot: process.cwd(),
-      configRoot: process.cwd(),
-      fallbackDirectory: process.cwd(),
+function startTui() {
+  const commands = new Map<string, { run: () => Promise<void>; slash?: unknown }>();
+  const listeners = new Map<string, (event: { data?: Record<string, unknown> }) => void>();
+  const show = vi.fn((_render: () => unknown, onClose?: () => void) => onClose?.());
+  const set = vi.fn();
+  const prompt = vi.fn().mockResolvedValue(undefined);
+  const toast = vi.fn();
+  const slots = new Map<string, { render: (props?: { sessionID: string }) => unknown }>();
+  const context = {
+    location: { directory: process.cwd() },
+    client: { rpc: vi.fn(() => rpc) },
+    theme: { text: { base: "base", muted: "muted" } },
+    data: {
+      session: { get: vi.fn() },
+      on: vi.fn((name: string, callback: (event: { data?: Record<string, unknown> }) => void) => {
+        listeners.set(name, callback);
+        return () => listeners.delete(name);
+      }),
     },
-    sessionID: params.sessionID,
-  });
+    keymap: {
+      layer: vi.fn(
+        (
+          build: () => {
+            mode?: string;
+            commands: Array<{ id: string; run: () => Promise<void>; slash?: unknown }>;
+          },
+        ) => {
+          // The palette layer; the typed-command Enter layer has no mode.
+          const layer = build();
+          if (layer.mode !== "global") return;
+          for (const command of layer.commands) commands.set(command.id, command);
+        },
+      ),
+    },
+    ui: {
+      slot: vi.fn(
+        (claim: { append: string; render: (props?: { sessionID: string }) => unknown }) => {
+          slots.set(claim.append, claim);
+          if (claim.append === "app") claim.render();
+          return vi.fn();
+        },
+      ),
+      toast: { show: toast },
+      router: { current: () => ({ type: "home" }) },
+      dialog: { show, clear: vi.fn(), prompt, set },
+    },
+  };
+  const dispose = tuiPlugin.setup(context as never);
+  return { commands, listeners, show, set, prompt, toast, slots, context, dispose };
 }
 
-describe("plugin command handled boundary", () => {
-  beforeEach(async () => {
-    seedDefaultPluginBootstrapMocks(mocks, {
-      configOverrides: { enabled: true },
-      resetPluginState: true,
+describe("V2 CLI command boundary", () => {
+  beforeEach(() => {
+    rpc.surface.mockReset().mockResolvedValue({
+      quota: { message: "Copilot 81%", duration: 5000, activeProviderCount: 1 },
     });
-    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
-    const { __resetQuotaStateForTests } = await import("../src/lib/quota-state.js");
-    __resetQuotaStateForTests();
-  });
-
-  afterEach(async () => {
-    const { __resetQuotaStateForTests } = await import("../src/lib/quota-state.js");
-    __resetQuotaStateForTests();
-    await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
-  });
-
-  it("registers deterministic slash commands for the server/web command surface", async () => {
-    const client = createClient();
-    const hooks = await loadPluginHooks(client);
-    const cfg: { command?: Record<string, { template: string; description: string }> } = {};
-    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
-
-    await hooks.config?.(cfg as any);
-
-    expect(hooks["command.execute.before"]).toBeDefined();
-    expect(cfg.command).toBeDefined();
-    expect(QUOTA_DIALOG_COMMANDS).toHaveLength(12);
-    expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.id)).size).toBe(12);
-    expect(new Set(QUOTA_DIALOG_COMMANDS.map((spec) => spec.slashName)).size).toBe(12);
-    expect(Object.keys(cfg.command ?? {})).toHaveLength(12);
-    for (const spec of QUOTA_DIALOG_COMMANDS) {
-      expect(cfg.command?.[spec.id]).toEqual({
-        template: `/${spec.slashName}`,
-        description: spec.description,
-      });
-    }
-    expect(client.session.prompt).not.toHaveBeenCalled();
-  });
-
-  for (const order of PLUGIN_ORDERS) {
-    for (const scenario of AGENT_NORMALIZATION_CASES) {
-      it(`normalizes the default agent for ${order} ordering with an ${scenario.name} match`, async () => {
-        const client = createClient();
-        const hooks = await loadPluginHooks(client);
-        const cfg: PluginConfigFixture = {};
-        let configAtPrompt:
-          | { defaultAgent: string | undefined; agentKeys: string[]; namesExistingAgent: boolean }
-          | undefined;
-
-        if (order === "quota-first" && scenario.name === "unique") {
-          client.session.prompt.mockImplementationOnce(async () => {
-            const agentKeys = Object.keys(cfg.agent ?? {});
-            configAtPrompt = {
-              defaultAgent: cfg.default_agent,
-              agentKeys,
-              namesExistingAgent:
-                cfg.default_agent !== undefined && agentKeys.includes(cfg.default_agent),
-            };
-            return {};
-          });
-        }
-
-        const applyAgentRemap = () => {
-          cfg.agent = { ...scenario.agent };
-          cfg.default_agent = scenario.defaultAgent;
-        };
-
-        if (order === "remapper-first") applyAgentRemap();
-        await hooks.config?.(cfg);
-        if (order === "quota-first") applyAgentRemap();
-
-        await expectHandled(
-          hooks["command.execute.before"]?.({
-            command: "quota",
-            sessionID: `session-agent-order-${order}-${scenario.name}`,
-          }),
-        );
-
-        expect(cfg.default_agent).toBe(scenario.expectedDefaultAgent);
-        expect(client.session.prompt).toHaveBeenCalledTimes(1);
-        if (order === "quota-first" && scenario.name === "unique") {
-          expect(configAtPrompt).toEqual({
-            defaultAgent: "\u200Bplanner",
-            agentKeys: ["\u200Bplanner", "coder"],
-            namesExistingAgent: true,
-          });
-        }
-      });
-    }
-  }
-
-  it("leaves non-quota server commands untouched", async () => {
-    const client = createClient();
-    const hooks = await loadPluginHooks(client);
-
-    await expect(
-      hooks["command.execute.before"]?.({ command: "project_notes", sessionID: "session-other" }),
-    ).resolves.toBeUndefined();
-
-    expect(client.session.prompt).not.toHaveBeenCalled();
-  });
-
-  it("handles server /quota by injecting deterministic output and aborting continuation", async () => {
-    mocks.getProviders.mockReturnValue([
-      {
-        id: "boom-provider",
-        isAvailable: vi.fn().mockRejectedValue(new Error("boom")),
-        fetch: vi.fn(),
-      },
-    ]);
-
-    const { client } = await runServerCommand({ command: "quota", sessionID: "session-2" });
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(client.session.prompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        path: { id: "session-2" },
-        body: expect.objectContaining({
-          noReply: true,
-          parts: [
-            expect.objectContaining({
-              type: "text",
-              ignored: true,
-            }),
-          ],
-        }),
-      }),
-    );
-    expect(getPromptText(client)).toContain("Quota unavailable");
-    expect(getPromptText(client)).toContain("No provider data available");
-  });
-
-  it("injects clean plain text with noReply/ignored when /quota has no current model", async () => {
-    mocks.loadConfig.mockResolvedValueOnce(
-      makeQuotaToastTestConfig({
-        enabled: true,
-        onlyCurrentModel: false,
-        showSessionTokens: false,
-        tuiCommandDisplay: "dialog",
-      }),
-    );
-    const provider = {
-      id: "openai",
-      isAvailable: vi.fn().mockResolvedValue(true),
-      fetch: vi.fn().mockResolvedValue({
-        attempted: true,
-        entries: [
-          {
-            accounting: {
-              resultType: "quota",
-              acquisitionMethod: "remote_api",
-              ownership: "maintained",
-              authority: "provider_reported",
-            },
-            name: "OpenAI Weekly",
-            group: "OpenAI",
-            label: "Weekly:",
-            percentRemaining: 80,
-          },
-        ],
-        errors: [],
-      }),
-    };
-    mocks.getProviders.mockReturnValue([provider]);
-    const client = createClient();
-
-    await runServerCommand({
+    rpc.footer.mockReset().mockResolvedValue({ lines: ["Copilot 81%"] });
+    rpc.writeExport.mockReset().mockResolvedValue({ written: false });
+    rpc.command.mockReset().mockResolvedValue({
+      state: "output",
       command: "quota",
-      sessionID: "session-zero-model",
-      client,
+      title: "Quota",
+      output: "Quota ready",
+      dialogSize: "large",
     });
-
-    expect(provider.fetch).toHaveBeenCalledTimes(1);
-    expect(client.session.prompt).toHaveBeenCalledWith({
-      path: { id: "session-zero-model" },
-      body: {
-        noReply: true,
-        parts: [
-          {
-            type: "text",
-            ignored: true,
-            text: expect.stringContaining("  Week quota"),
-          },
-        ],
-      },
-    });
-    expect(getPromptText(client)).toMatch(/\n {2}Week quota\s+[█░]{10}\s+80% left/u);
-    expect(getPromptText(client)).toMatch(/^Quota \(\/quota\)/u);
-    expect(getPromptText(client)).not.toContain("```");
-    expect(getPromptText(client)).not.toMatch(/^#{1,6} /mu);
-    expect(getPromptText(client)).not.toContain("No enabled quota providers matched");
   });
 
-  it("handles /tokens_between arguments through one inline injection", async () => {
-    const { client } = await runServerCommand({
-      command: "tokens_between",
-      arguments: "not-a-date-range",
-      sessionID: "session-between",
-    });
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Invalid arguments for /tokens_between");
+  it("registers the 12 palette commands without slash entries, not V1 server command hooks", () => {
+    const tui = startTui();
+    expect(tui.commands.size).toBe(12);
+    expect([...tui.commands.keys()]).toEqual(
+      QUOTA_DIALOG_COMMANDS.map((item) => `quota.${item.id}`),
+    );
+    expect([...tui.commands.values()].some((item) => item.slash !== undefined)).toBe(false);
+    expect(new Set(QUOTA_DIALOG_COMMANDS.map((item) => item.id)).size).toBe(12);
+    expect(tui.context.ui.slot).toHaveBeenCalledWith(expect.objectContaining({ append: "app" }));
+    tui.dispose?.();
   });
 
-  it("injects inline usage output when /tokens_between arguments are missing", async () => {
-    const { client } = await runServerCommand({
-      command: "tokens_between",
-      sessionID: "session-between-missing",
-    });
-
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Invalid arguments for /tokens_between");
-    expect(getPromptText(client)).toContain("Expected: /tokens_between YYYY-MM-DD YYYY-MM-DD");
+  it("isolates commands from the model transcript and presents quota output locally", async () => {
+    const tui = startTui();
+    await tui.commands.get("quota.quota")?.run();
+    expect(rpc.command).toHaveBeenCalledWith(
+      { command: "quota", sessionID: undefined, arguments: undefined },
+      expect.objectContaining({ location: { directory: process.cwd() } }),
+    );
+    expect(tui.show).toHaveBeenCalledOnce();
+    expect(tui.set).toHaveBeenCalledWith({ size: "large" });
+    expect(tui.context.data.session.get).not.toHaveBeenCalled();
+    tui.dispose?.();
   });
 
-  it("propagates server slash command injection failures instead of throwing handled", async () => {
-    mocks.getProviders.mockReturnValue([
-      {
-        id: "boom-provider",
-        isAvailable: vi.fn().mockRejectedValue(new Error("boom")),
-        fetch: vi.fn(),
-      },
-    ]);
-    const injectionError = new Error("prompt unavailable");
-    const client = createClient();
-    client.session.prompt.mockRejectedValueOnce(injectionError);
-    const hooks = await loadPluginHooks(client);
-
-    await expect(
-      hooks["command.execute.before"]?.({ command: "quota", sessionID: "session-inject-fails" }),
-    ).rejects.toBe(injectionError);
-
-    expect(isCommandHandledError(injectionError)).toBe(false);
-    expect(client.app.log).toHaveBeenCalledWith(
+  it("passes the prompted /tokens_between range to the deterministic output builder", async () => {
+    const tui = startTui();
+    tui.prompt.mockResolvedValue("not-a-date-range");
+    await tui.commands.get("quota.tokens_between")?.run();
+    expect(rpc.command).toHaveBeenCalledWith(
       expect.objectContaining({
-        body: expect.objectContaining({
-          level: "warn",
-          message: "Failed to inject raw output",
-        }),
+        command: "tokens_between",
+        arguments: "not-a-date-range",
+      }),
+      expect.anything(),
+    );
+    tui.dispose?.();
+  });
+
+  it("prompts for missing date ranges and does not invoke the command when cancelled", async () => {
+    const tui = startTui();
+    await tui.commands.get("quota.tokens_between")?.run();
+    expect(tui.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({ placeholder: "YYYY-MM-DD YYYY-MM-DD" }),
+    );
+    expect(rpc.command).not.toHaveBeenCalled();
+    tui.dispose?.();
+  });
+
+  it("returns without a dialog when quota is disabled", async () => {
+    rpc.command.mockResolvedValue({ state: "noop", command: "quota", reason: "disabled" });
+    const tui = startTui();
+    await tui.commands.get("quota.quota")?.run();
+    expect(tui.show).not.toHaveBeenCalled();
+    expect(tui.toast).not.toHaveBeenCalled();
+    tui.dispose?.();
+  });
+
+  it("shows command failures as sanitized TUI error toasts rather than injecting a message", async () => {
+    rpc.command.mockRejectedValue({ type: "rpc.internal", message: "quota unavailable" });
+    const tui = startTui();
+    await tui.commands.get("quota.quota")?.run();
+    expect(tui.toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: "error",
+        message: "quota unavailable",
       }),
     );
+    expect(tui.show).not.toHaveBeenCalled();
+    tui.dispose?.();
   });
 
-  it("still builds deterministic quota dialog output without session.prompt injection", async () => {
-    const isAvailable = vi.fn().mockRejectedValue(new Error("boom"));
-    mocks.getProviders.mockReturnValue([
-      {
-        id: "boom-provider",
-        isAvailable,
-        fetch: vi.fn(),
-      },
+  it("never reads logins or builds reports in the TUI during setup, surfaces, and palette runs", async () => {
+    vi.stubGlobal("React", {
+      createElement: (type: unknown, props: Record<string, unknown> | null) =>
+        typeof type === "function" ? type(props ?? {}) : { type, props },
+    });
+    const tui = startTui();
+    tui.slots.get("sidebar.content")?.render({ sessionID: "ses_1" });
+    tui.slots.get("prompt.footer")?.render({ sessionID: "ses_1" });
+    tui.slots.get("home.footer.status")?.render();
+    tui.listeners.get("session.execution.succeeded")?.({ data: { sessionID: "ses_1" } });
+    for (const command of tui.commands.values()) await command.run();
+    await vi.waitFor(() => expect(tui.toast).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(rpc.writeExport).toHaveBeenCalledOnce());
+
+    expect(rpc.surface.mock.calls.map(([input]) => input)).toEqual([
+      { surface: "sidebar", sessionID: "ses_1" },
+      { surface: "idle", sessionID: "ses_1" },
     ]);
-    const client = createClient();
-
-    const result = await buildDialogOutput({ command: "quota", client, sessionID: "session-2" });
-
-    expect(result.state).toBe("output");
-    expect(result.state === "output" ? result.output : "").toContain("Quota unavailable");
-    expect(result.state === "output" ? result.output : "").toContain("No provider data available");
-    expect(isAvailable).toHaveBeenCalledOnce();
-    expect(client.session.prompt).not.toHaveBeenCalled();
+    expect(rpc.footer).toHaveBeenCalledTimes(2);
+    // /tokens_between stops at its date prompt, which this fake cancels.
+    expect(rpc.command).toHaveBeenCalledTimes(QUOTA_DIALOG_COMMANDS.length - 1);
+    expect(mocks.readAuthFile).not.toHaveBeenCalled();
+    expect(mocks.readAuthFileCached).not.toHaveBeenCalled();
+    expect(mocks.readCredentialRows).not.toHaveBeenCalled();
+    expect(mocks.build).not.toHaveBeenCalled();
+    tui.dispose?.();
   });
 
-  it("handles disabled deterministic server commands without injecting output", async () => {
-    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-    const client = createClient();
-
-    await runServerCommand({ command: "tokens_daily", client, sessionID: "session-disabled" });
-    await runServerCommand({
-      command: "tokens_session_all",
-      client,
-      sessionID: "session-disabled-tree",
-    });
-
-    expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
-  });
-
-  it("returns no-op dialog result for disabled deterministic commands", async () => {
-    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-    const client = createClient();
-
-    const daily = await buildDialogOutput({
-      command: "tokens_daily",
-      client,
-      sessionID: "session-disabled",
-    });
-    const tree = await buildDialogOutput({
-      command: "tokens_session_all",
-      client,
-      sessionID: "session-disabled-tree",
-    });
-
-    expect(daily).toEqual({ state: "noop", command: "tokens_daily", reason: "disabled" });
-    expect(tree).toEqual({ state: "noop", command: "tokens_session_all", reason: "disabled" });
-    expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
-  });
-
-  it("handles server /pricing_refresh by refreshing pricing, injecting output, and aborting continuation", async () => {
-    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
-      attempted: true,
-      updated: true,
-      state: { version: 1, updatedAt: Date.now(), lastResult: "success" },
-    });
-
-    const { client } = await runServerCommand({
-      command: "pricing_refresh",
-      sessionID: "session-pricing-refresh",
-    });
-
-    expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({
-      reason: "manual",
-      force: true,
-      snapshotSelection: "auto",
-      allowRefreshWhenSelectionBundled: true,
-    });
-    expect(client.session.prompt).toHaveBeenCalledTimes(1);
-    expect(getPromptText(client)).toContain("Pricing Refresh (/pricing_refresh)");
-  });
-
-  it("still builds /pricing_refresh dialog output without throwing a handled sentinel", async () => {
-    mocks.maybeRefreshPricingSnapshot.mockResolvedValue({
-      attempted: true,
-      updated: true,
-      state: { version: 1, updatedAt: Date.now(), lastResult: "success" },
-    });
-
-    const client = createClient();
-
-    const result = await buildDialogOutput({
-      command: "pricing_refresh",
-      client,
-      sessionID: "session-pricing-refresh",
-    });
-
-    expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({
-      reason: "manual",
-      force: true,
-      snapshotSelection: "auto",
-      allowRefreshWhenSelectionBundled: true,
-    });
-    expect(result.state === "output" ? result.output : "").toContain(
-      "Pricing Refresh (/pricing_refresh)",
-    );
-    expect(client.session.prompt).not.toHaveBeenCalled();
-  });
-
-  it("handles disabled server /pricing_refresh as a no-op", async () => {
-    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-    const client = createClient();
-
-    await runServerCommand({
-      command: "pricing_refresh",
-      client,
-      sessionID: "session-disabled-refresh",
-    });
-
-    expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
-  });
-
-  it("treats /pricing_refresh as a dialog no-op when disabled", async () => {
-    mocks.loadConfig.mockResolvedValue(makeQuotaToastTestConfig({ enabled: false }));
-    const client = createClient();
-
-    const result = await buildDialogOutput({
-      command: "pricing_refresh",
-      client,
-      sessionID: "session-disabled-refresh",
-    });
-
-    expect(result).toEqual({ state: "noop", command: "pricing_refresh", reason: "disabled" });
-    expect(mocks.maybeRefreshPricingSnapshot).not.toHaveBeenCalled();
-    expect(client.session.prompt).not.toHaveBeenCalled();
+  it("does not offer V1 slash interception or agent-config normalization", async () => {
+    // V2 TUI commands are local keymap registrations. The server plugin registers a tool and
+    // V2 server commands for Web and Desktop; it has no V1 command.execute.before hook.
+    const server = (await import("../src/plugin.js")).default;
+    const transform = vi.fn();
+    const commandTransform = vi.fn();
+    await server.setup({
+      location: { directory: process.cwd() },
+      tool: { transform },
+      command: { transform: commandTransform },
+      session: { hook: vi.fn() },
+      provider: { list: vi.fn() },
+      rpc: {
+        register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })),
+      },
+      integration: createFakeIntegration([]),
+      event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
+    } as never);
+    expect(transform).toHaveBeenCalledOnce();
+    expect(commandTransform).toHaveBeenCalledOnce();
+    expect((server as Record<string, unknown>)["command.execute.before"]).toBeUndefined();
+    expect((server as Record<string, unknown>).config).toBeUndefined();
   });
 });

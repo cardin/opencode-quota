@@ -8,6 +8,12 @@ const AGY_UNREDACTED_CREDENTIAL_PATTERNS = Object.freeze([
   /\b\d{10,}-[a-z0-9]+\.apps\.googleusercontent\.com\b/i,
   /GOCSPX-[A-Za-z0-9_-]+/,
 ]);
+// cursor-opencode-provider ships no OAuth client secret (browser login is PKCE); these
+// patterns fail the sync if a real Cursor API key or access token ever lands in the snapshot.
+const CURSOR_UNREDACTED_CREDENTIAL_PATTERNS = Object.freeze([
+  /crsr_[A-Za-z0-9]{20,}/,
+  /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}/,
+]);
 const GEMINI_BUNDLE_REPLACEMENTS = Object.freeze([
   {
     label: "GEMINI_CLIENT_ID",
@@ -32,47 +38,6 @@ const GEMINI_SOURCE_MAP_REPLACEMENTS = Object.freeze([
     replacement: `$1${REDACTED_GOOGLE_OAUTH_CLIENT_SECRET}$3`,
   },
 ]);
-const CURSOR_SAFE_MODELS_BLOCK = `export async function getCursorModels(apiKey) {
-    if (cachedModels)
-        return cachedModels;
-    const discovered = await fetchCursorUsableModels(apiKey);
-    if (discovered && discovered.length > 0) {
-        cachedModels = discovered;
-        return cachedModels;
-    }
-    return FALLBACK_MODELS;
-}`;
-const CURSOR_SAFE_PROXY_BLOCK = `function normalizeConversationMessages(messages) {
-    return messages
-        .filter((m) => m.role !== "tool")
-        .map((m) => ({
-        role: m.role,
-        content: textContent(m.content),
-    }))
-        .filter((m) => m.content || m.role === "user" || m.role === "system");
-}
-/** Derive a key for active bridge lookup (tool-call continuations). Model-specific. */
-function deriveBridgeKey(modelId, messages) {
-    const normalizedMessages = normalizeConversationMessages(messages);
-    return createHash("sha256")
-        .update(JSON.stringify({
-        modelId,
-        messages: normalizedMessages,
-    }))
-        .digest("hex")
-        .slice(0, 16);
-}
-/** Derive a key for conversation state. Model-independent so context survives model switches. */
-function deriveConversationKey(messages) {
-    const normalizedMessages = normalizeConversationMessages(messages);
-    return createHash("sha256")
-        .update(JSON.stringify({
-        messages: normalizedMessages,
-    }))
-        .digest("hex")
-        .slice(0, 16);
-}`;
-
 const SNAPSHOT_SANITIZERS = Object.freeze({
   "opencode-agy-auth": Object.freeze([
     {
@@ -172,34 +137,6 @@ const SNAPSHOT_SANITIZERS = Object.freeze({
       replacements: GEMINI_SOURCE_MAP_REPLACEMENTS,
     },
   ]),
-  "opencode-cursor-oauth": Object.freeze([
-    {
-      relativePath: "dist/models.js",
-      replacements: [
-        {
-          label: "CURSOR_DISCOVERY_CACHE_FALLBACK",
-          alreadySanitizedPattern:
-            /if \(discovered && discovered\.length > 0\) {\s+cachedModels = discovered;\s+return cachedModels;\s+}\s+return FALLBACK_MODELS;/,
-          pattern:
-            /export async function getCursorModels\(apiKey\) {\s+if \(cachedModels\)\s+return cachedModels;\s+const discovered = await fetchCursorUsableModels\(apiKey\);\s+cachedModels = discovered && discovered\.length > 0 \? discovered : FALLBACK_MODELS;\s+return cachedModels;\s+}/,
-          replacement: CURSOR_SAFE_MODELS_BLOCK,
-        },
-      ],
-    },
-    {
-      relativePath: "dist/proxy.js",
-      replacements: [
-        {
-          label: "CURSOR_TRANSCRIPT_BRIDGE_KEY",
-          alreadySanitizedPattern:
-            /function deriveBridgeKey\(modelId, messages\) {\s+const normalizedMessages = (?:normalizeConversationMessages\(messages\)|messages\s+\.filter\(\(m\) => m\.role !== "tool"\)[\s\S]+?\.filter\(\(m\) => m\.content \|\| m\.role === "user" \|\| m\.role === "system"\));\s+return createHash\("sha256"\)\s+\.update\(JSON\.stringify\({\s+modelId,\s+messages: normalizedMessages,\s+}\)\)\s+\.digest\("hex"\)\s+\.slice\(0, 16\);\s+}\s+\/\*\* Derive a key for conversation state\. Model-independent so context survives model switches\. \*\/\s+function deriveConversationKey\(messages\) {\s+const normalizedMessages = (?:normalizeConversationMessages\(messages\)|messages\s+\.filter\(\(m\) => m\.role !== "tool"\)[\s\S]+?\.filter\(\(m\) => m\.content \|\| m\.role === "user" \|\| m\.role === "system"\));\s+return createHash\("sha256"\)\s+\.update\(JSON\.stringify\({\s+messages: normalizedMessages,\s+}\)\)\s+\.digest\("hex"\)\s+\.slice\(0, 16\);\s+}/,
-          pattern:
-            /\/\*\* Derive a key for active bridge lookup \(tool-call continuations\)\. Model-specific\. \*\/\s+function deriveBridgeKey\(modelId, messages\) {\s+const firstUserMsg = messages\.find\(\(m\) => m\.role === "user"\);\s+const firstUserText = firstUserMsg \? textContent\(firstUserMsg\.content\) : "";\s+return createHash\("sha256"\)\s+\.update\(`bridge:\$\{modelId\}:\$\{firstUserText\.slice\(0, 200\)\}`\)\s+\.digest\("hex"\)\s+\.slice\(0, 16\);\s+}\s+\/\*\* Derive a key for conversation state\. Model-independent so context survives model switches\. \*\/\s+function deriveConversationKey\(messages\) {\s+const firstUserMsg = messages\.find\(\(m\) => m\.role === "user"\);\s+const firstUserText = firstUserMsg \? textContent\(firstUserMsg\.content\) : "";\s+return createHash\("sha256"\)\s+\.update\(`conv:\$\{firstUserText\.slice\(0, 200\)\}`\)\s+\.digest\("hex"\)\s+\.slice\(0, 16\);\s+}/,
-          replacement: CURSOR_SAFE_PROXY_BLOCK,
-        },
-      ],
-    },
-  ]),
 });
 
 async function listSnapshotFiles(rootPath) {
@@ -220,19 +157,24 @@ async function listSnapshotFiles(rootPath) {
   return files;
 }
 
-async function verifyAgySnapshotSanitized(pluginRoot, capturedCredentialValues) {
+async function verifySnapshotHasNoCredentials(
+  pluginRoot,
+  credentialLabel,
+  unredactedPatterns,
+  capturedCredentialValues,
+) {
   for (const filePath of await listSnapshotFiles(pluginRoot)) {
     const content = await readFile(filePath);
 
     for (const value of capturedCredentialValues) {
       if (content.includes(value)) {
-        throw new Error(`Found unsanitized AGY OAuth credential in ${filePath}.`);
+        throw new Error(`Found unsanitized ${credentialLabel} in ${filePath}.`);
       }
     }
 
     const text = content.toString("utf8");
-    if (AGY_UNREDACTED_CREDENTIAL_PATTERNS.some((pattern) => pattern.test(text))) {
-      throw new Error(`Found unsanitized AGY OAuth credential in ${filePath}.`);
+    if (unredactedPatterns.some((pattern) => pattern.test(text))) {
+      throw new Error(`Found unsanitized ${credentialLabel} in ${filePath}.`);
     }
   }
 }
@@ -296,7 +238,21 @@ export async function sanitizeUpstreamPluginSnapshot(pluginId, pluginRoot) {
   }
 
   if (pluginId === "opencode-agy-auth") {
-    await verifyAgySnapshotSanitized(pluginRoot, capturedCredentialValues);
+    await verifySnapshotHasNoCredentials(
+      pluginRoot,
+      "AGY OAuth credential",
+      AGY_UNREDACTED_CREDENTIAL_PATTERNS,
+      capturedCredentialValues,
+    );
+  }
+
+  if (pluginId === "cursor-opencode-provider") {
+    await verifySnapshotHasNoCredentials(
+      pluginRoot,
+      "Cursor credential",
+      CURSOR_UNREDACTED_CREDENTIAL_PATTERNS,
+      capturedCredentialValues,
+    );
   }
 
   if (

@@ -69,11 +69,11 @@ export function normalizeLatestPublishedPluginVersion(spec, packument) {
     typeof packument === "object" &&
     packument["dist-tags"] &&
     typeof packument["dist-tags"] === "object"
-      ? packument["dist-tags"].latest
+      ? packument["dist-tags"][spec.distTag]
       : "";
 
   if (typeof latestVersion !== "string" || !latestVersion) {
-    throw new Error(`Package ${spec.packageName} is missing a latest dist-tag.`);
+    throw new Error(`Package ${spec.packageName} is missing the ${spec.distTag} dist-tag.`);
   }
 
   const versionEntry =

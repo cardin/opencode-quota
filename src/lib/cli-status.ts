@@ -1,9 +1,6 @@
-import { createCliQuotaClient, resolveCliRoots } from "./cli-show.js";
-
+import { buildCliStatus } from "./cli-reports.js";
+import { runCliReport } from "./cli-show.js";
 import { getQuotaProviderShape } from "./provider-metadata.js";
-import { buildStatusReportData } from "./quota-dialog-commands.js";
-import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
-import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 
 export interface RunCliStatusCommandOptions {
   argv?: string[];
@@ -122,41 +119,11 @@ export async function runCliStatusCommand(
     return 1;
   }
 
-  try {
-    const roots = resolveCliRoots(options.cwd ?? process.cwd());
-    const client: QuotaRuntimeClient = createCliQuotaClient({ configRootDir: roots.configRoot });
-    const runtime = await resolveQuotaRuntimeContext({
-      client,
-      roots,
-      includeSessionMeta: false,
-    });
-
-    if (!runtime.config.enabled) {
-      writeLine(stderr, "Quota disabled in config (enabled: false).");
-      return 1;
-    }
-
-    const data = await buildStatusReportData({
-      runtime,
-      generatedAtMs: Date.now(),
-      providerFilterId: providerId,
-    });
-
-    if (!data.output || !data.payload) {
-      writeLine(stderr, "Quota disabled in config (enabled: false).");
-      return 1;
-    }
-
-    if (parsed.json) {
-      writeLine(stdout, JSON.stringify(data.payload, null, 2));
-      return data.hasComparableProviderData ? 0 : 2;
-    }
-
-    writeLine(stdout, data.output);
-    return 0;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    writeLine(stderr, `Failed to generate quota status: ${message}`);
-    return 1;
-  }
+  return runCliReport({
+    cwd: options.cwd ?? process.cwd(),
+    failurePrefix: "Failed to generate quota status",
+    build: (runtime) => buildCliStatus({ runtime, providerId, json: parsed.json }),
+    stdout,
+    stderr,
+  });
 }

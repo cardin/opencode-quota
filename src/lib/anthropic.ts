@@ -4,12 +4,13 @@
  * Uses the local Claude CLI/runtime to detect install/auth state first. When
  * Claude auth is confirmed but local quota windows are missing, it falls back
  * to Anthropic's OAuth usage endpoint using the first usable OAuth access
- * token: OpenCode's own auth.json, then Claude OAuth credentials (macOS
+ * token: OpenCode's own Anthropic login, then Claude OAuth credentials (macOS
  * Keychain first, then the local credentials file).
  */
 
 import { execFile } from "child_process";
 import { createHash } from "crypto";
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
@@ -24,6 +25,8 @@ import {
 } from "./resolved-auth-identity.js";
 
 const DEFAULT_CLAUDE_BINARY = "claude";
+/** How `binaryPath` reads when the default `claude` ran from PATH. */
+const CLAUDE_ON_PATH_DISPLAY = "claude (PATH)";
 const CLAUDE_COMMAND_TIMEOUT_MS = 3_000;
 const ANTHROPIC_DIAGNOSTICS_TTL_MS = 5_000;
 const ANTHROPIC_OAUTH_BACKOFF_BASE_MS = 30_000;
@@ -96,6 +99,11 @@ export interface AnthropicDiagnostics {
   quotaSource: AnthropicQuotaSource;
   /** Credential store that supplied the OAuth token for the usage probe. */
   oauthCredentialSource?: AnthropicCredentialSource;
+  /**
+   * The Claude CLI the probe ran: the configured path, `claude (PATH)`, or an
+   * install-folder path. Null when no Claude CLI was found.
+   */
+  binaryPath: string | null;
   checkedCommands: string[];
   message?: string;
   quota?: AnthropicQuotaResult;
@@ -131,6 +139,7 @@ type AnthropicLocalDiagnostics = {
   installed: boolean;
   version: string | null;
   authStatus: AnthropicAuthStatus;
+  binaryPath: string | null;
   checkedCommands: string[];
   message?: string;
   localQuota?: AnthropicQuotaResult;
@@ -201,6 +210,21 @@ const anthropicOAuthInFlight = new Map<string, Promise<AnthropicFallbackQuota>>(
 export function resolveAnthropicBinaryPath(binaryPath?: string): string {
   const trimmed = binaryPath?.trim();
   return trimmed ? trimmed : DEFAULT_CLAUDE_BINARY;
+}
+
+/**
+ * Usual Claude CLI install locations, tried in order when `anthropicBinaryPath`
+ * is not set and `claude` is not on the PATH of the OpenCode service. Windows
+ * is skipped: set `anthropicBinaryPath` there.
+ */
+function claudeInstallFolderCandidates(): string[] {
+  if (process.platform === "win32") return [];
+  return [
+    join(homedir(), ".claude", "local", "claude"),
+    join(homedir(), ".local", "bin", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ];
 }
 
 function formatCommandDisplayArg(value: string): string {
@@ -923,6 +947,16 @@ async function queryAnthropicQuotaFromOAuthAccessToken(
   }
 }
 
+export async function queryAnthropicQuotaWithOAuth(
+  accessToken: string,
+  requestTimeoutMs?: number,
+): Promise<AnthropicResult> {
+  const result = await queryAnthropicQuotaFromOAuthAccessToken(accessToken, requestTimeoutMs);
+  return result.state === "success"
+    ? result.quota
+    : { success: false, error: result.detail ?? "Anthropic OAuth quota unavailable" };
+}
+
 function extractAuthBoolean(data: unknown): boolean | undefined {
   const record = asRecord(data);
   if (!record) {
@@ -1136,6 +1170,7 @@ function mapLocalDiagnosticsToAnthropicDiagnostics(
       authStatus: localDiagnostics.authStatus,
       quotaSupported: true,
       quotaSource: "claude-auth-status-json",
+      binaryPath: localDiagnostics.binaryPath,
       checkedCommands: localDiagnostics.checkedCommands,
       quota: localDiagnostics.localQuota,
     };
@@ -1147,6 +1182,7 @@ function mapLocalDiagnosticsToAnthropicDiagnostics(
     authStatus: localDiagnostics.authStatus,
     quotaSupported: false,
     quotaSource: "none",
+    binaryPath: localDiagnostics.binaryPath,
     checkedCommands: localDiagnostics.checkedCommands,
   };
 
@@ -1157,25 +1193,51 @@ function mapLocalDiagnosticsToAnthropicDiagnostics(
   return diagnostics;
 }
 
+async function runClaudeVersionCommand(
+  binaryPath: string,
+  checkedCommands: string[],
+): Promise<ClaudeCommandResult> {
+  const versionCommand = buildClaudeCommandInvocation(binaryPath, ["--version"]);
+  checkedCommands.push(versionCommand.display);
+  return await runClaudeCommand(versionCommand);
+}
+
 async function probeAnthropicLocalDiagnostics(
   options: AnthropicProbeOptions = {},
 ): Promise<AnthropicLocalDiagnostics> {
-  const binaryPath = resolveAnthropicBinaryPath(options.binaryPath);
+  const configuredBinaryPath = resolveAnthropicBinaryPath(options.binaryPath);
   const checkedCommands: string[] = [];
 
-  const versionCommand = buildClaudeCommandInvocation(binaryPath, ["--version"]);
-  checkedCommands.push(versionCommand.display);
-  const versionResult = await runClaudeCommand(versionCommand);
+  let binaryPath = configuredBinaryPath;
+  let versionResult = await runClaudeVersionCommand(binaryPath, checkedCommands);
+  // No configured path and no `claude` on PATH: the first install folder whose CLI runs wins.
+  const installFolderCandidates =
+    configuredBinaryPath === DEFAULT_CLAUDE_BINARY ? claudeInstallFolderCandidates() : [];
   if (isCommandMissing(versionResult)) {
+    for (const candidate of installFolderCandidates) {
+      if (!existsSync(candidate)) continue;
+      binaryPath = candidate;
+      versionResult = await runClaudeVersionCommand(candidate, checkedCommands);
+      if (!isCommandMissing(versionResult)) break;
+    }
+  }
+  if (isCommandMissing(versionResult)) {
+    const alsoChecked =
+      installFolderCandidates.length > 0
+        ? ` Also checked: ${installFolderCandidates.map((candidate) => sanitizeDisplayText(candidate)).join(", ")}.`
+        : "";
     return {
       installed: false,
       version: null,
       authStatus: "unknown",
+      binaryPath: null,
       checkedCommands,
-      message: `Claude CLI (\`${sanitizeDisplayText(binaryPath)}\`) is not installed or not on PATH.`,
+      message: `Claude CLI (\`${sanitizeDisplayText(configuredBinaryPath)}\`) is not installed or not on PATH.${alsoChecked}`,
     };
   }
 
+  const binaryPathDisplay =
+    binaryPath === DEFAULT_CLAUDE_BINARY ? CLAUDE_ON_PATH_DISPLAY : binaryPath;
   const version = parseVersion(`${versionResult.stdout}\n${versionResult.stderr}`);
 
   const authStatusJsonCommand = buildClaudeCommandInvocation(binaryPath, [
@@ -1198,6 +1260,7 @@ async function probeAnthropicLocalDiagnostics(
       installed: true,
       version,
       authStatus: parsedAuth.authStatus,
+      binaryPath: binaryPathDisplay,
       checkedCommands,
       message: parsedAuth.message,
     };
@@ -1209,6 +1272,7 @@ async function probeAnthropicLocalDiagnostics(
       installed: true,
       version,
       authStatus: "authenticated",
+      binaryPath: binaryPathDisplay,
       checkedCommands,
       localQuota: quota,
     };
@@ -1218,6 +1282,7 @@ async function probeAnthropicLocalDiagnostics(
     installed: true,
     version,
     authStatus: "authenticated",
+    binaryPath: binaryPathDisplay,
     checkedCommands,
     message: CLAUDE_NO_LOCAL_QUOTA_MESSAGE,
   };
@@ -1321,6 +1386,7 @@ export async function getAnthropicDiagnostics(
         authStatus: localDiagnostics.authStatus,
         quotaSupported: false,
         quotaSource: "none",
+        binaryPath: localDiagnostics.binaryPath,
         checkedCommands: localDiagnostics.checkedCommands,
         message: buildAnthropicNoQuotaDiagnosticsMessage(credentials.detail),
       };
@@ -1354,6 +1420,7 @@ export async function getAnthropicDiagnostics(
         quotaSupported: false,
         quotaSource: "none",
         oauthCredentialSource: credentials.source,
+        binaryPath: localDiagnostics.binaryPath,
         checkedCommands: localDiagnostics.checkedCommands,
         message: buildAnthropicNoQuotaDiagnosticsMessage(fallbackQuota.detail),
       };
@@ -1370,6 +1437,7 @@ export async function getAnthropicDiagnostics(
           ? "opencode-auth-oauth-api"
           : "claude-credentials-oauth-api",
       oauthCredentialSource: credentials.source,
+      binaryPath: localDiagnostics.binaryPath,
       checkedCommands: localDiagnostics.checkedCommands,
       quota: fallbackQuota.quota,
     };
@@ -1406,7 +1474,8 @@ export async function hasAnthropicCredentialsConfigured(
 ): Promise<boolean> {
   try {
     const opencodeCredentials = await resolveAnthropicOAuthCached();
-    if (opencodeCredentials.state === "configured") {
+    // A login OpenCode could not return still counts, so it shows as an error.
+    if (opencodeCredentials.state === "configured" || opencodeCredentials.state === "failed") {
       return true;
     }
   } catch {

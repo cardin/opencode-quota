@@ -5,15 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeDirs = vi.hoisted(() => ({
   value: {
-    dataDirs: [] as string[],
-    configDirs: [] as string[],
-    cacheDirs: [] as string[],
-    stateDirs: [] as string[],
+    dataDir: "",
+    configDir: "",
+    cacheDir: "",
+    stateDir: "",
   },
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
 import { extractProviderIdsFromParsedConfig } from "../src/lib/config-file-utils.js";
@@ -35,10 +35,10 @@ describe("opencode config provider discovery", () => {
     mkdirSync(globalConfigDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
     runtimeDirs.value = {
-      dataDirs: [],
-      configDirs: [globalConfigDir],
-      cacheDirs: [],
-      stateDirs: [],
+      dataDir: join(tempDir, "data"),
+      configDir: globalConfigDir,
+      cacheDir: join(tempDir, "cache"),
+      stateDir: join(tempDir, "state"),
     };
   });
 
@@ -86,7 +86,7 @@ describe("opencode config provider discovery", () => {
       JSON.stringify({
         plugin: [
           "opencode-gemini-auth",
-          "@playwo/opencode-cursor-oauth",
+          "cursor-opencode-provider/plugin/opencode2",
           "@slkiser/opencode-quota",
         ],
       }),
@@ -99,23 +99,64 @@ describe("opencode config provider discovery", () => {
     ]);
   });
 
+  it("does not infer Cursor from OpenCode 1-only Cursor companion plugins", async () => {
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        plugin: [
+          "@playwo/opencode-cursor-oauth",
+          "opencode-cursor-oauth",
+          "@rama_nigg/open-cursor",
+        ],
+      }),
+      "utf8",
+    );
+
+    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
+  });
+
   it("deduplicates provider ids inferred from provider blocks and plugin specs", async () => {
     writeFileSync(
       join(globalConfigDir, "opencode.json"),
-      JSON.stringify({ plugin: ["open-cursor"] }),
+      JSON.stringify({ plugin: ["cursor-opencode-provider"] }),
       "utf8",
     );
     writeFileSync(
       join(workspaceDir, "opencode.json"),
       JSON.stringify({
         provider: { "alibaba-coding-plan": {}, cursor: {} },
-        plugin: [["@playwo/opencode-cursor-oauth", { enabled: true }]],
+        plugin: [["cursor-opencode-provider/server", { enabled: true }]],
       }),
       "utf8",
     );
 
     await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
       "alibaba-coding-plan",
+      "cursor",
+    ]);
+  });
+
+  it("reads OpenCode 2 native providers and plugins alongside the legacy keys", async () => {
+    writeFileSync(
+      join(globalConfigDir, "opencode.json"),
+      JSON.stringify({ providers: { deepseek: {} }, plugins: ["opencode-gemini-auth"] }),
+      "utf8",
+    );
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        provider: { openai: {} },
+        plugins: [
+          { package: "cursor-opencode-provider/plugin/opencode2", options: { enabled: true } },
+        ],
+      }),
+      "utf8",
+    );
+
+    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+      "openai",
+      "deepseek",
+      "google-gemini-cli",
       "cursor",
     ]);
   });

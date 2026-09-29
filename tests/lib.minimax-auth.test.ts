@@ -12,7 +12,7 @@ import {
 } from "./helpers/trusted-config-test-harness.js";
 
 const mocks = vi.hoisted(() => ({
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
+  getCredentialDatabasePaths: vi.fn(() => ["/tmp/opencode.db"]),
   readAuthFileCached: vi.fn(),
 }));
 
@@ -27,7 +27,7 @@ vi.mock("fs/promises", () => ({
 }));
 
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPaths: mocks.getAuthPaths,
+  getCredentialDatabasePaths: mocks.getCredentialDatabasePaths,
   readAuthFileCached: mocks.readAuthFileCached,
 }));
 
@@ -68,7 +68,7 @@ describe("minimax auth resolution", () => {
       "MINIMAX_API_KEY",
     ]);
 
-    mocks.getAuthPaths.mockReset().mockReturnValue(["/tmp/auth.json"]);
+    mocks.getCredentialDatabasePaths.mockReset().mockReturnValue(["/tmp/opencode.db"]);
     mocks.readAuthFileCached.mockReset();
 
     fsConfigMocks = await loadFsConfigMocks();
@@ -114,6 +114,14 @@ describe("minimax auth resolution", () => {
         withMiniMaxAuth({ type: "api", key: "", access: "access-token" }),
         { state: "invalid", error: "MiniMax auth entry present but key is empty" },
       ],
+      [
+        "OpenCode could not read the login",
+        withMiniMaxAuth({ type: "api", resolveError: "refresh_failed: HTTP 500" }),
+        {
+          state: "invalid",
+          error: "OpenCode could not read this login: refresh_failed: HTTP 500",
+        },
+      ],
     ])("returns %j when %s", (_label, auth, expected) => {
       expect(resolveMiniMaxAuth(auth as any)).toEqual(expected);
     });
@@ -130,7 +138,7 @@ describe("minimax auth resolution", () => {
   });
 
   describe("resolveMiniMaxAuthCached", () => {
-    it("prefers MINIMAX_CODING_PLAN_API_KEY over MINIMAX_API_KEY and auth.json", async () => {
+    it("prefers MINIMAX_CODING_PLAN_API_KEY over MINIMAX_API_KEY and opencode.db", async () => {
       process.env.MINIMAX_CODING_PLAN_API_KEY = "primary-env-key";
       process.env.MINIMAX_API_KEY = "fallback-env-key";
       mocks.readAuthFileCached.mockResolvedValueOnce(
@@ -192,6 +200,23 @@ describe("minimax auth resolution", () => {
       expect(mocks.readAuthFileCached).not.toHaveBeenCalled();
     });
 
+    it("reads OpenCode 2 native provider settings before legacy provider options", async () => {
+      mockTrustedConfigFile(
+        fsConfigMocks,
+        trustedPaths.json,
+        JSON.stringify({
+          provider: { "minimax-coding-plan": { options: { apiKey: "legacy-key" } } },
+          providers: { "minimax-coding-plan": { settings: { apiKey: "native-key" } } },
+        }),
+      );
+
+      await expect(resolveMiniMaxAuthCached()).resolves.toEqual({
+        state: "configured",
+        apiKey: "native-key",
+        endpoint: "international",
+      });
+    });
+
     it("resolves China from trusted config China aliases", async () => {
       mockTrustedConfigFile(
         fsConfigMocks,
@@ -224,7 +249,7 @@ describe("minimax auth resolution", () => {
       await expect(resolveMiniMaxAuthCached()).resolves.toEqual({ state: "none" });
     });
 
-    it("falls back to auth.json with strict api key auth", async () => {
+    it("falls back to opencode.db with strict api key auth", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce(
         withMiniMaxAuth({ type: "api", key: "auth-key" }),
       );
@@ -236,10 +261,11 @@ describe("minimax auth resolution", () => {
       });
       expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
         maxAgeMs: DEFAULT_MINIMAX_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: ["minimax-coding-plan"],
       });
     });
 
-    it("returns invalid for access-only auth.json", async () => {
+    it("returns invalid for access-only opencode.db", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce(
         withMiniMaxAuth({ type: "api", access: "access-token" }),
       );
@@ -250,7 +276,7 @@ describe("minimax auth resolution", () => {
       });
     });
 
-    it("masks invalid auth.json when trusted config is configured", async () => {
+    it("masks invalid opencode.db when trusted config is configured", async () => {
       mockTrustedConfigFile(
         fsConfigMocks,
         trustedPaths.json,
@@ -280,12 +306,15 @@ describe("minimax auth resolution", () => {
       mocks.readAuthFileCached.mockResolvedValueOnce({});
 
       await resolveMiniMaxAuthCached({ maxAgeMs: -500 });
-      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({ maxAgeMs: 0 });
+      expect(mocks.readAuthFileCached).toHaveBeenCalledWith({
+        maxAgeMs: 0,
+        integrationIds: ["minimax-coding-plan"],
+      });
     });
   });
 
   describe("resolveMiniMaxChinaAuth", () => {
-    it("resolves MiniMax China auth.json keys", () => {
+    it("resolves MiniMax China opencode.db keys", () => {
       expect(
         resolveMiniMaxChinaAuth(withMiniMaxChinaAuth({ type: "api", key: "china-key" })),
       ).toEqual({
@@ -295,7 +324,18 @@ describe("minimax auth resolution", () => {
       });
     });
 
-    it("returns invalid for MiniMax China access-only auth.json", () => {
+    it("returns OpenCode's reason for a MiniMax China login OpenCode could not read", () => {
+      expect(
+        resolveMiniMaxChinaAuth(
+          withMiniMaxChinaAuth({ type: "api", resolveError: "active_failed: database is locked" }),
+        ),
+      ).toEqual({
+        state: "invalid",
+        error: "OpenCode could not read this login: active_failed: database is locked",
+      });
+    });
+
+    it("returns invalid for MiniMax China access-only opencode.db", () => {
       expect(
         resolveMiniMaxChinaAuth(withMiniMaxChinaAuth({ type: "api", access: "china-token" })),
       ).toEqual({
@@ -314,7 +354,7 @@ describe("minimax auth resolution", () => {
         source: "env:MINIMAX_API_KEY",
         endpoint: "international",
         checkedPaths: ["env:MINIMAX_API_KEY"],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
     });
 
@@ -326,20 +366,20 @@ describe("minimax auth resolution", () => {
         source: "env:MINIMAX_CHINA_CODING_PLAN_API_KEY",
         endpoint: "china",
         checkedPaths: ["env:MINIMAX_CHINA_CODING_PLAN_API_KEY"],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
       });
     });
 
-    it("reports invalid auth.json diagnostics when fallback auth is malformed", async () => {
+    it("reports invalid opencode.db diagnostics when fallback auth is malformed", async () => {
       mocks.readAuthFileCached.mockResolvedValueOnce(
         withMiniMaxAuth({ type: "oauth", key: "some-key" }),
       );
 
       await expect(getMiniMaxAuthDiagnostics()).resolves.toEqual({
         state: "invalid",
-        source: "auth.json",
+        source: "opencode.db",
         checkedPaths: [],
-        authPaths: ["/tmp/auth.json"],
+        credentialDatabasePaths: ["/tmp/opencode.db"],
         error: 'Unsupported MiniMax auth type: "oauth"',
       });
     });

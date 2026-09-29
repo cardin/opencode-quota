@@ -18,12 +18,13 @@ vi.mock("../src/providers/registry.js", () => ({
   getProviders: () => mockProviders,
 }));
 
-const zenMocks = vi.hoisted(() => ({
-  resolveOpenCodeZenAccountCached: vi.fn(),
+const consoleAuthMocks = vi.hoisted(() => ({
+  resolveOpenCodeConsoleAuth: vi.fn(),
 }));
 
-vi.mock("../src/lib/opencode-zen-config.js", () => ({
-  resolveOpenCodeZenAccountCached: zenMocks.resolveOpenCodeZenAccountCached,
+vi.mock("../src/lib/opencode-console-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-console-auth.js")>()),
+  resolveOpenCodeConsoleAuth: consoleAuthMocks.resolveOpenCodeConsoleAuth,
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
@@ -42,7 +43,6 @@ import {
 } from "../src/lib/quota-render-data.js";
 import { __resetQuotaStateForTests } from "../src/lib/quota-state.js";
 import { DEFAULT_CONFIG, type QuotaToastConfig } from "../src/lib/types.js";
-import { kimiCodePlanCnProvider, kimiCodePlanGlobalProvider } from "../src/providers/kimi-code.js";
 import { opencodeZenProvider } from "../src/providers/opencode-zen.js";
 
 function renderConfig(overrides: Partial<QuotaToastConfig> = {}): QuotaToastConfig {
@@ -122,64 +122,54 @@ describe("collectQuotaRenderData shared quota state", () => {
     ]);
   });
 
-  it("surfaces recoverable OpenCode Zen auth states without auto-mode noise", async () => {
-    // Recoverable states (here: signed in but no active org) must pass the
-    // auto-mode availability gate so fetch() can surface its recovery hint.
-    zenMocks.resolveOpenCodeZenAccountCached.mockResolvedValue({ state: "missing_org" });
+  it("surfaces a failed OpenCode Zen sign-in but keeps auto mode quiet without one", async () => {
+    // A failed Console sign-in passes the auto-mode availability gate so
+    // fetch() can show its recovery hint.
+    consoleAuthMocks.resolveOpenCodeConsoleAuth.mockResolvedValue({
+      state: "invalid",
+      error: "refresh_failed: boom",
+    });
 
-    const missingOrg = await collectQuotaRenderData({
+    const failed = await collectQuotaRenderData({
       client: TEST_CLIENT,
       config: renderConfig(),
       surfaceExplicitProviderIssues: true,
       formatStyle: "allWindows",
       providers: [opencodeZenProvider],
     });
-    expect(missingOrg.active).toEqual([opencodeZenProvider]);
-    expect(missingOrg.data?.errors).toContainEqual({
+    expect(failed.active).toEqual([opencodeZenProvider]);
+    expect(failed.data?.errors).toContainEqual({
       label: "OpenCode Zen",
       message:
-        "No active OpenCode Console organization. Run `opencode console switch` to select one.",
+        "OpenCode Console sign-in failed: refresh_failed: boom. Run `opencode auth login opencode`.",
     });
 
-    // A normal DB with no Console sign-in is silent in auto mode, but stays
-    // actionable when the user explicitly enables the opencode provider.
-    zenMocks.resolveOpenCodeZenAccountCached.mockResolvedValue({ state: "no_active_account" });
+    // Without a Console sign-in, auto mode stays silent, but an explicit
+    // opencode entry keeps Zen actionable.
+    consoleAuthMocks.resolveOpenCodeConsoleAuth.mockResolvedValue({ state: "none" });
 
-    const autoNoAccount = await collectQuotaRenderData({
+    const autoNone = await collectQuotaRenderData({
       client: TEST_CLIENT,
       config: renderConfig(),
       surfaceExplicitProviderIssues: true,
       formatStyle: "allWindows",
       providers: [opencodeZenProvider],
     });
-    expect(autoNoAccount.active).toEqual([]);
-    expect(autoNoAccount.data?.errors ?? []).toEqual([]);
+    expect(autoNone.active).toEqual([]);
+    expect(autoNone.data?.errors ?? []).toEqual([]);
 
-    const explicitNoAccount = await collectQuotaRenderData({
+    const explicitNone = await collectQuotaRenderData({
       client: TEST_CLIENT,
       config: renderConfig({ enabledProviders: ["opencode"] }),
       surfaceExplicitProviderIssues: true,
       formatStyle: "allWindows",
       providers: [opencodeZenProvider],
     });
-    expect(explicitNoAccount.active).toEqual([opencodeZenProvider]);
-    expect(explicitNoAccount.data?.errors).toContainEqual({
+    expect(explicitNone.active).toEqual([opencodeZenProvider]);
+    expect(explicitNone.data?.errors).toContainEqual({
       label: "OpenCode Zen",
-      message: "No active OpenCode Console account. Run `opencode console login` to sign in again.",
+      message: "No OpenCode Console sign-in found. Run `opencode auth login opencode`.",
     });
-
-    // An absent Console session is silent in every mode.
-    zenMocks.resolveOpenCodeZenAccountCached.mockResolvedValue({ state: "none" });
-
-    const absent = await collectQuotaRenderData({
-      client: TEST_CLIENT,
-      config: renderConfig(),
-      surfaceExplicitProviderIssues: true,
-      formatStyle: "allWindows",
-      providers: [opencodeZenProvider],
-    });
-    expect(absent.active).toEqual([]);
-    expect(absent.data?.errors ?? []).toEqual([]);
   });
 
   it("returns allWindowsData when includeAllWindowsData is true and style is singleWindow", async () => {
@@ -438,62 +428,6 @@ describe("collectQuotaRenderData shared quota state", () => {
         currentProviderID: "minimax-cn-coding-plan",
       }),
     ).toBe(true);
-  });
-
-  it("keeps Kimi regional and legacy current-provider selection separate", () => {
-    const selections = [
-      {
-        currentProviderID: "kimi-code-plan-global",
-        currentModel: "k3",
-        global: true,
-        cn: false,
-      },
-      {
-        currentProviderID: "kimi-code-plan-cn",
-        currentModel: "k3",
-        global: false,
-        cn: true,
-      },
-      { currentProviderID: "kimi", currentModel: "k3", global: false, cn: true },
-    ];
-
-    for (const selection of selections) {
-      expect(
-        matchesQuotaProviderCurrentSelection({
-          provider: kimiCodePlanGlobalProvider,
-          currentProviderID: selection.currentProviderID,
-          currentModel: selection.currentModel,
-        }),
-      ).toBe(selection.global);
-      expect(
-        matchesQuotaProviderCurrentSelection({
-          provider: kimiCodePlanCnProvider,
-          currentProviderID: selection.currentProviderID,
-          currentModel: selection.currentModel,
-        }),
-      ).toBe(selection.cn);
-    }
-  });
-
-  it("matches prefixed Kimi models without current-provider metadata", () => {
-    expect(
-      matchesQuotaProviderCurrentSelection({
-        provider: kimiCodePlanGlobalProvider,
-        currentModel: "kimi-code-plan-global/kimi-k2",
-      }),
-    ).toBe(true);
-    expect(
-      matchesQuotaProviderCurrentSelection({
-        provider: kimiCodePlanCnProvider,
-        currentModel: "kimi-code/future-model",
-      }),
-    ).toBe(true);
-    expect(
-      matchesQuotaProviderCurrentSelection({
-        provider: kimiCodePlanGlobalProvider,
-        currentModel: "kimi-code/future-model",
-      }),
-    ).toBe(false);
   });
 
   it("selects an explicit OpenAI provider for an unprefixed OpenAI model", () => {
@@ -1405,7 +1339,7 @@ describe("collectQuotaRenderData shared quota state", () => {
   it("fetches an available but disabled provider once and preserves its status details", async () => {
     const firstProvider = testProvider("synthetic", {
       attempted: false,
-      statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+      statusDetails: [{ key: "api_key_source", value: "opencode.db" }],
       rawDetails: [{ key: "usage_usd", value: "$2.50" }],
     });
     const duplicateProvider = testProvider("synthetic", {
@@ -1425,7 +1359,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           attempted: false,
           entries: [],
           errors: [],
-          statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+          statusDetails: [{ key: "api_key_source", value: "opencode.db" }],
           rawDetails: [{ key: "usage_usd", value: "$2.50" }],
         },
       },
@@ -1435,7 +1369,7 @@ describe("collectQuotaRenderData shared quota state", () => {
           attempted: false,
           entries: [],
           errors: [],
-          statusDetails: [{ key: "api_key_source", value: "auth.json" }],
+          statusDetails: [{ key: "api_key_source", value: "opencode.db" }],
           rawDetails: [{ key: "usage_usd", value: "$2.50" }],
         },
       },

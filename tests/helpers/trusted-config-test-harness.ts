@@ -13,12 +13,6 @@ export function createRuntimePathsMockModule() {
   const stateDir = join(homedir(), ".local", "state", "opencode");
 
   return {
-    getOpencodeRuntimeDirCandidates: () => ({
-      dataDirs: [dataDir],
-      configDirs: [configDir],
-      cacheDirs: [cacheDir],
-      stateDirs: [stateDir],
-    }),
     getOpencodeRuntimeDirs: () => ({
       dataDir,
       configDir,
@@ -36,7 +30,7 @@ export const TRUSTED_CONFIG_ENV_KEYS = [
 ] as const;
 
 export function getTrustedAuthPath(): string {
-  return join(homedir(), ".local", "share", "opencode", "auth.json");
+  return join(homedir(), ".local", "share", "opencode", "opencode.db");
 }
 
 export function getTrustedOpencodeConfigPaths() {

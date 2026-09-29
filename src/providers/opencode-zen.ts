@@ -6,11 +6,16 @@ import type {
   QuotaProviderStatusDetail,
   QuotaToastEntry,
 } from "../lib/entries.js";
+import { scrubCredentialErrorText } from "../lib/opencode-auth.js";
+import {
+  consoleBaseUrl,
+  type OpenCodeConsoleCredential,
+  resolveOpenCodeConsoleAuth,
+} from "../lib/opencode-console-auth.js";
 import {
   OPENCODE_ZEN_BILLING_UNITS_PER_DOLLAR,
   queryOpenCodeZenQuota,
 } from "../lib/opencode-zen.js";
-import { resolveOpenCodeZenAccountCached } from "../lib/opencode-zen-config.js";
 import { normalizeQuotaProviderId } from "../lib/provider-metadata.js";
 import {
   attemptedErrorResult,
@@ -47,41 +52,31 @@ const OPENCODE_ZEN_STATUS_ACCOUNTING: AccountingMetadata = {
 };
 const USD_UNIT = { kind: "currency", code: "USD" } as const;
 
-const LOGIN_HINT = "Run `opencode console login` to sign in again.";
-const SWITCH_HINT = "Run `opencode console switch` to select one.";
+const LOGIN_HINT = "Run `opencode auth login opencode`.";
 
-function accountErrorMessage(state: string): string {
-  if (state === "missing_org") {
-    return `No active OpenCode Console organization. ${SWITCH_HINT}`;
-  }
-  if (state === "inactive_account") {
-    return `Active OpenCode Console account not found. ${SWITCH_HINT}`;
-  }
-  if (state === "expired") {
-    return `OpenCode Console session expired. ${LOGIN_HINT}`;
-  }
-  if (state === "no_active_account") {
-    return `No active OpenCode Console account. ${LOGIN_HINT}`;
-  }
-  if (state === "invalid_url") {
-    return `The stored OpenCode Console URL is invalid. ${LOGIN_HINT}`;
-  }
-  if (state === "incompatible") {
-    return `OpenCode state database is missing the Console account tables. Update OpenCode, then ${LOGIN_HINT}`;
-  }
-  if (state === "read_error") {
-    return "The OpenCode state database could not be read (it may be locked). Close or retry OpenCode, then try again.";
-  }
-  return `No OpenCode Console session found. ${LOGIN_HINT}`;
+/** True when the user listed `opencode` in `enabledProviders` instead of using auto mode. */
+function isExplicitlyEnabled(ctx: QuotaProviderContext): boolean {
+  return (
+    Array.isArray(ctx.config.enabledProviders) && ctx.config.enabledProviders.includes("opencode")
+  );
 }
 
-function accountStatusDetails(params: {
-  state: string;
-  consoleUrl: string | null;
-}): QuotaProviderStatusDetail[] {
+function signInFailedResult(state: "expired" | "invalid", detail: string): QuotaProviderResult {
+  return withStatusDetails(
+    attemptedErrorResult(
+      OPENCODE_ZEN_GROUP,
+      `OpenCode Console sign-in failed: ${detail}. ${LOGIN_HINT}`,
+    ),
+    [{ key: "console_auth_state", value: state }],
+  );
+}
+
+/** Never includes the token. */
+function consoleStatusDetails(credential: OpenCodeConsoleCredential): QuotaProviderStatusDetail[] {
   return statusDetailsFromRecord({
-    account_state: params.state,
-    console_url: params.consoleUrl ?? "(none)",
+    console_auth_state: "configured",
+    console_server: consoleBaseUrl(credential),
+    console_org: credential.orgName ?? credential.orgId ?? "(none)",
   });
 }
 
@@ -94,15 +89,11 @@ export const opencodeZenProvider: QuotaProvider = {
   id: "opencode",
 
   async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
-    const resolved = await resolveOpenCodeZenAccountCached();
-    if (resolved.state === "none") return false;
-    // A normal DB with no Console sign-in is not an auto-mode error, but stays
-    // actionable when the user explicitly enables the opencode provider.
-    if (resolved.state === "no_active_account" && ctx.config.enabledProviders === "auto") {
-      return false;
-    }
-    // Other recoverable states (expired session, no active org, ...) stay
-    // available so fetch() can surface their recovery hints.
+    const consoleAuth = await resolveOpenCodeConsoleAuth();
+    // Without a Console sign-in, auto mode stays quiet; an explicit
+    // enabledProviders entry keeps Zen so fetch() can show the sign-in hint.
+    if (consoleAuth.state === "none") return isExplicitlyEnabled(ctx);
+    // An expired or failed sign-in stays available so fetch() can show its hint.
     return true;
   },
 
@@ -112,30 +103,35 @@ export const opencodeZenProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
-    const resolved = await resolveOpenCodeZenAccountCached();
+    const consoleAuth = await resolveOpenCodeConsoleAuth();
 
-    if (resolved.state === "none") {
-      // No Console CLI session in the OpenCode state DB; absent, not an error.
+    if (consoleAuth.state === "none") {
+      const noneStatusDetails = [{ key: "console_auth_state", value: "none" }];
+      if (!isExplicitlyEnabled(ctx)) {
+        return withStatusDetails(notAttemptedResult(), noneStatusDetails);
+      }
       return withStatusDetails(
-        notAttemptedResult(),
-        accountStatusDetails({ state: "none", consoleUrl: null }),
+        attemptedErrorResult(
+          OPENCODE_ZEN_GROUP,
+          `No OpenCode Console sign-in found. ${LOGIN_HINT}`,
+        ),
+        noneStatusDetails,
       );
     }
 
-    if (resolved.state !== "configured") {
-      return withStatusDetails(
-        attemptedErrorResult(OPENCODE_ZEN_GROUP, accountErrorMessage(resolved.state)),
-        accountStatusDetails({ state: resolved.state, consoleUrl: null }),
-      );
+    if (consoleAuth.state === "invalid") {
+      return signInFailedResult("invalid", scrubCredentialErrorText(consoleAuth.error));
     }
 
-    const { account } = resolved;
-    const statusDetails = accountStatusDetails({
-      state: "configured",
-      consoleUrl: account.baseUrl,
-    });
+    if (consoleAuth.state === "expired") {
+      // OpenCode refreshes the Console token when it is read, so this is rare.
+      return signInFailedResult("expired", "the sign-in expired");
+    }
 
-    const result = await queryOpenCodeZenQuota(account, {
+    const { credential } = consoleAuth;
+    const statusDetails = consoleStatusDetails(credential);
+
+    const result = await queryOpenCodeZenQuota(credential, {
       requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
         ? ctx.config.requestTimeoutMs
         : undefined,
@@ -249,6 +245,7 @@ export const opencodeZenProvider: QuotaProvider = {
         key: "monthly_usage_usd",
         value: monthlyUsageUsd === null ? "(unknown)" : `USD ${zenUsdDecimal(monthlyUsageUsd)}`,
       },
+      { key: "budget_source", value: result.data.budgetSource },
       {
         key: "auto_reload",
         value: result.data.reload === null ? "(unknown)" : String(result.data.reload),

@@ -7,7 +7,15 @@ export type CursorLocalPricingModel =
   | "composer-1"
   | "composer-1.5"
   | "composer-2"
-  | "composer-2-fast";
+  | "composer-2-fast"
+  | "composer-2.5"
+  | "composer-2.5-fast"
+  | "grok-4.5"
+  | "grok-4.5-fast"
+  | "grok-4.6"
+  | "grok-4.6-fast"
+  | "grok-4.7"
+  | "grok-4.7-fast";
 
 export type CursorResolvedModel =
   | { kind: "local"; model: CursorLocalPricingModel; pool: "auto_composer" }
@@ -58,6 +66,46 @@ const CURSOR_LOCAL_PRICING: Readonly<Record<CursorLocalPricingModel, CostBuckets
     output: 7.5,
     cache_read: 0.35,
   },
+  "composer-2.5": {
+    input: 0.5,
+    output: 2.5,
+    cache_read: 0.2,
+  },
+  "composer-2.5-fast": {
+    input: 3,
+    output: 15,
+    cache_read: 0.5,
+  },
+  "grok-4.5": {
+    input: 2,
+    output: 6,
+    cache_read: 0.5,
+  },
+  "grok-4.5-fast": {
+    input: 4,
+    output: 18,
+    cache_read: 1,
+  },
+  "grok-4.6": {
+    input: 2,
+    output: 6,
+    cache_read: 0.5,
+  },
+  "grok-4.6-fast": {
+    input: 4,
+    output: 12,
+    cache_read: 1,
+  },
+  "grok-4.7": {
+    input: 2,
+    output: 6,
+    cache_read: 0.5,
+  },
+  "grok-4.7-fast": {
+    input: 4,
+    output: 12,
+    cache_read: 1,
+  },
 };
 
 const CURSOR_LOCAL_MODEL_ALIASES: Readonly<Record<string, CursorLocalPricingModel>> = {
@@ -67,19 +115,55 @@ const CURSOR_LOCAL_MODEL_ALIASES: Readonly<Record<string, CursorLocalPricingMode
   "composer-1.5": "composer-1.5",
   "composer-2": "composer-2",
   "composer-2-fast": "composer-2-fast",
+  "composer-2.5": "composer-2.5",
+  "composer-2.5-fast": "composer-2.5-fast",
+  "grok-4.5": "grok-4.5",
+  "grok-4.5-fast": "grok-4.5-fast",
+  "grok-4.6": "grok-4.6",
+  "grok-4.6-fast": "grok-4.6-fast",
+  "grok-4.7": "grok-4.7",
+  "grok-4.7-fast": "grok-4.7-fast",
 };
 
 export const CURSOR_OFFICIAL_MODEL_ALIASES: Readonly<
   Record<string, { providerHint: string; modelHint: string }>
 > = {
+  // `-1m` ids are the long-context entries of cursor-opencode-provider. Only models that
+  // Cursor documents as 1M context "at the same per-token rates" map to the base price.
   "claude-4.5-sonnet": { providerHint: "anthropic", modelHint: "claude-sonnet-4-5" },
   "claude-4.6-opus-high": { providerHint: "anthropic", modelHint: "claude-opus-4-6" },
   "claude-4.6-opus": { providerHint: "anthropic", modelHint: "claude-opus-4-6" },
   "claude-4.6-sonnet-medium": { providerHint: "anthropic", modelHint: "claude-sonnet-4-6" },
   "claude-4.6-sonnet": { providerHint: "anthropic", modelHint: "claude-sonnet-4-6" },
+  "claude-fable-5": { providerHint: "anthropic", modelHint: "claude-fable-5" },
+  "claude-fable-5-1": { providerHint: "anthropic", modelHint: "claude-fable-5-1" },
+  "claude-haiku-4-5": { providerHint: "anthropic", modelHint: "claude-haiku-4-5" },
+  "claude-opus-4-5": { providerHint: "anthropic", modelHint: "claude-opus-4-5" },
+  "claude-opus-4-6": { providerHint: "anthropic", modelHint: "claude-opus-4-6" },
+  "claude-opus-4-6-1m": { providerHint: "anthropic", modelHint: "claude-opus-4-6" },
+  "claude-opus-4-7": { providerHint: "anthropic", modelHint: "claude-opus-4-7" },
+  "claude-opus-4-7-1m": { providerHint: "anthropic", modelHint: "claude-opus-4-7" },
+  "claude-opus-4-8": { providerHint: "anthropic", modelHint: "claude-opus-4-8" },
+  "claude-opus-4-8-1m": { providerHint: "anthropic", modelHint: "claude-opus-4-8" },
+  "claude-opus-5": { providerHint: "anthropic", modelHint: "claude-opus-5" },
+  "claude-opus-5-1m": { providerHint: "anthropic", modelHint: "claude-opus-5" },
+  "claude-opus-5-5": { providerHint: "anthropic", modelHint: "claude-opus-5-5" },
+  "claude-opus-5-5-1m": { providerHint: "anthropic", modelHint: "claude-opus-5-5" },
+  "claude-sonnet-4": { providerHint: "anthropic", modelHint: "claude-sonnet-4-0" },
+  "claude-sonnet-4-5": { providerHint: "anthropic", modelHint: "claude-sonnet-4-5" },
+  "claude-sonnet-4-5-1m": { providerHint: "anthropic", modelHint: "claude-sonnet-4-5" },
+  "claude-sonnet-4-6": { providerHint: "anthropic", modelHint: "claude-sonnet-4-6" },
+  "claude-sonnet-4-6-1m": { providerHint: "anthropic", modelHint: "claude-sonnet-4-6" },
+  "claude-sonnet-5": { providerHint: "anthropic", modelHint: "claude-sonnet-5" },
+  "claude-sonnet-5-1m": { providerHint: "anthropic", modelHint: "claude-sonnet-5" },
+  "gemini-2.5-flash": { providerHint: "google", modelHint: "gemini-2.5-flash" },
   "gemini-3-flash": { providerHint: "google", modelHint: "gemini-3-flash-preview" },
   "gemini-3-pro": { providerHint: "google", modelHint: "gemini-3-pro-preview" },
   "gemini-3.1-pro": { providerHint: "google", modelHint: "gemini-3.1-pro-preview" },
+  "gemini-3.5-flash": { providerHint: "google", modelHint: "gemini-3.5-flash" },
+  "glm-5.2": { providerHint: "zai", modelHint: "glm-5.2" },
+  "gpt-5-mini": { providerHint: "openai", modelHint: "gpt-5-mini" },
+  "gpt-5.1": { providerHint: "openai", modelHint: "gpt-5.1" },
   "gpt-5.2": { providerHint: "openai", modelHint: "gpt-5.2" },
   "gpt-5.2-codex": { providerHint: "openai", modelHint: "gpt-5.2-codex" },
   "gpt-5.3-codex": { providerHint: "openai", modelHint: "gpt-5.3-codex" },
@@ -87,9 +171,18 @@ export const CURSOR_OFFICIAL_MODEL_ALIASES: Readonly<
   "gpt-5.4": { providerHint: "openai", modelHint: "gpt-5.4" },
   "gpt-5.4-high": { providerHint: "openai", modelHint: "gpt-5.4" },
   "gpt-5.4-medium": { providerHint: "openai", modelHint: "gpt-5.4" },
+  "gpt-5.4-mini": { providerHint: "openai", modelHint: "gpt-5.4-mini" },
+  "gpt-5.4-nano": { providerHint: "openai", modelHint: "gpt-5.4-nano" },
+  "gpt-5.5": { providerHint: "openai", modelHint: "gpt-5.5" },
+  "gpt-5.6-luna": { providerHint: "openai", modelHint: "gpt-5.6-luna" },
+  "gpt-5.6-sol": { providerHint: "openai", modelHint: "gpt-5.6-sol" },
+  "gpt-5.6-terra": { providerHint: "openai", modelHint: "gpt-5.6-terra" },
   grok: { providerHint: "xai", modelHint: "grok-code-fast-1" },
   "grok-code-fast-1": { providerHint: "xai", modelHint: "grok-code-fast-1" },
   "kimi-k2.5": { providerHint: "moonshotai", modelHint: "kimi-k2.5" },
+  "kimi-k2.7-code": { providerHint: "moonshotai", modelHint: "kimi-k2.7-code" },
+  "kimi-k3": { providerHint: "moonshotai", modelHint: "kimi-k3" },
+  "kimi-k3-1m": { providerHint: "moonshotai", modelHint: "kimi-k3" },
   "opus-4.5": { providerHint: "anthropic", modelHint: "claude-opus-4-5" },
   "opus-4.5-thinking": { providerHint: "anthropic", modelHint: "claude-opus-4-5" },
   "opus-4.6": { providerHint: "anthropic", modelHint: "claude-opus-4-6" },

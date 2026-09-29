@@ -5,7 +5,7 @@ import {
 } from "./api-key-resolver.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import type { AccountingResultType, QuotaToastEntry } from "./entries.js";
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 import type {
   JsonV1Mapping,
   JsonV1NumberSource,
@@ -40,13 +40,13 @@ const RESULT_TYPES = new Set<AccountingResultType>([
 ]);
 const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-export type QuotaProviderAuthSource = "env" | "opencode.json" | "opencode.jsonc" | "auth.json";
+export type QuotaProviderAuthSource = "env" | "opencode.json" | "opencode.jsonc" | "opencode.db";
 
 export interface QuotaProviderAuthResolution {
   key?: string;
   source: QuotaProviderAuthSource | null;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
 }
 
 export type RemoteQuotaProviderResult =
@@ -103,9 +103,11 @@ export async function resolveQuotaProviderApiKey(
     configJsoncSource: "opencode.jsonc",
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     auth: {
-      readAuth: readAuthFile,
+      // Key logins only: `providerId` can name an integration with OAuth sign-ins
+      // (for example `opencode`), and resolving one could refresh its token for nothing.
+      readAuth: () => readAuthFile({ integrationIds: [source.providerId], methods: ["key"] }),
       authKeys: [source.providerId],
-      authSource: "auth.json",
+      authSource: "opencode.db",
     },
   });
 
@@ -117,7 +119,7 @@ export async function resolveQuotaProviderApiKey(
       envVarNames: source.apiKeyEnv ? [source.apiKeyEnv] : [],
       getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     }),
-    authPaths: getAuthPaths(),
+    credentialDatabasePaths: getCredentialDatabasePaths(),
   };
 }
 

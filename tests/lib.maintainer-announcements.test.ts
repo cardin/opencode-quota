@@ -28,18 +28,17 @@ const ecosystemAnnouncement = {
 } satisfies MaintainerAnnouncement;
 const openCode2FeedbackAnnouncement = {
   id: "opencode-2-feedback",
-  message:
-    "OpenCode 2 support is coming in OpenCode Quota 5.0. Tell us what you want from the OpenCode 2 version.",
+  message: "OpenCode Quota 5.0 runs on OpenCode 2. Ideas for the next version? Tell us!",
   url: "https://github.com/slkiser/opencode-quota/issues/293",
   startsAt: "2026-09-25T00:00:00.000Z",
   endsAt: "2026-11-25T00:00:00.000Z",
 } satisfies MaintainerAnnouncement;
-const openCode1StayOn4xAnnouncement = {
-  id: "opencode-1-stay-on-4x",
-  message: 'On OpenCode 1? Run "npx @slkiser/opencode-quota@4 update" to stay on 4.x.',
-  url: "https://github.com/slkiser/opencode-quota#updating",
+const ecosystemThumbsUpAnnouncement = {
+  id: "opencode-ecosystem-listing-thumbs-up",
+  message: "Help OpenCode list this plugin: add a thumbs-up to issue #38281.",
+  url: "https://github.com/anomalyco/opencode/issues/38281",
   startsAt: "2026-09-26T00:00:00.000Z",
-  endsAt: "2026-11-26T00:00:00.000Z",
+  endsAt: "2026-10-26T00:00:00.000Z",
 } satisfies MaintainerAnnouncement;
 const geminiAnnouncement = {
   id: "google-gemini-cli-org-only",
@@ -183,7 +182,7 @@ describe("maintainer announcements", () => {
     expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([
       ecosystemAnnouncement,
       openCode2FeedbackAnnouncement,
-      openCode1StayOn4xAnnouncement,
+      ecosystemThumbsUpAnnouncement,
       geminiAnnouncement,
     ]);
     expect(active).toEqual([
@@ -232,42 +231,48 @@ describe("maintainer announcements", () => {
     expect(evaluateAt("2026-11-24T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
     expect(evaluateAt("2026-11-25T00:00:00.000Z")?.reasons).toEqual(["ended"]);
 
-    expect(getActiveIds("2026-10-15T12:00:00.000Z", "auto")).toEqual([
+    expect(getActiveIds("2026-10-26T12:00:00.000Z", "auto")).toEqual(["opencode-2-feedback"]);
+    expect(getActiveIds("2026-10-26T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
       "opencode-2-feedback",
-      "opencode-1-stay-on-4x",
-    ]);
-    expect(getActiveIds("2026-10-15T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
-      "opencode-2-feedback",
-      "opencode-1-stay-on-4x",
       "google-gemini-cli-org-only",
     ]);
-    expect(getActiveIds("2026-11-25T00:00:00.000Z", "auto")).toEqual(["opencode-1-stay-on-4x"]);
+    expect(getActiveIds("2026-11-25T00:00:00.000Z", "auto")).toEqual([]);
   });
 
-  it("tells OpenCode 1 users to pin 4.x to everyone only during its two-month window", () => {
+  it("shows the ecosystem listing thumbs-up notice to everyone for one month beside the feedback notice", () => {
     const evaluateAt = (iso: string, enabledProviders: string[] | "auto" = "auto") =>
       evaluateMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).find(
-        (item) => item.announcement.id === "opencode-1-stay-on-4x",
+        (item) => item.announcement.id === "opencode-ecosystem-listing-thumbs-up",
+      );
+    const getActiveIds = (iso: string, enabledProviders: string[] | "auto") =>
+      getActiveMaintainerAnnouncements({ nowMs: Date.parse(iso), enabledProviders }).map(
+        (item) => item.announcement.id,
       );
 
     expect(evaluateAt("2026-09-25T23:59:59.999Z")?.reasons).toEqual(["not_started"]);
     expect(evaluateAt("2026-09-26T00:00:00.000Z")).toEqual({
-      announcement: openCode1StayOn4xAnnouncement,
+      announcement: ecosystemThumbsUpAnnouncement,
       active: true,
       reasons: [],
     });
-    expect(evaluateAt("2026-11-25T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
-    expect(evaluateAt("2026-11-26T00:00:00.000Z")?.reasons).toEqual(["ended"]);
-    expect(openCode1StayOn4xAnnouncement.message.split(/\s+/).length).toBeLessThanOrEqual(15);
+    expect(evaluateAt("2026-10-25T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
+    expect(evaluateAt("2026-10-26T00:00:00.000Z")?.reasons).toEqual(["ended"]);
+
+    expect(getActiveIds("2026-10-15T12:00:00.000Z", "auto")).toEqual([
+      "opencode-ecosystem-listing-thumbs-up",
+      "opencode-2-feedback",
+    ]);
+    expect(getActiveIds("2026-10-15T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
+      "opencode-ecosystem-listing-thumbs-up",
+      "opencode-2-feedback",
+      "google-gemini-cli-org-only",
+    ]);
     expect(
       getMaintainerAnnouncementsSummary({
         nowMs: Date.parse("2026-10-15T12:00:00.000Z"),
         enabledProviders: "auto",
       }).activeCount,
     ).toBe(2);
-    expect(formatMaintainerAnnouncementHomeCountLine(2)).toBe(
-      "Notice: 2 maintainer announcements available. Run /quota_announcements.",
-    );
   });
 
   it("sorts active announcements before inactive, then by end date and id", () => {

@@ -16,12 +16,6 @@ const TEST_ACCOUNTING = {
 } as const;
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [`${TEST_RUNTIME_ROOT}/data`],
-    configDirs: [`${TEST_RUNTIME_ROOT}/config`],
-    cacheDirs: [`${TEST_RUNTIME_ROOT}/cache`],
-    stateDirs: [`${TEST_RUNTIME_ROOT}/state`],
-  }),
   getOpencodeRuntimeDirs: () => ({
     dataDir: `${TEST_RUNTIME_ROOT}/data`,
     configDir: `${TEST_RUNTIME_ROOT}/config`,
@@ -1677,7 +1671,7 @@ describe("quota-state shared cache", () => {
             outcome: "success",
             entryCount: 1,
             checkedPaths: ["env:EXPLICIT_KEY"],
-            authPaths: ["/trusted/auth.json"],
+            credentialDatabasePaths: ["/trusted/opencode.db"],
           },
         ],
       }),
@@ -1749,11 +1743,11 @@ describe("quota-state shared cache", () => {
           apiKeyEnv: null,
           selected: true,
           attempted: true,
-          credentialSource: "auth_json",
+          credentialSource: "opencode_db",
           outcome: "success",
           entryCount: 1,
           checkedPaths: [],
-          authPaths: [],
+          credentialDatabasePaths: [],
         },
       ],
     } as const;

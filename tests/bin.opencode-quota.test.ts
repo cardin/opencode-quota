@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -186,5 +187,49 @@ describe("opencode-quota bin", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("hides only Node's experimental SQLite warning", async () => {
+    const { hideSqliteExperimentalWarning } = await import("../src/bin/opencode-quota.js");
+    const originalEmitWarning = process.emitWarning;
+    const emitWarning = vi.fn();
+    process.emitWarning = emitWarning as unknown as typeof process.emitWarning;
+    try {
+      hideSqliteExperimentalWarning();
+
+      process.emitWarning(
+        "SQLite is an experimental feature and might change at any time",
+        "ExperimentalWarning",
+      );
+      process.emitWarning("Some other feature is experimental", "ExperimentalWarning");
+      process.emitWarning("SQLite is an experimental feature and might change at any time");
+
+      expect(emitWarning.mock.calls).toEqual([
+        ["Some other feature is experimental", "ExperimentalWarning"],
+        ["SQLite is an experimental feature and might change at any time"],
+      ]);
+    } finally {
+      process.emitWarning = originalEmitWarning;
+    }
+  });
+
+  // Run after `pnpm build`: loads node:sqlite in a real Node process.
+  it("keeps the SQLite warning off stderr when the built CLI loads node:sqlite", () => {
+    const bin = fileURLToPath(new URL("../dist/bin/opencode-quota.js", import.meta.url));
+    expect(existsSync(bin)).toBe(true);
+    const script = [
+      `const { hideSqliteExperimentalWarning } = await import(${JSON.stringify(pathToFileURL(bin).href)});`,
+      "hideSqliteExperimentalWarning();",
+      'await import("node:sqlite");',
+      'process.emitWarning("Some other feature is experimental", "ExperimentalWarning");',
+    ].join("\n");
+
+    const { status, stderr } = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8",
+    });
+
+    expect(status).toBe(0);
+    expect(stderr).not.toContain("SQLite");
+    expect(stderr).toContain("ExperimentalWarning: Some other feature is experimental");
   });
 });

@@ -1,7 +1,7 @@
 /**
  * OpenAI (ChatGPT) quota fetcher
  *
- * Uses OpenCode's auth.json native OpenCode OAuth entries and queries:
+ * Uses OpenCode's opencode.db native OpenCode OAuth entries and queries:
  * https://chatgpt.com/backend-api/wham/usage
  */
 
@@ -179,7 +179,9 @@ function derivePlanLabel(planType: string | undefined): string {
 
 const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
-export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt", "opencode"] as const;
+// Not `opencode`: in OpenCode 2 its OAuth entry is the Console login, which
+// authorizes Console APIs, not OpenAI.
+export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt"] as const;
 
 export type OpenAIAuthSourceKey = (typeof OPENAI_AUTH_SOURCE_KEYS)[number];
 
@@ -205,6 +207,7 @@ export type OpenAIResult =
 
 export type ResolvedOpenAIOAuth =
   | { state: "none" }
+  | { state: "failed"; sourceKey: OpenAIAuthSourceKey; error: string }
   | {
       state: "configured";
       sourceKey: OpenAIAuthSourceKey;
@@ -225,7 +228,7 @@ function getOpenAIOAuthEntry(
     }
 
     const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";
-    if (accessToken) {
+    if (accessToken || entry.resolveError !== undefined) {
       return { sourceKey, entry, accessToken };
     }
   }
@@ -237,6 +240,9 @@ export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedO
   const resolved = getOpenAIOAuthEntry(auth);
   if (!resolved) {
     return { state: "none" };
+  }
+  if (resolved.entry.resolveError !== undefined) {
+    return { state: "failed", sourceKey: resolved.sourceKey, error: resolved.entry.resolveError };
   }
 
   const email = getEmailFromJwt(resolved.accessToken) ?? undefined;
@@ -258,7 +264,7 @@ export function resolveOpenAIOAuth(auth: AuthData | null | undefined): ResolvedO
 }
 
 export function hasOpenAIOAuth(auth: AuthData | null | undefined): boolean {
-  return resolveOpenAIOAuth(auth).state === "configured";
+  return resolveOpenAIOAuth(auth).state !== "none";
 }
 
 export async function resolveOpenAIAuthIdentity(params?: {
@@ -266,6 +272,7 @@ export async function resolveOpenAIAuthIdentity(params?: {
 }): Promise<ResolvedAuthIdentity | null> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+    integrationIds: OPENAI_AUTH_SOURCE_KEYS,
   });
   const resolved = resolveOpenAIOAuth(auth);
   if (resolved.state !== "configured") return null;
@@ -286,17 +293,28 @@ export async function resolveOpenAIAuthIdentity(params?: {
 export async function hasOpenAIOAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS),
+    integrationIds: OPENAI_AUTH_SOURCE_KEYS,
   });
   return hasOpenAIOAuth(auth);
 }
 
 export async function queryOpenAIQuota(
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; auth?: ResolvedOpenAIOAuth } = {},
 ): Promise<OpenAIResult> {
-  const auth = await readAuthFileCached({
-    maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
-  });
-  const resolvedAuth = resolveOpenAIOAuth(auth);
+  const resolvedAuth =
+    options.auth ??
+    resolveOpenAIOAuth(
+      await readAuthFileCached({
+        maxAgeMs: DEFAULT_OPENAI_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: OPENAI_AUTH_SOURCE_KEYS,
+      }),
+    );
+  if (resolvedAuth.state === "failed") {
+    return {
+      success: false,
+      error: `OpenAI sign-in could not be refreshed: ${resolvedAuth.error}. Run \`opencode auth login openai\`.`,
+    };
+  }
   if (resolvedAuth.state !== "configured") return null;
 
   if (resolvedAuth.expiresAt && resolvedAuth.expiresAt < Date.now()) {

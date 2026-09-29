@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { messageDocument, renderPlainTextReport } from "../src/lib/report-document.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
   createConfigModuleMock,
-  createPluginToolMockModule,
-  createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createSessionTokensModuleMock,
@@ -26,11 +25,8 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
   collectQuotaStatusLiveProbes: vi.fn(),
-  buildQuotaStatusReport: vi.fn(),
-  inspectTuiConfig: vi.fn(),
+  buildQuotaStatusReportDocument: vi.fn(),
 }));
-
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
@@ -57,11 +53,7 @@ vi.mock("../src/lib/quota-render-data.js", () => ({
 }));
 
 vi.mock("../src/lib/quota-status.js", () => ({
-  buildQuotaStatusReport: mocks.buildQuotaStatusReport,
-}));
-
-vi.mock("../src/lib/tui-config-diagnostics.js", () => ({
-  inspectTuiConfig: mocks.inspectTuiConfig,
+  buildQuotaStatusReportDocument: mocks.buildQuotaStatusReportDocument,
 }));
 
 async function buildQuotaStatusDialogOutput(params: {
@@ -88,7 +80,9 @@ async function buildQuotaStatusDialogOutput(params: {
   });
   expect(params.client.session.prompt).not.toHaveBeenCalled();
   expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
+  if (result.state !== "output") return "";
+  expect(renderPlainTextReport(result.document)).toBe(result.output);
+  return result.output;
 }
 
 describe("/quota_status command behavior", () => {
@@ -109,7 +103,6 @@ describe("/quota_status command behavior", () => {
       resetModules: true,
       resetPluginState: true,
     });
-    mocks.inspectTuiConfig.mockResolvedValue(createPluginTuiConfigInspection(process.cwd()));
     mocks.collectQuotaStatusLiveProbes.mockResolvedValue([
       {
         providerId: "openai",
@@ -132,7 +125,9 @@ describe("/quota_status command behavior", () => {
         },
       },
     ]);
-    mocks.buildQuotaStatusReport.mockResolvedValue("Injected quota status");
+    mocks.buildQuotaStatusReportDocument.mockResolvedValue(
+      messageDocument("Injected quota status"),
+    );
   });
 
   afterEach(() => {
@@ -206,6 +201,7 @@ describe("/quota_status command behavior", () => {
     });
 
     expect(data.output).toBe("Injected quota status");
+    expect(data.document).toEqual(messageDocument("Injected quota status"));
     expect(data.payload?.providers).toEqual([
       expect.objectContaining({ id: "synthetic", enabled: true, available: true }),
     ]);
@@ -216,7 +212,7 @@ describe("/quota_status command behavior", () => {
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({ providers: [synthetic] }),
     );
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         providerAvailability: [
           expect.objectContaining({ id: "synthetic", enabled: true, available: true }),
@@ -231,7 +227,7 @@ describe("/quota_status command behavior", () => {
     );
   });
 
-  it("passes every registered provider through the shared fetch-once status flow", async () => {
+  it("passes every registered provider through the shared fetch-once CLI status flow", async () => {
     const openai = {
       id: "openai",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -254,9 +250,7 @@ describe("/quota_status command behavior", () => {
     };
     mocks.getProviders.mockReturnValue([openai, synthetic, copilot, cursor]);
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    await QuotaToastPlugin({ client } as any);
 
     const output = await buildQuotaStatusDialogOutput({
       client,
@@ -264,12 +258,6 @@ describe("/quota_status command behavior", () => {
     });
 
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledTimes(1);
-    expect(mocks.inspectTuiConfig).toHaveBeenCalledWith({
-      roots: {
-        workspaceRoot: process.cwd(),
-        configRoot: process.cwd(),
-      },
-    });
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({
         client,
@@ -279,8 +267,12 @@ describe("/quota_status command behavior", () => {
         providers: [openai, synthetic, copilot, cursor],
       }),
     );
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
+        runtimeRoots: {
+          workspaceRoot: process.cwd(),
+          configRoot: process.cwd(),
+        },
         globalConfigPaths: [],
         workspaceConfigPaths: [],
         settingSources: {},
@@ -312,12 +304,10 @@ describe("/quota_status command behavior", () => {
     expect(output).toBe("Injected quota status");
   });
 
-  it("reports no_session diagnostics when no active TUI session is available", async () => {
+  it("reports no_session diagnostics when the CLI has no active session", async () => {
     mocks.getProviders.mockReturnValue([]);
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
-    await QuotaToastPlugin({ client } as any);
 
     const output = await buildQuotaStatusDialogOutput({
       client,
@@ -325,7 +315,7 @@ describe("/quota_status command behavior", () => {
     });
 
     expect(client.session.get).not.toHaveBeenCalled();
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         currentModel: undefined,
         sessionModelLookup: "no_session",

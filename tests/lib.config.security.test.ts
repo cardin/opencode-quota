@@ -10,15 +10,15 @@ import {
 
 const runtimeDirs = vi.hoisted(() => ({
   value: {
-    dataDirs: [] as string[],
-    configDirs: [] as string[],
-    cacheDirs: [] as string[],
-    stateDirs: [] as string[],
+    dataDir: "",
+    configDir: "",
+    cacheDir: "",
+    stateDir: "",
   },
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
@@ -390,7 +390,6 @@ describe("loadConfig layered precedence", () => {
           quotaToast: {
             tuiCompactStatus: {
               homeBottom: false,
-              suppressWhenNativeProviderQuota: false,
               maxWidth: 0,
             },
           },
@@ -406,7 +405,6 @@ describe("loadConfig layered precedence", () => {
       enabled: true,
       homeBottom: false,
       sessionPrompt: false,
-      suppressWhenNativeProviderQuota: false,
       maxWidth: 80,
     });
     expect(meta.settingSources["tuiCompactStatus.enabled"]).toBe(
@@ -419,9 +417,6 @@ describe("loadConfig layered precedence", () => {
       quotaConfigSource(join(xdgConfigHome, "opencode")),
     );
     expect(meta.settingSources["tuiCompactStatus.homeBottom"]).toBe(
-      quotaConfigSource(workspaceDir),
-    );
-    expect(meta.settingSources["tuiCompactStatus.suppressWhenNativeProviderQuota"]).toBe(
       quotaConfigSource(workspaceDir),
     );
   });

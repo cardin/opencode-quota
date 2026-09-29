@@ -20,10 +20,9 @@ describe("Gemini CLI organization-only documentation", () => {
   const configuration = read("docs/readme/configuration.md");
   const providers = read("docs/readme/providers.md");
   const troubleshooting = read("docs/readme/troubleshooting.md");
-  const migration = read("docs/readme/v4-migration.md");
 
   it("no longer calls Gemini CLI deprecated or planned for removal", () => {
-    for (const document of [readme, providers, troubleshooting, migration]) {
+    for (const document of [readme, providers, troubleshooting]) {
       expect(document).not.toContain("Gemini CLI (deprecated)");
       expect(document).not.toContain("v5.0.0");
       expect(document).not.toContain("Existing setups only");
@@ -48,9 +47,6 @@ describe("Gemini CLI organization-only documentation", () => {
   });
 
   it("states organization-only support and points personal users to Google AGY", () => {
-    expect(readme).toContain(
-      "- Personal Google accounts can no longer use Gemini CLI because Google ended them on 2026-06-18; use Google AGY.",
-    );
     expect(readme).toContain(`Gemini CLI works only with ${ORG_ONLY}.`);
 
     const providerSection = section(providers, '<a id="gemini-cli"></a>', '<a id="deepseek"></a>');
@@ -62,14 +58,8 @@ describe("Gemini CLI organization-only documentation", () => {
     );
     expect(providerSection).toContain("[Google AGY](#google-agy-quick-setup)");
     expect(providerSection).toContain("opencode-gemini-auth");
-    expect(providerSection).toContain("opencode auth login --provider google");
+    expect(providerSection).toContain("opencode auth login google");
     expect(providerSection).toContain("include `google-gemini-cli` in `enabledProviders`");
-
-    expect(migration).toContain(ORG_ONLY);
-    expect(migration).toContain("Google ended personal accounts on 2026-06-18.");
-    expect(migration).toContain(
-      "OpenCode Quota does not migrate your configuration or authentication and does not silently switch providers.",
-    );
   });
 
   it("keeps repair guidance and keeps Gemini CLI out of new configuration examples", () => {
@@ -86,7 +76,7 @@ describe("Gemini CLI organization-only documentation", () => {
     expect(troubleshootingSection).toContain(ORG_ONLY);
     expect(troubleshootingSection).toContain("opencode-gemini-auth");
     expect(troubleshootingSection).toContain("Include `google-gemini-cli` in `enabledProviders`");
-    expect(troubleshootingSection).toContain("opencode auth login --provider google");
+    expect(troubleshootingSection).toContain("opencode auth login google");
     for (const projectIdSource of [
       "provider.google.options.projectId",
       "OPENCODE_GEMINI_PROJECT_ID",

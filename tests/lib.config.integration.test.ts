@@ -26,7 +26,7 @@ vi.mock("os", async (importOriginal) => {
 
 import { createLoadConfigMeta, loadConfig } from "../src/lib/config.js";
 import { applyInitInstallerPlan, planInitInstaller } from "../src/lib/init-installer.js";
-import { getOpencodeRuntimeDirCandidates } from "../src/lib/opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "../src/lib/opencode-runtime-paths.js";
 import { applyProviderAddPlan, planProviderAdd } from "../src/lib/provider-add.js";
 import { applyScopedUpdatePlan, planScopedUpdate } from "../src/lib/scoped-update.js";
 
@@ -50,7 +50,7 @@ describe("loadConfig integration runtime-path resolution", () => {
 
     process.env = {
       ...originalEnv,
-      ...createConfigLoaderEnv(workspace, { home: tempDir, includePlatformAppData: true }),
+      ...createConfigLoaderEnv(workspace, { home: tempDir }),
     };
     delete process.env.OPENCODE_CONFIG_DIR;
     process.chdir(nestedDir);
@@ -66,19 +66,17 @@ describe("loadConfig integration runtime-path resolution", () => {
   it("uses real runtime dirs as defaults and explicit cwd config as workspace overrides", async () => {
     const env = {
       ...process.env,
-      ...createConfigLoaderEnv(workspace, { home: tempDir, includePlatformAppData: true }),
+      ...createConfigLoaderEnv(workspace, { home: tempDir }),
     } as NodeJS.ProcessEnv;
-    const { configDirs } = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir });
-    for (const dir of configDirs) {
-      mkdirSync(dir, { recursive: true });
-      writeQuotaToastConfig(dir, {
-        enabled: false,
-        enabledProviders: ["openai"],
-        accountingDetail: "summary",
-        showOnIdle: false,
-        pricingSnapshot: { source: "bundled", autoRefresh: 30 },
-      });
-    }
+    const { configDir } = getOpencodeRuntimeDirs({ env, homeDir: tempDir });
+    mkdirSync(configDir, { recursive: true });
+    writeQuotaToastConfig(configDir, {
+      enabled: false,
+      enabledProviders: ["openai"],
+      accountingDetail: "summary",
+      showOnIdle: false,
+      pricingSnapshot: { source: "bundled", autoRefresh: 30 },
+    });
 
     writeQuotaToastConfig(workspaceDir, {
       enabled: true,
@@ -104,30 +102,42 @@ describe("loadConfig integration runtime-path resolution", () => {
     expect(cfg.onlyCurrentModel).toBe(true);
 
     expect(meta.source).toBe("files");
-    expect(
-      meta.paths.some((path) => configDirs.some((dir) => path === quotaConfigSource(dir))),
-    ).toBe(true);
+    expect(meta.paths).toContain(quotaConfigSource(configDir));
     expect(meta.paths).toContain(quotaConfigSource(workspaceDir));
     expect(meta.paths).not.toContain(quotaConfigSource(nestedDir));
     expect(meta.workspaceConfigPaths).toEqual([quotaConfigSource(workspaceDir)]);
-    expect(
-      meta.globalConfigPaths.some((path) =>
-        configDirs.some((dir) => path === quotaConfigSource(dir)),
-      ),
-    ).toBe(true);
+    expect(meta.globalConfigPaths).toEqual([quotaConfigSource(configDir)]);
     expect(meta.settingSources.enabled).toBe(quotaConfigSource(workspaceDir));
     expect(meta.settingSources.enabledProviders).toBe(quotaConfigSource(workspaceDir));
     expect(meta.settingSources.accountingDetail).toBe(quotaConfigSource(workspaceDir));
-    expect(
-      configDirs.some(
-        (dir) => meta.settingSources["pricingSnapshot.source"] === quotaConfigSource(dir),
-      ),
-    ).toBe(true);
-    expect(
-      configDirs.some(
-        (dir) => meta.settingSources["pricingSnapshot.autoRefresh"] === quotaConfigSource(dir),
-      ),
-    ).toBe(true);
+    expect(meta.settingSources["pricingSnapshot.source"]).toBe(quotaConfigSource(configDir));
+    expect(meta.settingSources["pricingSnapshot.autoRefresh"]).toBe(quotaConfigSource(configDir));
+  });
+
+  it("never reads ~/.config/opencode on macOS when XDG_CONFIG_HOME points elsewhere", async () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      const realConfigDirs = [
+        join(tempDir, ".config", "opencode"),
+        join(tempDir, "Library", "Application Support", "opencode"),
+      ];
+      for (const dir of realConfigDirs) {
+        writeQuotaSidecarConfig(dir, { enabled: false, minIntervalMs: 12_345 });
+        writeQuotaToastConfig(dir, { enabled: false, minIntervalMs: 12_345 });
+      }
+      expect(workspace.xdgConfigHome).not.toBe(join(tempDir, ".config"));
+
+      const meta = createLoadConfigMeta();
+      const cfg = await loadConfig(undefined, meta, { configRootDir: workspaceDir });
+
+      expect(cfg.enabled).toBe(true);
+      expect(cfg.minIntervalMs).not.toBe(12_345);
+      expect(meta.paths).toEqual([]);
+      expect(getOpencodeRuntimeDirs().configDir).toBe(workspace.opencodeConfigDir);
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatform);
+    }
   });
 
   it("diagnoses the removed Zen display key in file and legacy sources without translation", async () => {
@@ -169,7 +179,7 @@ describe("loadConfig integration runtime-path resolution", () => {
     });
     const env = {
       ...process.env,
-      ...createConfigLoaderEnv(workspace, { home: tempDir, includePlatformAppData: true }),
+      ...createConfigLoaderEnv(workspace, { home: tempDir }),
     } as NodeJS.ProcessEnv;
 
     const plan = await planScopedUpdate({ cwd: workspaceDir, env, homeDir: tempDir });
@@ -195,7 +205,7 @@ describe("loadConfig integration runtime-path resolution", () => {
     const original = readFileSync(hostPath, "utf8");
     const env = {
       ...process.env,
-      ...createConfigLoaderEnv(workspace, { home: tempDir, includePlatformAppData: true }),
+      ...createConfigLoaderEnv(workspace, { home: tempDir }),
     } as NodeJS.ProcessEnv;
 
     const plan = await planScopedUpdate({ cwd: workspaceDir, env, homeDir: tempDir });
@@ -240,7 +250,7 @@ describe("loadConfig integration runtime-path resolution", () => {
 
   it("loads a custom provider after init creates a manual-mode JSONC sidecar", async () => {
     const env = process.env as NodeJS.ProcessEnv;
-    const configDir = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir }).configDirs[0]!;
+    const { configDir } = getOpencodeRuntimeDirs({ env, homeDir: tempDir });
     const initPlan = await planInitInstaller({
       env,
       homeDir: tempDir,
@@ -357,18 +367,15 @@ describe("loadConfig integration runtime-path resolution", () => {
   it("uses the provided configRootDir to pick the workspace override layer over shared global defaults", async () => {
     const env = {
       ...process.env,
-      ...createConfigLoaderEnv(workspace, { home: tempDir, includePlatformAppData: true }),
+      ...createConfigLoaderEnv(workspace, { home: tempDir }),
     } as NodeJS.ProcessEnv;
-    const { configDirs } = getOpencodeRuntimeDirCandidates({ env, homeDir: tempDir });
-
-    for (const dir of configDirs) {
-      mkdirSync(dir, { recursive: true });
-      writeQuotaToastConfig(dir, {
-        enabled: false,
-        enabledProviders: ["openai"],
-        minIntervalMs: 30_000,
-      });
-    }
+    const { configDir } = getOpencodeRuntimeDirs({ env, homeDir: tempDir });
+    mkdirSync(configDir, { recursive: true });
+    writeQuotaToastConfig(configDir, {
+      enabled: false,
+      enabledProviders: ["openai"],
+      minIntervalMs: 30_000,
+    });
 
     writeQuotaToastConfig(workspaceDir, {
       enabled: true,
@@ -408,13 +415,8 @@ describe("loadConfig integration runtime-path resolution", () => {
 
     expect(workspaceMeta.workspaceConfigPaths).toEqual([quotaConfigSource(workspaceDir)]);
     expect(nestedMeta.workspaceConfigPaths).toEqual([quotaConfigSource(nestedDir)]);
-    expect(
-      configDirs.some(
-        (dir) =>
-          workspaceMeta.globalConfigPaths.includes(quotaConfigSource(dir)) &&
-          nestedMeta.globalConfigPaths.includes(quotaConfigSource(dir)),
-      ),
-    ).toBe(true);
+    expect(workspaceMeta.globalConfigPaths).toEqual([quotaConfigSource(configDir)]);
+    expect(nestedMeta.globalConfigPaths).toEqual([quotaConfigSource(configDir)]);
     expect(workspaceMeta.settingSources.enabled).toBe(quotaConfigSource(workspaceDir));
     expect(nestedMeta.settingSources.enabled).toBe(quotaConfigSource(nestedDir));
     expect(workspaceMeta.settingSources.minIntervalMs).toBe(quotaConfigSource(workspaceDir));

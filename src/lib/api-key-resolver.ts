@@ -1,5 +1,5 @@
 /**
- * Generic API key resolution from env vars, config files, and auth.json.
+ * Generic API key resolution from env vars, config files, and opencode.db.
  *
  * Used by provider-specific config modules (synthetic-config, chutes-config)
  * to resolve API keys with consistent priority and behavior.
@@ -12,7 +12,7 @@ import {
   buildOpenCodeConfigCandidates,
   readOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
 /** A candidate config file path with its format */
 export interface ConfigCandidate {
@@ -20,9 +20,9 @@ export interface ConfigCandidate {
   isJsonc: boolean;
 }
 
-function buildOpencodeConfigCandidates(configDirs: readonly string[]): ConfigCandidate[] {
+function buildOpencodeConfigCandidates(directories: readonly string[]): ConfigCandidate[] {
   return buildOpenCodeConfigCandidates({
-    directories: configDirs,
+    directories,
     formatOrder: ["jsonc", "json"],
   }).map((candidate) => ({
     path: candidate.path,
@@ -38,9 +38,9 @@ function buildOpencodeConfigCandidates(configDirs: readonly string[]): ConfigCan
  */
 export function getOpencodeConfigCandidatePaths(): ConfigCandidate[] {
   const cwd = process.cwd();
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
+  const { configDir } = getOpencodeRuntimeDirs();
 
-  return [...buildOpencodeConfigCandidates([cwd]), ...buildOpencodeConfigCandidates(configDirs)];
+  return [...buildOpencodeConfigCandidates([cwd]), ...buildOpencodeConfigCandidates([configDir])];
 }
 
 /**
@@ -50,8 +50,8 @@ export function getOpencodeConfigCandidatePaths(): ConfigCandidate[] {
  * current workspace may be untrusted.
  */
 export function getGlobalOpencodeConfigCandidatePaths(): ConfigCandidate[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return buildOpencodeConfigCandidates(configDirs);
+  const { configDir } = getOpencodeRuntimeDirs();
+  return buildOpencodeConfigCandidates([configDir]);
 }
 
 /**
@@ -106,6 +106,38 @@ export function getFirstAuthEntryRecord(
   return asRecord(getFirstAuthEntryValue(auth, authKeys));
 }
 
+/**
+ * Read one provider's settings the way OpenCode 2 normalizes its config.
+ *
+ * A native `providers.<id>` entry replaces the legacy `provider.<id>` entry,
+ * whose `options` OpenCode 2 migrates into `settings`.
+ */
+export function getProviderConfigSettings(
+  config: unknown,
+  providerKey: string,
+): Record<string, unknown> | null {
+  const root = asRecord(config);
+  const nativeProvider = asRecord(asRecord(root?.providers)?.[providerKey]);
+  if (nativeProvider) return asRecord(nativeProvider.settings);
+  return asRecord(asRecord(asRecord(root?.provider)?.[providerKey])?.options);
+}
+
+/**
+ * Read one provider string setting from trusted user/global OpenCode config.
+ * The first candidate (`opencode.jsonc`, then `opencode.json`) that sets it wins.
+ */
+export async function readGlobalProviderConfigString(
+  providerKey: string,
+  settingKey: string,
+): Promise<string | undefined> {
+  for (const candidate of getGlobalOpencodeConfigCandidatePaths()) {
+    const result = await readOpencodeConfig(candidate.path, candidate.isJsonc);
+    const value = getProviderConfigSettings(result?.config, providerKey)?.[settingKey];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
 export function extractProviderOptionsApiKey(
   config: unknown,
   params: {
@@ -113,12 +145,8 @@ export function extractProviderOptionsApiKey(
     allowedEnvVars?: readonly string[];
   },
 ): string | null {
-  const provider = asRecord(asRecord(config)?.provider);
-  if (!provider) return null;
-
   for (const providerKey of params.providerKeys) {
-    const options = asRecord(asRecord(provider[providerKey])?.options);
-    const apiKey = options?.apiKey;
+    const apiKey = getProviderConfigSettings(config, providerKey)?.apiKey;
     if (typeof apiKey !== "string" || apiKey.trim().length === 0) continue;
 
     const trimmed = apiKey.trim();
@@ -168,10 +196,10 @@ export interface ResolveEnvAndConfigApiKeyConfig<Source extends string> {
 /** Configuration for resolving an API key from multiple sources */
 export interface ResolveApiKeyConfig<Source extends string>
   extends ResolveEnvAndConfigApiKeyConfig<Source> {
-  /** Extract API key from auth.json data. Returns null if not found. */
+  /** Extract API key from opencode.db data. Returns null if not found. */
   extractFromAuth: (auth: unknown) => string | null;
 
-  /** Source label for auth.json */
+  /** Source label for opencode.db */
   authSource: Source;
 }
 
@@ -188,7 +216,7 @@ export interface ResolveProviderApiKeyBaseConfig<Source extends string> {
 export interface StrictApiKeyAuthConfig<Source extends string> {
   policy?: "strict-api-key";
   readAuth: () => Promise<unknown | null>;
-  getAuthPaths?: () => string[];
+  getCredentialDatabasePaths?: () => string[];
   authKeys?: readonly string[];
   authSource: Source;
 }
@@ -196,7 +224,7 @@ export interface StrictApiKeyAuthConfig<Source extends string> {
 export interface InvalidAwareApiKeyAuthConfig<AuthSource extends string> {
   policy: "invalid-aware-api-key";
   readAuth: (maxAgeMs: number) => Promise<unknown | null>;
-  getAuthPaths: () => string[];
+  getCredentialDatabasePaths: () => string[];
   authKeys: readonly string[];
   authSource: AuthSource;
   displayName: string;
@@ -210,7 +238,7 @@ export interface ResolveProviderApiKeyConfig<Source extends string>
   auth?: StrictApiKeyAuthConfig<Source>;
 }
 
-/** Configuration for providers that surface malformed winning auth.json entries. */
+/** Configuration for providers that surface malformed winning opencode.db entries. */
 export interface ResolveInvalidAwareProviderApiKeyConfig<
   Source extends string,
   AuthSource extends Source,
@@ -228,19 +256,19 @@ export type InvalidAwareAuthDiagnostics<Source extends string, AuthSource extend
       state: "none";
       source: null;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
     }
   | {
       state: "configured";
       source: Source;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
     }
   | {
       state: "invalid";
       source: AuthSource;
       checkedPaths: string[];
-      authPaths: string[];
+      credentialDatabasePaths: string[];
       error: string;
     };
 
@@ -251,14 +279,9 @@ export interface ProviderApiKeyResolver<Source extends string> {
     configured: boolean;
     source: Source | null;
     checkedPaths: string[];
-    authPaths: string[];
+    credentialDatabasePaths: string[];
   }>;
 }
-
-export type InvalidAwareAuthResolution<Source extends string, AuthSource extends Source> = {
-  auth: InvalidAwareAuthResult;
-  diagnostics: InvalidAwareAuthDiagnostics<Source, AuthSource>;
-};
 
 export interface InvalidAwareProviderApiKeyResolver<
   Source extends string,
@@ -266,9 +289,10 @@ export interface InvalidAwareProviderApiKeyResolver<
 > {
   parseAuth: (auth: unknown) => InvalidAwareAuthResult;
   resolve: (params?: { maxAgeMs?: number }) => Promise<InvalidAwareAuthResult>;
-  resolveWithDiagnostics: (params?: {
-    maxAgeMs?: number;
-  }) => Promise<InvalidAwareAuthResolution<Source, AuthSource>>;
+  resolveWithDiagnostics: (params?: { maxAgeMs?: number }) => Promise<{
+    auth: InvalidAwareAuthResult;
+    diagnostics: InvalidAwareAuthDiagnostics<Source, AuthSource>;
+  }>;
   diagnostics: (params?: {
     maxAgeMs?: number;
   }) => Promise<InvalidAwareAuthDiagnostics<Source, AuthSource>>;
@@ -313,6 +337,12 @@ function parseInvalidAwareAuth(
   }
 
   const record = entry as Record<string, unknown>;
+  if (typeof record.resolveError === "string") {
+    return {
+      state: "invalid",
+      error: `OpenCode could not read this login: ${record.resolveError}`,
+    };
+  }
   if (typeof record.type !== "string") {
     return {
       state: "invalid",
@@ -359,26 +389,22 @@ function createInvalidAwareProviderApiKeyResolver<Source extends string, AuthSou
     };
   };
 
-  const resolveWithDiagnostics = async (params?: {
-    maxAgeMs?: number;
-  }): Promise<InvalidAwareAuthResolution<Source, AuthSource>> => {
+  const resolveWithDiagnostics = async (params?: { maxAgeMs?: number }) => {
     const { auth, source } = await resolveWithSource(params);
     const paths = {
       checkedPaths: getApiKeyCheckedPaths({
         envVarNames: config.envVars.map((envVar) => envVar.name),
         getConfigCandidates: config.getConfigCandidates,
       }),
-      authPaths: config.auth.getAuthPaths(),
+      credentialDatabasePaths: config.auth.getCredentialDatabasePaths(),
     };
-
-    if (auth.state === "none") {
-      return { auth, diagnostics: { state: "none", source: null, ...paths } };
-    }
+    if (auth.state === "none")
+      return { auth, diagnostics: { state: "none" as const, source: null, ...paths } };
     if (auth.state === "invalid") {
       return {
         auth,
         diagnostics: {
-          state: "invalid",
+          state: "invalid" as const,
           source: config.auth.authSource,
           error: auth.error,
           ...paths,
@@ -388,7 +414,7 @@ function createInvalidAwareProviderApiKeyResolver<Source extends string, AuthSou
     return {
       auth,
       diagnostics: {
-        state: "configured",
+        state: "configured" as const,
         source: source ?? config.auth.authSource,
         ...paths,
       },
@@ -431,7 +457,7 @@ export function createProviderApiKeyResolver<Source extends string, AuthSource e
         resolve,
         getConfigCandidates: simpleConfig.getConfigCandidates,
       })),
-      authPaths: simpleConfig.auth?.getAuthPaths?.() ?? [],
+      credentialDatabasePaths: simpleConfig.auth?.getCredentialDatabasePaths?.() ?? [],
     }),
   };
 }
@@ -495,7 +521,7 @@ export function getApiKeyCheckedPaths(config: ApiKeyCheckedPathsConfig): string[
  * Priority (first wins):
  * 1. Environment variables (in order specified)
  * 2. Trusted user/global opencode.json/opencode.jsonc
- * 3. auth.json
+ * 3. opencode.db
  *
  * @returns API key and source, or null if not found
  */
@@ -508,7 +534,7 @@ export async function resolveApiKey<Source extends string>(
     return resolvedFromEnvOrConfig;
   }
 
-  // 3. Fallback to auth.json
+  // 3. Fallback to opencode.db
   const auth = await readAuth();
   const key = config.extractFromAuth(auth);
   if (key) {

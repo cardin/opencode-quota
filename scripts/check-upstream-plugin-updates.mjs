@@ -139,7 +139,7 @@ async function main() {
       ? "up-to-date"
       : "update available";
     console.log(
-      `${spec.pluginId}: tracked ${tracked.version}, latest ${latest.version} (${status})`,
+      `${spec.pluginId}: tracked ${tracked.version}, npm ${spec.distTag} ${latest.version} (${status})`,
     );
   }
 

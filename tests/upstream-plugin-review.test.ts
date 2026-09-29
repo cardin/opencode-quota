@@ -48,29 +48,29 @@ describe("upstream-plugin-review", () => {
   it("detects same-version metadata-only changes", () => {
     const previous = {
       version: "0.4.3",
-      packageName: "opencode-cursor-oauth",
-      repo: "old-owner/opencode-cursor",
-      referenceDir: "references/upstream-plugins/opencode-cursor-oauth",
-      npmUrl: "https://www.npmjs.com/package/opencode-cursor-oauth/v/0.4.3",
+      packageName: "@old-scope/cursor-opencode-provider",
+      repo: "old-owner/cursor-opencode-provider",
+      referenceDir: "references/upstream-plugins/cursor-opencode-provider",
+      npmUrl: "https://www.npmjs.com/package/%40old-scope/cursor-opencode-provider/v/0.4.3",
       publishedAt: "2026-04-08T14:04:58.057Z",
     };
     const current = {
       ...previous,
-      packageName: "@playwo/opencode-cursor-oauth",
-      repo: "PoolPirate/opencode-cursor",
+      packageName: "cursor-opencode-provider",
+      repo: "oakimov/cursor-opencode-provider",
     };
 
     expect(
       buildChangedPluginSummaries(
-        { plugins: { "opencode-cursor-oauth": previous } },
-        { plugins: { "opencode-cursor-oauth": current } },
+        { plugins: { "cursor-opencode-provider": previous } },
+        { plugins: { "cursor-opencode-provider": current } },
       ),
     ).toEqual([
       {
         changeKind: "metadata",
         changedFields: ["packageName", "repo"],
         currentVersion: "0.4.3",
-        pluginId: "opencode-cursor-oauth",
+        pluginId: "cursor-opencode-provider",
         previousVersion: "0.4.3",
       },
     ]);
@@ -79,7 +79,7 @@ describe("upstream-plugin-review", () => {
   it("keeps pre-synchronized reference-only changes in the review set", () => {
     const lock = {
       plugins: {
-        "opencode-cursor-oauth": {
+        "cursor-opencode-provider": {
           version: "0.4.3",
         },
       },
@@ -91,8 +91,8 @@ describe("upstream-plugin-review", () => {
         lock,
         new Map([
           [
-            "opencode-cursor-oauth",
-            ["references/upstream-plugins/opencode-cursor-oauth/package.json"],
+            "cursor-opencode-provider",
+            ["references/upstream-plugins/cursor-opencode-provider/package.json"],
           ],
         ]),
         [],
@@ -102,7 +102,7 @@ describe("upstream-plugin-review", () => {
         changeKind: "metadata",
         changedFields: ["reference contents"],
         currentVersion: "0.4.3",
-        pluginId: "opencode-cursor-oauth",
+        pluginId: "cursor-opencode-provider",
         previousVersion: "0.4.3",
       },
     ]);
@@ -116,7 +116,7 @@ describe("upstream-plugin-review", () => {
             changeKind: "metadata",
             changedFields: ["packageName"],
             currentVersion: "0.4.3",
-            pluginId: "opencode-cursor-oauth",
+            pluginId: "cursor-opencode-provider",
             previousVersion: "0.4.3",
           },
         ],
@@ -252,7 +252,7 @@ describe("upstream-plugin-review", () => {
             changeKind: "metadata",
             changedFields: ["packageName", "repo"],
             currentVersion: "0.4.3",
-            pluginId: "opencode-cursor-oauth",
+            pluginId: "cursor-opencode-provider",
             previousVersion: "0.4.3",
           },
         ],
@@ -265,7 +265,7 @@ describe("upstream-plugin-review", () => {
           output: "",
         },
       }),
-    ).toContain("opencode-cursor-oauth: metadata changed at 0.4.3 (packageName, repo)");
+    ).toContain("cursor-opencode-provider: metadata changed at 0.4.3 (packageName, repo)");
     expect(prompt).toContain("references/upstream-plugins/opencode-gemini-auth/package.json");
     expect(prompt).toContain('"version": "1.3.0"');
     expect(prompt).toContain("`pnpm test`: passed");

@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
+import type { TokenReportCommandId } from "../src/lib/quota-dialog-command-specs.js";
+import {
+  type ReportDocument,
+  renderMarkdownReport,
+  renderPlainTextReport,
+} from "../src/lib/report-document.js";
 import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
   createConfigModuleMock,
-  createPluginToolMockModule,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createSessionTokensModuleMock,
@@ -25,7 +31,7 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   aggregateUsage: vi.fn(),
   resolveSessionTree: vi.fn(),
-  formatQuotaStatsReport: vi.fn(),
+  buildQuotaStatsReportDocument: vi.fn(),
   SessionNotFoundError: class SessionNotFoundError extends Error {
     sessionID: string;
     checkedPath: string;
@@ -38,8 +44,6 @@ const mocks = vi.hoisted(() => ({
     }
   },
 }));
-
-vi.mock("@opencode-ai/plugin", () => createPluginToolMockModule());
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
 
@@ -64,17 +68,22 @@ vi.mock("../src/lib/quota-stats.js", () => ({
 }));
 
 vi.mock("../src/lib/quota-stats-format.js", () => ({
-  formatQuotaStatsReport: mocks.formatQuotaStatsReport,
+  buildQuotaStatsReportDocument: mocks.buildQuotaStatsReportDocument,
 }));
 
 async function buildTokenDialogOutput(params: {
-  command: "tokens_session" | "tokens_session_all";
+  command: TokenReportCommandId;
+  arguments?: string;
   client: ReturnType<typeof createClient>;
   sessionID: string;
+  generatedAtMs?: number;
+  /** The renderer the command uses for its text; the text must equal it applied to the document. */
+  render: (document: ReportDocument) => string;
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   const result = await buildQuotaDialogCommandOutput({
     command: params.command,
+    arguments: params.arguments,
     client: params.client,
     roots: {
       workspaceRoot: process.cwd(),
@@ -82,11 +91,26 @@ async function buildTokenDialogOutput(params: {
       fallbackDirectory: process.cwd(),
     },
     sessionID: params.sessionID,
+    generatedAtMs: params.generatedAtMs,
   });
   expect(params.client.session.prompt).not.toHaveBeenCalled();
   expect(result.state).toBe("output");
-  return result.state === "output" ? result.output : "";
+  if (result.state !== "output") throw new Error("expected report output");
+  expect(params.render(result.document)).toBe(result.output);
+  return { output: result.output, document: result.document };
 }
+
+// A titled section, so the markdown and plain-text renderers give different text.
+const TOKEN_REPORT_DOCUMENT: ReportDocument = {
+  heading: { line: "# Tokens used 00:00 01/01/1970", subtitle: "00:00 01/01/1970" },
+  sections: [
+    {
+      id: "summary",
+      title: "Summary",
+      blocks: [{ kind: "lines", lines: ["formatted token report"] }],
+    },
+  ],
+};
 
 describe("/tokens_session_all command", () => {
   beforeEach(() => {
@@ -102,7 +126,7 @@ describe("/tokens_session_all command", () => {
     });
     mocks.resolveAlibabaCodingPlanAuthCached.mockResolvedValue({ state: "none" });
     mocks.aggregateUsage.mockResolvedValue({ totals: {}, bySession: [] });
-    mocks.formatQuotaStatsReport.mockReturnValue("formatted token report");
+    mocks.buildQuotaStatsReportDocument.mockReturnValue(TOKEN_REPORT_DOCUMENT);
     mocks.resolveSessionTree.mockResolvedValue([
       { sessionID: "ses_parent", title: "Parent Session", depth: 0 },
       {
@@ -114,32 +138,46 @@ describe("/tokens_session_all command", () => {
     ]);
   });
 
-  it("registers /tokens_session_all in server plugin config", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
+  it("registers /tokens_session_all in the V2 TUI command palette", async () => {
+    const { default: plugin } = await import("../src/tui-v2.js");
+    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-command-specs.js");
     const tokensSessionAllCommand = QUOTA_DIALOG_COMMANDS.find(
       (command) => command.id === "tokens_session_all",
     );
-    const hooks = await QuotaToastPlugin({ client: createClient() } as any);
-    const cfg: { command?: Record<string, { template: string; description: string }> } = {};
+    let commands: Array<{ id: string; title: string }> = [];
+    const rpc = vi.fn();
+    plugin.setup({
+      client: { rpc },
+      keymap: {
+        layer: (build: () => { mode?: string; commands: typeof commands }) => {
+          const layer = build();
+          if (layer.mode === "global") commands = layer.commands;
+        },
+      },
+      data: { on: () => () => {} },
+      ui: {
+        slot: (claim: { append: string; render: () => void }) => {
+          if (claim.append === "app") claim.render();
+          return () => {};
+        },
+      },
+    } as never);
 
-    await hooks.config?.(cfg as any);
-
-    expect(cfg.command?.tokens_session_all).toEqual({
-      template: `/${tokensSessionAllCommand?.slashName}`,
-      description: tokensSessionAllCommand?.description,
-    });
+    expect(commands.find((command) => command.id === "quota.tokens_session_all")).toEqual(
+      expect.objectContaining({ title: tokensSessionAllCommand?.title }),
+    );
+    // Registering the palette makes no RPC call; each command makes its RPC client when run.
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("aggregates the current session tree for /tokens_session_all", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    await QuotaToastPlugin({ client } as any);
 
-    const output = await buildTokenDialogOutput({
+    const { output } = await buildTokenDialogOutput({
       command: "tokens_session_all",
       client,
       sessionID: "ses_parent",
+      render: renderMarkdownReport,
     });
 
     expect(mocks.resolveSessionTree).toHaveBeenCalledWith("ses_parent");
@@ -149,7 +187,7 @@ describe("/tokens_session_all command", () => {
       sessionID: undefined,
       sessionIDs: ["ses_parent", "ses_child"],
     });
-    expect(mocks.formatQuotaStatsReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatsReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Tokens used (Current Session Tree) (/tokens_session_all)",
         focusSessionID: "ses_parent",
@@ -172,18 +210,18 @@ describe("/tokens_session_all command", () => {
         },
       }),
     );
-    expect(output).toContain("formatted token report");
+    expect(output).toBe(renderMarkdownReport(TOKEN_REPORT_DOCUMENT));
+    expect(output).toContain("## Summary");
   });
 
   it("keeps /tokens_session scoped to the selected session only", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    await QuotaToastPlugin({ client } as any);
 
     await buildTokenDialogOutput({
       command: "tokens_session",
       client,
       sessionID: "ses_parent",
+      render: renderMarkdownReport,
     });
 
     expect(mocks.resolveSessionTree).not.toHaveBeenCalled();
@@ -193,7 +231,7 @@ describe("/tokens_session_all command", () => {
       sessionID: "ses_parent",
       sessionIDs: undefined,
     });
-    expect(mocks.formatQuotaStatsReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatsReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Tokens used (Current Session) (/tokens_session)",
         focusSessionID: "ses_parent",
@@ -212,19 +250,31 @@ describe("/tokens_session_all command", () => {
       new mocks.SessionNotFoundError("ses_missing", "/tmp/opencode.db"),
     );
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    await QuotaToastPlugin({ client } as any);
 
-    const injected = await buildTokenDialogOutput({
+    const generatedAtMs = Date.UTC(2026, 0, 2, 3, 4);
+    const { output: injected, document } = await buildTokenDialogOutput({
       command: "tokens_session_all",
       client,
       sessionID: "ses_missing",
+      generatedAtMs,
+      render: renderPlainTextReport,
     });
-    expect(injected).toContain("Token report unavailable (/tokens_session_all)");
-    expect(injected).toContain("session_lookup_error:");
-    expect(injected).toContain("- session_id: ses_missing");
-    expect(injected).toContain("- checked_path: /tmp/opencode.db");
+    expect(injected).toBe(
+      [
+        `# Token report unavailable (/tokens_session_all) ${formatLocalCallTimestamp(generatedAtMs)}`,
+        "",
+        "session_lookup_error:",
+        "- session_id: ses_missing",
+        "- error: Session not found: ses_missing",
+        "- checked_path: /tmp/opencode.db",
+      ].join("\n"),
+    );
+    // The dialog title is the report's name, so the dialog shows why and when instead.
+    expect(document.heading).toEqual({
+      line: injected.split("\n")[0],
+      subtitle: `Token report unavailable · ${formatLocalCallTimestamp(generatedAtMs)}`,
+    });
   });
 
   it("returns a dialog session lookup error for /tokens_session", async () => {
@@ -232,17 +282,41 @@ describe("/tokens_session_all command", () => {
       new mocks.SessionNotFoundError("ses_parent", "/tmp/opencode.db"),
     );
 
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
     const client = createClient();
-    await QuotaToastPlugin({ client } as any);
 
-    const injected = await buildTokenDialogOutput({
+    const { output: injected, document } = await buildTokenDialogOutput({
       command: "tokens_session",
       client,
       sessionID: "ses_parent",
+      render: renderPlainTextReport,
     });
     expect(injected).toContain("Token report unavailable (/tokens_session)");
     expect(injected).toContain("- session_id: ses_parent");
     expect(injected).toContain("- checked_path: /tmp/opencode.db");
+    expect(document.heading?.subtitle).toMatch(/^Token report unavailable · /);
+  });
+
+  it("titles every token report; only /tokens_between has facts the dialog title lacks", async () => {
+    const { TOKEN_REPORT_COMMANDS } = await import("../src/lib/quota-dialog-command-specs.js");
+    for (const spec of TOKEN_REPORT_COMMANDS) {
+      mocks.buildQuotaStatsReportDocument.mockClear();
+      await buildTokenDialogOutput({
+        command: spec.id,
+        arguments: spec.kind === "between" ? "2026-01-01 2026-01-15" : undefined,
+        client: createClient(),
+        sessionID: "ses_parent",
+        render: renderMarkdownReport,
+      });
+      expect(mocks.buildQuotaStatsReportDocument).toHaveBeenCalledWith(
+        expect.objectContaining(
+          spec.kind === "between"
+            ? {
+                title: "Tokens used (2026-01-01 .. 2026-01-15) (/tokens_between)",
+                titleDetail: "2026-01-01 .. 2026-01-15",
+              }
+            : { title: spec.title, titleDetail: undefined },
+        ),
+      );
+    }
   });
 });
