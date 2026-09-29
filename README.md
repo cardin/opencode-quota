@@ -31,9 +31,6 @@ npx @slkiser/opencode-quota init
 
 Upgrading from 4.x? Read [what changed in 5.0](#breaking-changes-in-500).
 
-> [!NOTE]
-> **Try the 5.0 beta.** Until 5.0.0 ships, the plain command installs 4.x. Run `npx @slkiser/opencode-quota@next init`, or put `"plugin": ["@slkiser/opencode-quota@next"]` in `opencode.json`. `npx @slkiser/opencode-quota@next update` keeps you on `@next`.
-
 After installation:
 
 1. Restart OpenCode.
