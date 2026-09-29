@@ -107,7 +107,10 @@ describe.each([
 
     expect(query).toHaveBeenCalledTimes(2);
     expect(output.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
-      [`[${provider.id === "google-agy" ? "Google AGY" : "Gemini CLI"} Work]*`, "active-id"],
+      [
+        `[${provider.id === "google-agy" ? "Google AGY" : "Gemini CLI"} Work] (active)`,
+        "active-id",
+      ],
       [`[${provider.id === "google-agy" ? "Google AGY" : "Gemini CLI"} Work 2]`, "other-id"],
     ]);
   });

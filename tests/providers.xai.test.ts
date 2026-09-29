@@ -146,7 +146,7 @@ describe("xai provider", () => {
     expect(output.entries).toEqual([]);
     expect(output.errors).toEqual([
       {
-        label: "[xAI]*",
+        label: "[xAI]",
         message:
           "xAI sign-in could not be refreshed: refresh_failed: HTTP 401. Run `opencode auth login xai`.",
       },

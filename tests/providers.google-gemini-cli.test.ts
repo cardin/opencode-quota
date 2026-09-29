@@ -225,7 +225,7 @@ describe("google gemini cli provider", () => {
     expect(out.attempted).toBe(true);
     expect(out.errors).toEqual([
       {
-        label: "[Gemini CLI work@example.com]*",
+        label: "[Gemini CLI work@example.com] (active)",
         message:
           "Gemini CLI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth login google`.",
       },

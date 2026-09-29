@@ -66,10 +66,10 @@ describe("anthropic provider", () => {
     expect(queryAnthropicQuotaWithOAuth).toHaveBeenCalledWith("valid", undefined);
     expect(queryAnthropicQuota).not.toHaveBeenCalled();
     expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
-      ["[Claude Work]*", "valid-inactive"],
-      ["[Claude Work]*", "valid-inactive"],
-      ["[Claude Work]* Usage Credits", "valid-inactive"],
-      ["[Claude Work]*", "valid-inactive"],
+      ["[Claude Work]", "valid-inactive"],
+      ["[Claude Work]", "valid-inactive"],
+      ["[Claude Work] Usage Credits", "valid-inactive"],
+      ["[Claude Work]", "valid-inactive"],
     ]);
   });
 
@@ -114,7 +114,7 @@ describe("anthropic provider", () => {
     expect(queryAnthropicQuota).not.toHaveBeenCalled();
     expect(out.errors).toEqual([
       {
-        label: "[Claude]*",
+        label: "[Claude] (active)",
         message:
           "Anthropic sign-in could not be read: refresh_failed: HTTP 500. Run `opencode auth login anthropic`.",
       },

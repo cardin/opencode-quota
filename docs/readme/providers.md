@@ -12,7 +12,7 @@
 
 ## Pre-configured providers
 
-Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`, read through OpenCode 2's plugin API. If you have several logins for one provider, each one gets its own rows and `*` marks the active one. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
+Most providers work automatically. `Automatic` means OpenCode Quota reuses the credential saved through OpenCode's `/connect`, read through OpenCode 2's plugin API. If you have several logins for one provider, each one gets its own rows and `(active)` marks the one OpenCode uses. If a provider has a “Needs setup” link, open that setup note only if you use that provider. Providers can appear in both audience sections when the vendor supports both.
 
 ### American providers
 

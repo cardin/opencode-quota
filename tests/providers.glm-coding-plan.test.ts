@@ -243,7 +243,7 @@ describe("GLM database credential rows", () => {
     });
     expect(out.errors).toEqual([
       {
-        label: "[Z.ai Work]*",
+        label: "[Z.ai Work] (active)",
         message: "OpenCode could not read this login: refresh_failed: HTTP 401",
       },
     ]);

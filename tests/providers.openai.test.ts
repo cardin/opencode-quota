@@ -153,10 +153,10 @@ describe("openai provider", () => {
       "other-id",
     ]);
     expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
-      ["[OpenAI Work] (Business)*", "active-id"],
-      ["[OpenAI Work] (Business)*", "active-id"],
-      ["[OpenAI Work] (Business)*", "active-id"],
-      ["[OpenAI Work] (Business)*", "active-id"],
+      ["[OpenAI Work] (Business) (active)", "active-id"],
+      ["[OpenAI Work] (Business) (active)", "active-id"],
+      ["[OpenAI Work] (Business) (active)", "active-id"],
+      ["[OpenAI Work] (Business) (active)", "active-id"],
       ["[OpenAI Work 2] (Business)", "other-id"],
       ["[OpenAI Work 2] (Business)", "other-id"],
       ["[OpenAI Work 2] (Business)", "other-id"],
@@ -165,9 +165,9 @@ describe("openai provider", () => {
   });
 
   it.each([
-    ["OpenAI", "[OpenAI] (Business)*"],
-    ["SEPD", "[OpenAI SEPD] (Business)*"],
-    ["default", "[OpenAI] (Business)*"],
+    ["OpenAI", "[OpenAI] (Business)"],
+    ["SEPD", "[OpenAI SEPD] (Business)"],
+    ["default", "[OpenAI] (Business)"],
   ])("renders DB alias %s literally on sidebar, CLI, and toast", async (label, expected) => {
     const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
     const { queryOpenAIQuota, resolveOpenAIOAuth } = await import("../src/lib/openai.js");
@@ -204,7 +204,7 @@ describe("openai provider", () => {
 
     for (const output of outputs) {
       expect(output).toContain(expected);
-      expect(output).not.toContain("[OpenAI (OpenAI)*]");
+      expect(output).not.toContain("[OpenAI (OpenAI)]");
     }
   });
 
@@ -248,7 +248,7 @@ describe("openai provider", () => {
     });
     expect(out.errors).toEqual([
       {
-        label: "[OpenAI Work]*",
+        label: "[OpenAI Work] (active)",
         message:
           "OpenAI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth login openai`.",
       },

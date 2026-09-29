@@ -102,7 +102,7 @@ The updater always shows a preview first. `--yes` applies only the safe edits it
 More ways to use it:
 
 - **Terminal:** run `npx @slkiser/opencode-quota show` (works with OpenCode closed). In Web and Desktop, slash commands post the report in the chat, and the AI can call the `quota_status` tool.
-- **Several logins:** each login for a provider gets its own rows; `*` marks the active one.
+- **Several logins:** each login for a provider gets its own rows; `(active)` marks the one OpenCode uses.
 - **Scripts and CI:** JSON output and optional OpenTelemetry metrics. See [External integration](docs/readme/external-integration.md).
 - **Display:** a quota bar under the prompt ([`tuiPromptBar.enabled`](docs/readme/configuration.md#tui-settings)), OpenCode Go's collapsed-sidebar row ([`tuiSidebarPanel.opencodeGoPreferredWindow`](docs/readme/configuration.md#tui-settings)), reset countdown style ([`resetTimeSpaced`](docs/readme/configuration.md#common-changes), [`resetTimeDecimals`](docs/readme/configuration.md#common-changes)), bare `81%` labels ([`percentLabelStyle`](docs/readme/configuration.md#common-changes)), and extra accounting rows ([`accountingDetail`](docs/readme/configuration.md#show-accounting-detail)).
 - **Runs-out estimate:** [`quotaProjection: "runway"`](docs/readme/configuration.md#estimate-when-fixed-quota-runs-out) shows **Runs out ≈ 1h 50m** for supported fixed windows. Off by default; JSON is unchanged.

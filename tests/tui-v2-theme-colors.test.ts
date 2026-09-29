@@ -76,7 +76,7 @@ describe("V2 TUI theme colors", () => {
   });
 
   it("draws the sidebar like OpenCode's Context section: bold base titles, muted body", () => {
-    const message = ["[Copilot] (individual)*", "Premium   5h   80%", "", "Session tokens"].join(
+    const message = ["[Copilot] (individual)", "Premium   5h   80%", "", "Session tokens"].join(
       "\n",
     );
     seeds.push(true, { message, duration: 5000, activeProviderCount: 1 });
@@ -86,7 +86,7 @@ describe("V2 TUI theme colors", () => {
     expect(texts.map(describeText)).toEqual([
       { text: "▼", fg: "base", bold: false },
       { text: "Quota", fg: "base", bold: true },
-      { text: "[Copilot] (individual)*", fg: "base", bold: true },
+      { text: "[Copilot] (individual)", fg: "base", bold: true },
       { text: "Premium   5h   80%", fg: "muted", bold: false },
       { text: " ", fg: "muted", bold: false },
       { text: "Session tokens", fg: "muted", bold: false },

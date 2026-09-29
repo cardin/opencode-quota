@@ -375,7 +375,7 @@ describe("Kimi regional providers", () => {
     expect(out.entries).toEqual([]);
     expect(out.errors).toEqual([
       {
-        label: "[Kimi Code (CN) Work]*",
+        label: "[Kimi Code (CN) Work]",
         message: "OpenCode could not read this login: resolve_empty: no value",
       },
     ]);

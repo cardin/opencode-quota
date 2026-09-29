@@ -171,7 +171,7 @@ describe("copilot provider", () => {
 
     const out = await copilotProvider.fetch({} as any);
 
-    expect(visibleEntries(out.entries, "copilot")[0]?.group).toBe("[Copilot alice] (enterprise)*");
+    expect(visibleEntries(out.entries, "copilot")[0]?.group).toBe("[Copilot alice] (enterprise)");
     expect(out.statusDetails).toContainEqual({ key: "billing_scope", value: "user" });
   });
 
@@ -225,7 +225,7 @@ describe("copilot provider", () => {
       { "github-copilot": { type: "oauth", resolveError: "refresh_failed: HTTP 401" } },
       { "github-copilot": { type: "oauth", access: "bob-token" } },
     ]);
-    expect(out.errors).toEqual([{ label: "[Copilot alice]*", message: signInError }]);
+    expect(out.errors).toEqual([{ label: "[Copilot alice] (active)", message: signInError }]);
     expect(visibleEntries(out.entries, "copilot")[0]?.group).toBe("[Copilot bob] (enterprise)");
   });
 

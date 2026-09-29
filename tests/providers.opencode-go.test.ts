@@ -427,7 +427,10 @@ describe("opencode-go provider", () => {
     );
 
     const out = await runFetch();
-    expect(out.errors).toContainEqual({ label: "[OpenCode Go shared]*", message: "empty key" });
+    expect(out.errors).toContainEqual({
+      label: "[OpenCode Go shared] (active)",
+      message: "empty key",
+    });
     expect(out.entries).toContainEqual(
       expect.objectContaining({
         group: "[OpenCode Go shared 2]",
@@ -461,7 +464,7 @@ describe("opencode-go provider", () => {
 
     const message = "OpenCode could not read this login: active_failed: database is locked";
     expect(out.errors).toEqual([
-      { label: "[OpenCode Go Personal]*", message },
+      { label: "[OpenCode Go Personal] (active)", message },
       { label: "[OpenCode Go Work]", message },
     ]);
     expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
@@ -492,8 +495,8 @@ describe("opencode-go provider", () => {
 
     expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
     expect(visibleEntries(out.entries, "opencode-go").map((entry) => entry.group)).toEqual([
-      "[OpenCode Go]*",
-      "[OpenCode Go]*",
+      "[OpenCode Go]",
+      "[OpenCode Go]",
     ]);
     for (const entry of out.entries) {
       expect(entry.accounting).toMatchObject({ sourceId: "go-row" });
@@ -625,8 +628,8 @@ describe("opencode-go provider", () => {
 
     expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledOnce();
     expect(visibleEntries(out.entries, "opencode-go").map((entry) => entry.group)).toEqual([
-      "[OpenCode Go]*",
-      "[OpenCode Go]*",
+      "[OpenCode Go]",
+      "[OpenCode Go]",
     ]);
     for (const entry of out.entries) {
       expect(entry.accounting).toMatchObject({ sourceId: "alias-row" });

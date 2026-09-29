@@ -28,8 +28,8 @@ const data: QuotaRenderData = {
 
 describe("Copilot usage-only four-surface formatting", () => {
   it.each([
-    ["[Copilot] (business)*"],
-    ["[Copilot sita] (business)*"],
+    ["[Copilot] (business) (active)"],
+    ["[Copilot sita] (business) (active)"],
   ])("preserves the credential group %s on command, toast, and sidebar", (group) => {
     const credentialData: QuotaRenderData = {
       ...data,

@@ -143,8 +143,9 @@ export function formatCredentialDisplayNames(
     const numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`;
     const base = `[${providerName}${numberedAlias ? ` ${numberedAlias}` : ""}]`;
     const category = fallbackCategory ? ` (${fallbackCategory})` : "";
-    const active = row.active || (credentials.length === 1 && !credentials[0]!.row.active);
-    return `${base}${category}${active ? "*" : ""}`;
+    // Only a provider with several logins marks the one OpenCode uses.
+    const active = credentials.length > 1 && row.active;
+    return `${base}${category}${active ? " (active)" : ""}`;
   });
 }
 
@@ -399,7 +400,7 @@ export function createIntegrationCredentialSource(
       const rows = await Promise.all(
         wanted.map((slot) => credentialRowForSlot(integration, slot, methods)),
       );
-      // The `*` goes to the first row of the first requested id that has rows.
+      // The active mark goes to the first row of the first requested id that has rows.
       return rows.map((row, index) => ({ ...row, active: index === 0 }));
     },
   };

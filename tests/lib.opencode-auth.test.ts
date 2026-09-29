@@ -86,18 +86,18 @@ function resolvedIds(integration: ReturnType<typeof createFakeIntegration>): str
 
 describe("OpenCode auth reader", () => {
   it.each([
-    ["OpenAI", "OpenAI (Pro)", "default", true, "[OpenAI] (Pro)*"],
-    ["OpenAI", "OpenAI (Pro)", "SEPD", true, "[OpenAI SEPD] (Pro)*"],
-    ["Copilot", "Copilot (business)", "sita", true, "[Copilot sita] (business)*"],
-    ["xAI", "xAI SuperGrok", "personal", true, "[xAI personal] (SuperGrok)*"],
-    ["OpenAI", "OpenAI (Pro)", "  ", true, "[OpenAI] (Pro)*"],
-    ["OpenAI", "OpenAI (Pro)", "openai", true, "[OpenAI] (Pro)*"],
+    ["OpenAI", "OpenAI (Pro)", "default", true, "[OpenAI] (Pro)"],
+    ["OpenAI", "OpenAI (Pro)", "SEPD", true, "[OpenAI SEPD] (Pro)"],
+    ["Copilot", "Copilot (business)", "sita", true, "[Copilot sita] (business)"],
+    ["xAI", "xAI SuperGrok", "personal", true, "[xAI personal] (SuperGrok)"],
+    ["OpenAI", "OpenAI (Pro)", "  ", true, "[OpenAI] (Pro)"],
+    ["OpenAI", "OpenAI (Pro)", "openai", true, "[OpenAI] (Pro)"],
     // OpenCode 2 labels credentials imported from auth.json "OAuth" or "API key".
-    ["OpenAI", "OpenAI (Pro)", "OAuth", true, "[OpenAI] (Pro)*"],
-    ["Copilot", "Copilot (individual)", "OAuth", true, "[Copilot] (individual)*"],
-    ["Z.ai", "Z.ai", "API key", true, "[Z.ai]*"],
-    ["MiniMax", "MiniMax", "api key", true, "[MiniMax]*"],
-    ["Kimi Code", "Kimi Code", "API key", true, "[Kimi Code]*"],
+    ["OpenAI", "OpenAI (Pro)", "OAuth", true, "[OpenAI] (Pro)"],
+    ["Copilot", "Copilot (individual)", "OAuth", true, "[Copilot] (individual)"],
+    ["Z.ai", "Z.ai", "API key", true, "[Z.ai]"],
+    ["MiniMax", "MiniMax", "api key", true, "[MiniMax]"],
+    ["Kimi Code", "Kimi Code", "API key", true, "[Kimi Code]"],
   ])("formats %s credential aliases as %s", (providerName, fallbackName, label, active, expected) => {
     expect(
       formatCredentialDisplayNames(providerName, [
@@ -107,6 +107,19 @@ describe("OpenCode auth reader", () => {
         },
       ]),
     ).toEqual([expected]);
+  });
+
+  it("marks no login when the provider has only one, active or not", () => {
+    for (const active of [true, false]) {
+      expect(
+        formatCredentialDisplayNames("OpenAI", [
+          {
+            row: { id: "a", integrationId: "openai", label: "Work", active, value: {} },
+            fallbackName: "OpenAI (Pro)",
+          },
+        ]),
+      ).toEqual(["[OpenAI Work] (Pro)"]);
+    }
   });
 
   it("numbers duplicate custom aliases without numbering default credentials", () => {
@@ -125,7 +138,7 @@ describe("OpenCode auth reader", () => {
           fallbackName: "OpenAI (Pro)",
         },
       ]),
-    ).toEqual(["[OpenAI SEPD] (Pro)*", "[OpenAI SEPD 2] (Pro)", "[OpenAI] (Pro)"]);
+    ).toEqual(["[OpenAI SEPD] (Pro) (active)", "[OpenAI SEPD 2] (Pro)", "[OpenAI] (Pro)"]);
   });
 
   it("keeps a named connection next to an imported generic one", () => {
@@ -140,7 +153,7 @@ describe("OpenCode auth reader", () => {
           fallbackName: "Z.ai",
         },
       ]),
-    ).toEqual(["[Z.ai Work]*", "[Z.ai]"]);
+    ).toEqual(["[Z.ai Work] (active)", "[Z.ai]"]);
   });
 
   it("reports the credential database path and honors OPENCODE_DB", () => {

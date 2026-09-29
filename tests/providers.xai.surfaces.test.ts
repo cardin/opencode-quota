@@ -30,8 +30,8 @@ function renderDataForLabel(label: (typeof xaiLabels)[number]): QuotaRenderData 
 
 describe("xAI four-surface formatting", () => {
   it.each([
-    ["[xAI] (SuperGrok)*"],
-    ["[xAI personal] (SuperGrok)*"],
+    ["[xAI] (SuperGrok) (active)"],
+    ["[xAI personal] (SuperGrok) (active)"],
   ])("preserves the credential group %s on command, toast, and sidebar", (group) => {
     const data: QuotaRenderData = {
       entries: [
