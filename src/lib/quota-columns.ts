@@ -78,14 +78,16 @@ export function fitQuotaColumns(
 }
 
 /**
- * Lays out one row in the columns: the label left, then the bar, the percent, used/limit,
- * and reset in their columns, numbers right-aligned. A value row's text is right-aligned in
- * the columns from the bar's up to the next part the row shows (to the rows' right edge when
- * there is none), and wraps there when it is too long. The notes follow, muted, from the
- * bar's column, wrapped at the rows' right edge.
+ * Lays out one row in the columns: the label, then the bar, the percent, used/limit, and
+ * reset, each left-aligned at its column's start. A value row's text starts in the percent
+ * column (the value column), runs up to the next part the row shows (to the rows' right
+ * edge when there is none), and wraps there when it is too long. The notes follow, muted,
+ * from the bar's column, wrapped at the rows' right edge.
  */
 export function layoutQuotaRow(row: ReportQuotaRow, fit: QuotaColumns): QuotaLineSegment[][] {
   const flexStart = fit.columns[1].start;
+  // Every fit has a value column: the percent rows' labels, or the flex column without them.
+  const valueStart = fit.columns.find((column) => column.id === "value")!.start;
   const cellText = (column: Column): string | undefined => {
     switch (column.id) {
       case "label":
@@ -107,9 +109,8 @@ export function layoutQuotaRow(row: ReportQuotaRow, fit: QuotaColumns): QuotaLin
     if (index > 0 && parts.length === 1) {
       valueEnd = fit.columns[index - 1].start + fit.columns[index - 1].width;
     }
-    const pad = column.id === "value" || column.id === "usage" ? column.width - text.length : 0;
     parts.push({
-      start: column.start + pad,
+      start: column.start,
       text,
       muted: column.id === "label" || column.id === "reset",
     });
@@ -118,15 +119,15 @@ export function layoutQuotaRow(row: ReportQuotaRow, fit: QuotaColumns): QuotaLin
   const valueLines =
     row.barPercent !== undefined
       ? []
-      : row.value.length <= valueEnd - flexStart
+      : row.value.length <= valueEnd - valueStart
         ? [row.value]
-        : wrapDisplayText(row.value, valueEnd - flexStart);
+        : wrapDisplayText(row.value, valueEnd - valueStart);
   if (valueLines.length > 0) {
-    parts.push({ start: valueEnd - valueLines[0].length, text: valueLines[0], muted: false });
+    parts.push({ start: valueStart, text: valueLines[0], muted: false });
   }
   const lines: QuotaLineSegment[][] = [toSegments(parts)];
   for (const line of valueLines.slice(1)) {
-    lines.push([{ text: " ".repeat(valueEnd - line.length) + line, muted: false }]);
+    lines.push([{ text: " ".repeat(valueStart) + line, muted: false }]);
   }
   for (const note of row.notes) {
     for (const line of wrapDisplayText(note, fit.width - flexStart)) {

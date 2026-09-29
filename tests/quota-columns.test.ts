@@ -64,15 +64,22 @@ describe("quota columns", () => {
     ]);
   });
 
-  it("aligns the columns: label left, numbers right, reset left, notes under the bar", () => {
+  it("left-aligns every column: label, percent, used/limit, reset, notes under the bar", () => {
     const fit = fitQuotaColumns([copilot, fiveHour, week, spend], 111)!;
     const lines = [copilot, fiveHour, week].flatMap((row) => draw(row, fit));
 
     expect(lines).toEqual([
-      `  Quota           ${"█".repeat(20)}${"░".repeat(4)}    85% left   30.4/200   reset 1d 8h 18m`,
+      `  Quota           ${"█".repeat(20)}${"░".repeat(4)}   85% left    30.4/200   reset 1d 8h 18m`,
       `  5h quota        ${"█".repeat(24)}   100% left              reset 5h 0m`,
-      `  Week quota      ${"█".repeat(12)}${"░".repeat(12)}    50% left              reset 3d 18h 21m`,
+      `  Week quota      ${"█".repeat(12)}${"░".repeat(12)}   50% left               reset 3d 18h 21m`,
       "                  Runs out ≈ 2d 3h",
+    ]);
+    // Every percent starts at the value column.
+    const valueStart = fit.columns.find((column) => column.id === "value")!.start;
+    expect(lines.slice(0, 3).map((line) => line.search(/\d+% left/))).toEqual([
+      valueStart,
+      valueStart,
+      valueStart,
     ]);
     // Labels, reset times, and notes are muted; the bar, percent, and usage are base.
     expect(layoutQuotaRow(copilot, fit)[0].map((segment) => segment.muted)).toEqual([
@@ -87,21 +94,26 @@ describe("quota columns", () => {
     ]);
   });
 
-  it("right-aligns a value row's text at the rows' right edge, or before its reset", () => {
+  it("starts a value row's text in the percent column, before its reset", () => {
     const withReset = { ...spend, label: "Plan", reset: "reset 3d 0h" };
     const fit = fitQuotaColumns([copilot, spend, withReset], 111)!;
 
-    expect(draw(spend, fit)).toEqual([`  Monthly spend${" ".repeat(61)}USD 0.00`]);
-    expect(draw(spend, fit)[0]).toHaveLength(fit.width);
-    // It ends where the usage column ends, like the percent rows' usage.
-    expect(draw(withReset, fit)).toEqual([`  Plan${" ".repeat(52)}USD 0.00   reset 3d 0h`]);
+    expect(draw(spend, fit)).toEqual([`  Monthly spend${" ".repeat(32)}USD 0.00`]);
+    expect(draw(withReset, fit)).toEqual([
+      `  Plan${" ".repeat(41)}USD 0.00${" ".repeat(14)}reset 3d 0h`,
+    ]);
+    // The value starts where the percent starts, and the reset where the percent row's does.
+    const percentStart = draw(copilot, fit)[0].indexOf("85% left");
+    expect(draw(spend, fit)[0].indexOf("USD 0.00")).toBe(percentStart);
+    expect(draw(withReset, fit)[0].indexOf("USD 0.00")).toBe(percentStart);
+    expect(draw(withReset, fit)[0].indexOf("reset")).toBe(draw(copilot, fit)[0].indexOf("reset"));
     expect(layoutQuotaRow(spend, fit)[0]).toEqual([
       { text: "  Monthly spend", muted: true },
-      { text: `${" ".repeat(61)}USD 0.00`, muted: false },
+      { text: `${" ".repeat(32)}USD 0.00`, muted: false },
     ]);
   });
 
-  it("wraps a long value row's text inside its columns", () => {
+  it("wraps a long value row's text inside its columns, from the percent column", () => {
     const plan: ReportQuotaRow = {
       label: "Plan",
       value: "Pro | quota details unavailable for this organization right now",
@@ -109,9 +121,11 @@ describe("quota columns", () => {
     };
     const fit = fitQuotaColumns([fiveHour, plan], 60)!;
 
+    expect(draw(fiveHour, fit)[0].indexOf("100% left")).toBe(38);
     expect(draw(plan, fit)).toEqual([
-      "  Plan              Pro | quota details unavailable for this",
-      "                                      organization right now",
+      `  Plan${" ".repeat(32)}Pro | quota details`,
+      `${" ".repeat(38)}unavailable for this`,
+      `${" ".repeat(38)}organization right now`,
     ]);
   });
 
@@ -123,7 +137,8 @@ describe("quota columns", () => {
       { id: "label", start: 2, width: 15 },
       { id: "value", start: 19, width: 65 },
     ]);
-    expect(draw(balance, fit)).toEqual([`  Current balance${" ".repeat(59)}USD 0.00`]);
+    expect(draw(spend, fit)).toEqual(["  Monthly spend    USD 0.00"]);
+    expect(draw(balance, fit)).toEqual(["  Current balance  USD 0.00"]);
   });
 
   it("shrinks the bar on a narrower dialog and gives up below the chat's bar width", () => {

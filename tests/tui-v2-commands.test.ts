@@ -857,7 +857,8 @@ describe("V2 quota TUI commands", () => {
     expect(body().props.paddingLeft).toBe(13);
     expect(body().props.width).toBe(97);
     // Provider titles are bold accent; labels muted, bar, percent, and values base. With
-    // no reset column, the three gaps share the spare 27 columns.
+    // no reset column, the three gaps share the spare 27 columns. The percent, used/limit,
+    // and the value row's text start at their columns' left edges.
     const bar = `${"█".repeat(20)}${"░".repeat(4)}`;
     expect(texts()).toEqual([
       { text: "→ [Copilot]", fg: "accent", bold: true },
@@ -868,13 +869,15 @@ describe("V2 quota TUI commands", () => {
       },
       { text: "→ [OpenCode Zen]", fg: "accent", bold: true },
       {
-        text: `  Month spend${" ".repeat(63)}USD 0.00`,
+        text: `  Month spend${" ".repeat(46)}USD 0.00`,
         fg: ["muted", "base"],
         bold: false,
       },
       { text: "Partial failures", fg: "base", bold: true },
       { text: "  Z.ai: Authentication expired", fg: "muted", bold: false },
     ]);
+    // The value starts where the percent starts, across providers.
+    expect(texts()[3].text.indexOf("USD 0.00")).toBe(texts()[1].text.indexOf("85% left"));
 
     // 45 columns: the report gets 38, which leaves the bar 5 of the 10 cells it needs.
     terminal.width = 45;
