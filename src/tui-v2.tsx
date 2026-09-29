@@ -54,7 +54,7 @@ type KeymapCommand = {
   run: () => void | false | Promise<void>;
 };
 type DialogTheme = {
-  text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA } } };
+  text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA; selected: RGBA } } };
   background: { action: { primary: { focused: RGBA } } };
 };
 type QuotaRpcCallOptions = { location: { directory: string }; signal: AbortSignal };
@@ -294,7 +294,8 @@ function reportFailure(error: unknown): void {
 /**
  * One block of a report. Lines and key-value rows wrap at words. A table keeps each row on
  * one line: its cells are padded to their column widths and joined by two spaces, with the
- * header row bold and muted. Like OpenCode's sidebar, labels are muted and values are base.
+ * header row bold in OpenCode's primary accent (its text color for a selected tab). Like
+ * OpenCode's sidebar, labels are muted and values are base.
  */
 function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX.Element {
   const block = props.block;
@@ -324,7 +325,11 @@ function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX
   });
   return (
     <box flexDirection="column">
-      <text attributes={TextAttributes.BOLD} fg={props.theme.text.muted} wrapMode="none">
+      <text
+        attributes={TextAttributes.BOLD}
+        fg={props.theme.text.action.primary.selected}
+        wrapMode="none"
+      >
         {table.header.join("  ")}
       </text>
       {table.rows.map((row) => (

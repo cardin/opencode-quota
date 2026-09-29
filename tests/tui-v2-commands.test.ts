@@ -115,7 +115,11 @@ function startTui(
     theme: {
       text: { base: "base", muted: "muted" },
       surface: vi.fn(() => ({
-        text: { base: "base", muted: "muted", action: { primary: { focused: "action" } } },
+        text: {
+          base: "base",
+          muted: "muted",
+          action: { primary: { focused: "action", selected: "accent" } },
+        },
         background: { action: { primary: { focused: "action-bg" } } },
       })),
     },
@@ -688,11 +692,11 @@ describe("V2 quota TUI commands", () => {
       bold: node.props.attributes === TextAttributes.BOLD,
       wrapMode: node.props.wrapMode,
     }));
-    // Section titles are bold base, table headers bold muted, and values base. A key-value
+    // Section titles are bold base, table headers bold accent, and values base. A key-value
     // row is a muted "- key:" with a base value; plain lines are muted.
     expect(texts).toEqual([
       { children: "Top Models", fg: "base", bold: true, wrapMode: undefined },
-      { children: "Model          Cost", fg: "muted", bold: true, wrapMode: "none" },
+      { children: "Model          Cost", fg: "accent", bold: true, wrapMode: "none" },
       { children: "gpt-5         $1.23", fg: "base", bold: false, wrapMode: "none" },
       { children: "claude-opus  $10.00", fg: "base", bold: false, wrapMode: "none" },
       {
