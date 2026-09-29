@@ -206,6 +206,11 @@ async function buildAnnouncementsDialogOutput(params: {
   if (result.state !== "output") return "";
   // Every command here renders its document as plain text.
   expect(renderPlainTextReport(result.document)).toBe(result.output);
+  // The list's heading has no time and the dialog title names it, so the dialog shows no
+  // subtitle. Invalid arguments give a plain message without a heading.
+  expect(result.document.heading).toEqual(
+    params.arguments?.trim() ? undefined : { line: "Maintainer announcements" },
+  );
   return result.output;
 }
 

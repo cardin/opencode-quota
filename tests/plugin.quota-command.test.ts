@@ -33,6 +33,8 @@ async function buildDialogOutput(params: {
   sessionID: string;
   arguments?: string;
   generatedAtMs?: number;
+  /** The line the TUI dialog shows under its title, in place of the report's title line. */
+  subtitle?: string;
 }) {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   // V2 CLI obtains host provider IDs from its location cache, not V1 plugin bootstrap.
@@ -65,6 +67,9 @@ async function buildDialogOutput(params: {
   if (result.state !== "output") return "";
   // Every command here renders its document as plain text.
   expect(renderPlainTextReport(result.document)).toBe(result.output);
+  if (params.subtitle !== undefined) {
+    expect(result.document.heading?.subtitle).toBe(params.subtitle);
+  }
   return result.output;
 }
 
@@ -884,6 +889,7 @@ describe("/quota command behavior", () => {
       client,
       sessionID: "session-pricing-refresh",
       generatedAtMs,
+      subtitle: formatLocalCallTimestamp(generatedAtMs),
     });
 
     expect(mocks.maybeRefreshPricingSnapshot).toHaveBeenCalledWith({

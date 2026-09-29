@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
 import type { AggregateResult } from "../src/lib/quota-stats.js";
-import { formatQuotaStatsReport } from "../src/lib/quota-stats-format.js";
+import {
+  buildQuotaStatsReportDocument,
+  formatQuotaStatsReport,
+} from "../src/lib/quota-stats-format.js";
 
 function makeEmptyResult(overrides?: Partial<AggregateResult>): AggregateResult {
   return {
@@ -625,5 +629,35 @@ describe("formatQuotaStatsReport (markdown)", () => {
 
       Run /quota_status to see the full pricing diagnostics report."
     `);
+  });
+
+  it("keeps the title line in text and gives the dialog only the facts its title lacks", () => {
+    const generatedAtMs = Date.UTC(2026, 8, 29, 14, 0);
+    const time = formatLocalCallTimestamp(generatedAtMs);
+    const weekly = {
+      title: "Tokens used (Last 7 Days) (/tokens_weekly)",
+      result: makeEmptyResult(),
+      generatedAtMs,
+    };
+    const between = {
+      title: "Tokens used (2026-01-01 .. 2026-01-15) (/tokens_between)",
+      titleDetail: "2026-01-01 .. 2026-01-15",
+      result: makeEmptyResult(),
+      generatedAtMs,
+    };
+
+    expect(formatQuotaStatsReport(weekly).split("\n")[0]).toBe(
+      `# Tokens used (Last 7 Days) (/tokens_weekly) ${time}`,
+    );
+    expect(buildQuotaStatsReportDocument(weekly).heading?.subtitle).toBe(time);
+    expect(formatQuotaStatsReport(between).split("\n")[0]).toBe(
+      `# Tokens used (2026-01-01 .. 2026-01-15) (/tokens_between) ${time}`,
+    );
+    expect(buildQuotaStatsReportDocument(between).heading?.subtitle).toBe(
+      `2026-01-01 .. 2026-01-15 · ${time}`,
+    );
+    // The sections, which the dialog draws, never repeat the title.
+    const sectionsText = formatQuotaStatsReport(weekly).split("\n").slice(1).join("\n");
+    expect(sectionsText).not.toContain("Tokens used");
   });
 });

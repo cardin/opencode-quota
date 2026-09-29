@@ -2,6 +2,7 @@ import { abbreviateDisplayedModelName } from "./format-utils.js";
 import type { WidthMode } from "./markdown-table.js";
 import type { AggregateResult, SessionTreeNode, TokenBuckets } from "./quota-stats.js";
 import {
+  commandHeading,
   type ReportDocument,
   type ReportSection,
   renderMarkdownReport,
@@ -156,6 +157,8 @@ function truncateTitle(title: string | undefined): string {
 
 type QuotaStatsReportParams = {
   title: string;
+  /** Facts in the title that the TUI dialog title lacks, like the date range; see commandHeading. */
+  titleDetail?: string;
   result: AggregateResult;
   topModels?: number;
   topSessions?: number;
@@ -495,10 +498,11 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
   }
 
   return {
-    heading: {
+    heading: commandHeading({
       title: params.title,
+      detail: params.titleDetail,
       generatedAtMs: params.generatedAtMs,
-    },
+    }),
     sections,
   };
 }

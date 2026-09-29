@@ -224,25 +224,17 @@ export function buildQuotaCommandDocument(params: {
     });
   }
 
+  // With bare percent labels, only the heading tells whether the percentages are used or left.
+  const bare = params.percentLabelStyle === "bare";
+  const time = formatLocalCallTimestamp(params.generatedAtMs);
   return {
-    sections: [
-      {
-        id: "heading",
-        blocks: [
-          {
-            kind: "lines",
-            lines: [
-              `${
-                params.percentLabelStyle === "bare"
-                  ? formatQuotaModeHeading(params.percentDisplayMode)
-                  : "Quota"
-              } (/quota) ${formatLocalCallTimestamp(params.generatedAtMs)}`,
-            ],
-          },
-        ],
-      },
-      ...sections,
-    ],
+    heading: {
+      line: `${bare ? formatQuotaModeHeading(params.percentDisplayMode) : "Quota"} (/quota) ${time}`,
+      subtitle: bare
+        ? `${params.percentDisplayMode === "used" ? "Percent used" : "Percent remaining"} · ${time}`
+        : time,
+    },
+    sections,
   };
 }
 

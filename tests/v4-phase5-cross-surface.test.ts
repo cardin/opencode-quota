@@ -195,9 +195,10 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   // The Enter binding that runs a quota command typed in the TUI prompt.
   let enter: (() => unknown) | undefined;
   const editor = { plainText: "", clear: vi.fn() };
-  // Records the title and scrollbox text of each quota output dialog the TUI shows. The
-  // scrollbox text is every text node in order, one per line, without the blank rows.
-  const dialog = vi.fn((_input: { title: string; message: string }) => {});
+  // Records the title, subtitle, and scrollbox text of each quota output dialog the TUI
+  // shows. The scrollbox text is every text node in order, one per line, without the blank
+  // rows.
+  const dialog = vi.fn((_input: { title: string; subtitle?: string; message: string }) => {});
   type Node = { type: string; props: Record<string, any> };
   const find = (node: unknown, type: string): Node | undefined => {
     if (Array.isArray(node)) return node.map((child) => find(child, type)).find(Boolean);
@@ -216,8 +217,9 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
   const show = (render: () => unknown, onClose?: () => void) => {
     const tree = render();
     const title = find(tree, "text")?.props.children;
+    const subtitle = (tree as Node).props.children[0].props.children[1]?.props.children;
     const message = texts(find(tree, "scrollbox")).join("\n");
-    dialog({ title, message });
+    dialog({ title, subtitle, message });
     onClose?.();
   };
   const toast = vi.fn();
@@ -574,11 +576,20 @@ describe("v4 Phase 5 cross-surface release evidence", () => {
     expect(v2.dialog).toHaveBeenCalledOnce();
     expect(client.session.prompt).not.toHaveBeenCalled();
     const serverOutput = v2.dialog.mock.calls[0][0].message;
-    expect(serverOutput).toMatch(/^Quota \(\/quota\)/);
+    // The dialog shows the title once and the time under it, not the report's title line.
+    const quotaDialog = v2.dialog.mock.calls[0][0];
+    expect(quotaDialog.title).toBe("OpenCode Quota");
+    expect(quotaDialog.subtitle).toMatch(/^\d{2}:\d{2} \d{2}\/\d{2}\/\d{4}$/);
+    expect(serverOutput).toMatch(/^→ /);
+    expect(serverOutput).not.toContain("(/quota)");
     // /quota typed in the TUI prompt opens the same report in the dialog and posts nothing.
     expect(v2.typeCommand("/quota")).toBeUndefined();
     await vi.waitFor(() => expect(v2.dialog).toHaveBeenCalledTimes(2));
-    expect(v2.dialog.mock.calls[1][0].message).toMatch(/^Quota \(\/quota\)/);
+    expect(v2.dialog.mock.calls[1][0]).toMatchObject({
+      title: "OpenCode Quota",
+      subtitle: quotaDialog.subtitle,
+    });
+    expect(v2.dialog.mock.calls[1][0].message).toMatch(/^→ /);
     expect(client.session.prompt).not.toHaveBeenCalled();
     expect(serverOutput).not.toContain("```");
     expect(serverOutput).not.toMatch(/^#{1,6} /mu);

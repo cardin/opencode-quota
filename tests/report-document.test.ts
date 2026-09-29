@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
 import { padTableColumns } from "../src/lib/markdown-table.js";
 import {
+  commandHeading,
   isReportDocument,
   messageDocument,
   type ReportDocument,
@@ -99,6 +101,38 @@ describe("report-document", () => {
     `);
   });
 
+  it("builds a command heading: the full line for text, the facts and time for the dialog", () => {
+    const generatedAtMs = Date.UTC(2026, 8, 29, 14, 0);
+    const time = formatLocalCallTimestamp(generatedAtMs);
+
+    expect(
+      commandHeading({
+        title: "Quota Status (opencode-quota v5.0.0) (/quota_status)",
+        detail: "opencode-quota v5.0.0",
+        generatedAtMs,
+      }),
+    ).toEqual({
+      line: `# Quota Status (opencode-quota v5.0.0) (/quota_status) ${time}`,
+      subtitle: `opencode-quota v5.0.0 · ${time}`,
+    });
+    expect(
+      commandHeading({ title: "Tokens used (Last 7 Days) (/tokens_weekly)", generatedAtMs }),
+    ).toEqual({
+      line: `# Tokens used (Last 7 Days) (/tokens_weekly) ${time}`,
+      subtitle: time,
+    });
+  });
+
+  it("puts the heading line first in both text renderers", () => {
+    const document: ReportDocument = {
+      heading: { line: "# Report 16:00 29/09/2026", subtitle: "16:00 29/09/2026" },
+      sections: [{ id: "notes", title: "Notes", blocks: [{ kind: "lines", lines: ["note"] }] }],
+    };
+
+    expect(renderPlainTextReport(document)).toBe("# Report 16:00 29/09/2026\n\nNotes\nnote");
+    expect(renderMarkdownReport(document)).toBe("# Report 16:00 29/09/2026\n\n## Notes\n\nnote");
+  });
+
   it("pads table columns to their widths without pipes or escaping", () => {
     expect(
       padTableColumns({
@@ -163,7 +197,7 @@ describe("report-document", () => {
 
   it("accepts well-formed documents and rejects malformed ones", () => {
     const document: ReportDocument = {
-      heading: { title: "Report", generatedAtMs: 1 },
+      heading: { line: "# Report 16:00 29/09/2026", subtitle: "16:00 29/09/2026" },
       sections: [
         {
           id: "all",
@@ -185,6 +219,9 @@ describe("report-document", () => {
 
     expect(isReportDocument(document)).toBe(true);
     expect(isReportDocument(messageDocument("hi"))).toBe(true);
+    expect(isReportDocument({ heading: { line: "Maintainer announcements" }, sections: [] })).toBe(
+      true,
+    );
     expect(isReportDocument(JSON.parse(JSON.stringify(document)))).toBe(true);
     for (const value of [
       undefined,
@@ -193,7 +230,9 @@ describe("report-document", () => {
       [],
       {},
       { sections: {} },
-      { heading: { title: 1 }, sections: [] },
+      { heading: { line: 1 }, sections: [] },
+      { heading: { title: "Report", generatedAtMs: 1 }, sections: [] },
+      { heading: { line: "# Report", subtitle: 1 }, sections: [] },
       { sections: [{ blocks: [] }] },
       { sections: [{ id: "s", blocks: [{ kind: "html", lines: [] }] }] },
       { sections: [{ id: "s", blocks: [{ kind: "lines", lines: [1] }] }] },

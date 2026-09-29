@@ -15,9 +15,20 @@ vi.mock("../src/lib/config.js", async (importOriginal) => {
 });
 
 import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
-import { parseQuotaSlashCommand } from "../src/lib/quota-dialog-command-specs.js";
+import { buildQuotaCommandDocument } from "../src/lib/quota-command-format.js";
+import {
+  parseQuotaSlashCommand,
+  QUOTA_DIALOG_COMMANDS,
+  type QuotaDialogCommandId,
+  TOKEN_REPORT_COMMANDS,
+} from "../src/lib/quota-dialog-command-specs.js";
 import { formatQuotaReportMessage } from "../src/lib/quota-report-message.js";
-import { messageDocument, type ReportDocument } from "../src/lib/report-document.js";
+import { buildQuotaStatsReportDocument } from "../src/lib/quota-stats-format.js";
+import {
+  commandHeading,
+  messageDocument,
+  type ReportDocument,
+} from "../src/lib/report-document.js";
 import plugin from "../src/tui-v2.tsx";
 
 // The server plugin's quota RPC runs palette commands; the TUI shows their output.
@@ -45,6 +56,32 @@ function findNode(node: unknown, type: string): Node | undefined {
   const element = node as Node;
   if (element.type === type) return element;
   return findNode(element.props?.children, type);
+}
+
+/** Makes JSX build a plain tree of { type, props } nodes, running components. */
+function stubRenderingReact() {
+  vi.stubGlobal("React", {
+    createElement: (
+      type: unknown,
+      props: Record<string, unknown> | null,
+      ...children: unknown[]
+    ) => {
+      const all = { ...props, children: children.length > 1 ? children : children[0] };
+      return typeof type === "function" ? type(all) : { type, props: all };
+    },
+  });
+}
+
+/** The quota output dialog's title and the subtitle text under it (null when there is none). */
+function dialogHeader(tree: unknown): {
+  title: string;
+  subtitle: { children: string; fg: string } | null;
+} {
+  const [titleRow, subtitle] = (tree as Node).props.children[0].props.children;
+  return {
+    title: findNode(titleRow, "text")?.props.children,
+    subtitle: subtitle && { children: subtitle.props.children, fg: subtitle.props.fg },
+  };
 }
 
 type RegisteredCommand = {
@@ -595,20 +632,11 @@ describe("V2 quota TUI commands", () => {
   });
 
   it("shows command output in a scrollable dialog that fits the terminal", async () => {
-    vi.stubGlobal("React", {
-      createElement: (
-        type: unknown,
-        props: Record<string, unknown> | null,
-        ...children: unknown[]
-      ) => {
-        const all = { ...props, children: children.length > 1 ? children : children[0] };
-        return typeof type === "function" ? type(all) : { type, props: all };
-      },
-    });
+    stubRenderingReact();
     const lines = Array.from({ length: 80 }, (_, index) => `line ${index + 1}`);
     const generatedAtMs = Date.UTC(2026, 0, 2, 3, 4);
     const document: ReportDocument = {
-      heading: { title: "Tokens used (Today) (/tokens_today)", generatedAtMs },
+      heading: commandHeading({ title: "Tokens used (Today) (/tokens_today)", generatedAtMs }),
       sections: [
         {
           id: "models",
@@ -647,8 +675,13 @@ describe("V2 quota TUI commands", () => {
     const render = context.ui.dialog.show.mock.calls[0][0] as () => unknown;
     const tree = render();
     const scrollbox = findNode(tree, "scrollbox");
-    // 40 terminal rows: three quarters is 30, minus 8 rows of dialog chrome.
-    expect(scrollbox?.props.maxHeight).toBe(22);
+    // 40 terminal rows: three quarters is 30, minus 8 rows of dialog chrome and the subtitle.
+    expect(scrollbox?.props.maxHeight).toBe(21);
+    // The subtitle sits directly under the title, muted; the report's title line is left out.
+    expect(dialogHeader(tree)).toEqual({
+      title: "Quota Status",
+      subtitle: { children: formatLocalCallTimestamp(generatedAtMs), fg: "muted" },
+    });
     const texts = findNodes(scrollbox?.props.children, "text").map((node) => ({
       children: node.props.children,
       fg: node.props.fg,
@@ -656,12 +689,6 @@ describe("V2 quota TUI commands", () => {
       wrapMode: node.props.wrapMode,
     }));
     expect(texts).toEqual([
-      {
-        children: `Tokens used (Today) (/tokens_today) ${formatLocalCallTimestamp(generatedAtMs)}`,
-        fg: "base",
-        bold: true,
-        wrapMode: undefined,
-      },
       { children: "Top Models", fg: "base", bold: true, wrapMode: undefined },
       { children: "Model          Cost", fg: "heading", bold: true, wrapMode: "none" },
       { children: "gpt-5         $1.23", fg: "base", bold: false, wrapMode: "none" },
@@ -669,11 +696,11 @@ describe("V2 quota TUI commands", () => {
       { children: "- enabled: true", fg: "base", bold: false, wrapMode: undefined },
       { children: lines.join("\n"), fg: "base", bold: false, wrapMode: undefined },
     ]);
-    // One blank row between the heading, the sections, and the blocks of a section; a
-    // section title sits directly above its first block.
+    // One blank row between the sections and between the blocks of a section; a section
+    // title sits directly above its first block.
     const body = scrollbox?.props.children;
     expect(body.props.gap).toBe(1);
-    const section = body.props.children[1][0];
+    const section = body.props.children[0];
     expect(section.props.gap).toBeUndefined();
     expect(section.props.children[1].props.gap).toBe(1);
 
@@ -694,9 +721,146 @@ describe("V2 quota TUI commands", () => {
     run("pagedown");
     run("up");
     run("end");
-    expect(scroll.scrollBy.mock.calls).toEqual([[22], [-1]]);
+    expect(scroll.scrollBy.mock.calls).toEqual([[21], [-1]]);
     expect(scroll.scrollTo).toHaveBeenCalledWith(80);
     run("return");
     expect(context.ui.dialog.clear).toHaveBeenCalledOnce();
+  });
+
+  it("shows every command's report title once, as the dialog title, with the subtitle under it", async () => {
+    stubRenderingReact();
+    const generatedAtMs = Date.UTC(2026, 8, 29, 14, 0);
+    const time = formatLocalCallTimestamp(generatedAtMs);
+    const tokenResult = {
+      window: { sinceMs: 0, untilMs: 1 },
+      totals: {
+        priced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+        unknown: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+        unpriced: { input: 0, output: 0, reasoning: 0, cache_read: 0, cache_write: 0 },
+        costUsd: 0,
+        messageCount: 0,
+        sessionCount: 0,
+      },
+      bySourceProvider: [],
+      bySourceModel: [],
+      byModel: [],
+      bySession: [],
+      unknown: [],
+      unpriced: [],
+    };
+    const accounting = {
+      resultType: "quota",
+      acquisitionMethod: "remote_api",
+      ownership: "maintained",
+      authority: "provider_reported",
+    } as const;
+    // Each document has the heading its server builder gives it.
+    const reports = new Map<QuotaDialogCommandId, { document: ReportDocument; subtitle?: string }>([
+      [
+        "quota",
+        {
+          document: buildQuotaCommandDocument({
+            entries: [{ accounting, name: "Copilot", percentRemaining: 81 }],
+            errors: [],
+            generatedAtMs,
+          }),
+          subtitle: time,
+        },
+      ],
+      [
+        "quota_status",
+        {
+          document: {
+            heading: commandHeading({
+              title: "Quota Status (opencode-quota v5.0.0) (/quota_status)",
+              detail: "opencode-quota v5.0.0",
+              generatedAtMs,
+            }),
+            sections: [{ id: "toast", title: "toast:", blocks: [{ kind: "lines", lines: ["-"] }] }],
+          },
+          subtitle: `opencode-quota v5.0.0 · ${time}`,
+        },
+      ],
+      [
+        "quota_announcements",
+        {
+          document: {
+            heading: { line: "Maintainer announcements" },
+            sections: [
+              { id: "list", blocks: [{ kind: "lines", lines: ["No current announcements."] }] },
+            ],
+          },
+        },
+      ],
+      [
+        "pricing_refresh",
+        {
+          document: {
+            heading: commandHeading({ title: "Pricing Refresh (/pricing_refresh)", generatedAtMs }),
+            sections: [
+              { id: "refresh", title: "refresh:", blocks: [{ kind: "lines", lines: ["-"] }] },
+            ],
+          },
+          subtitle: time,
+        },
+      ],
+      ...TOKEN_REPORT_COMMANDS.map(
+        (spec): [QuotaDialogCommandId, { document: ReportDocument; subtitle: string }] =>
+          spec.kind === "between"
+            ? [
+                spec.id,
+                {
+                  document: buildQuotaStatsReportDocument({
+                    title: "Tokens used (2026-01-01 .. 2026-01-15) (/tokens_between)",
+                    titleDetail: "2026-01-01 .. 2026-01-15",
+                    result: tokenResult,
+                    generatedAtMs,
+                  }),
+                  subtitle: `2026-01-01 .. 2026-01-15 · ${time}`,
+                },
+              ]
+            : [
+                spec.id,
+                {
+                  document: buildQuotaStatsReportDocument({
+                    title: spec.title,
+                    result: tokenResult,
+                    generatedAtMs,
+                  }),
+                  subtitle: time,
+                },
+              ],
+      ),
+    ]);
+    expect([...reports.keys()].sort()).toEqual(QUOTA_DIALOG_COMMANDS.map((spec) => spec.id).sort());
+
+    for (const spec of QUOTA_DIALOG_COMMANDS) {
+      const report = reports.get(spec.id)!;
+      rpc.command.mockResolvedValueOnce({
+        state: "output",
+        command: spec.id,
+        title: spec.title,
+        output: "the chat text",
+        document: report.document,
+        dialogSize: spec.dialogSize,
+      });
+      const { context, command } = startTui();
+      context.ui.dialog.prompt.mockResolvedValue("2026-01-01 2026-01-15");
+
+      await command(spec.id).run();
+
+      const tree = (context.ui.dialog.show.mock.calls[0][0] as () => unknown)();
+      expect(dialogHeader(tree)).toEqual({
+        title: spec.title,
+        subtitle: report.subtitle === undefined ? null : { children: report.subtitle, fg: "muted" },
+      });
+      const body = findNodes(findNode(tree, "scrollbox")?.props.children, "text")
+        .map((node) => node.props.children)
+        .join("\n");
+      expect(body).not.toBe("");
+      expect(body).not.toContain(report.document.heading!.line);
+      expect(body).not.toContain(spec.title);
+      expect(body).not.toContain(`(/${spec.id})`);
+    }
   });
 });

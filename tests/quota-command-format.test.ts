@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { formatQuotaCommand, QUOTA_COMMAND_BAR_WIDTH } from "../src/lib/quota-command-format.js";
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
+import {
+  buildQuotaCommandDocument,
+  formatQuotaCommand,
+  QUOTA_COMMAND_BAR_WIDTH,
+} from "../src/lib/quota-command-format.js";
 
 function accounting(
   resultType: "quota" | "rate_limit" | "usage" | "spend" | "budget" | "balance" | "status",
@@ -515,5 +520,37 @@ describe("formatQuotaCommand", () => {
     expect(out).toContain("19%");
     expect(out).not.toContain("19% used");
     expect(out).toContain("reset 3d 5h 14m");
+  });
+
+  it("keeps the /quota title line in text and gives the dialog the time and bare-label mode", () => {
+    const generatedAtMs = Date.UTC(2026, 8, 29, 14, 0);
+    const time = formatLocalCallTimestamp(generatedAtMs);
+    const data = {
+      entries: [{ accounting: accounting("quota"), name: "Copilot", percentRemaining: 81 }],
+      errors: [],
+      generatedAtMs,
+    };
+    const cases = [
+      { options: {}, line: `Quota (/quota) ${time}`, subtitle: time },
+      {
+        options: { percentLabelStyle: "bare", percentDisplayMode: "used" },
+        line: `Quota [Used] (/quota) ${time}`,
+        subtitle: `Percent used · ${time}`,
+      },
+      {
+        options: { percentLabelStyle: "bare", percentDisplayMode: "remaining" },
+        line: `Quota [Remaining] (/quota) ${time}`,
+        subtitle: `Percent remaining · ${time}`,
+      },
+    ] as const;
+
+    for (const { options, line, subtitle } of cases) {
+      const text = formatQuotaCommand({ ...data, ...options });
+      const document = buildQuotaCommandDocument({ ...data, ...options });
+      expect(text.split("\n").slice(0, 2)).toEqual([line, ""]);
+      expect(document.heading).toEqual({ line, subtitle });
+      // The sections, which the dialog draws, start with the first provider group.
+      expect(document.sections[0]?.title).toBe("→ [Copilot]");
+    }
   });
 });

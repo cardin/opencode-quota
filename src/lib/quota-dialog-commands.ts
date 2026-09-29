@@ -1,4 +1,5 @@
 import {
+  formatYmd,
   parseQuotaBetweenArgs,
   startOfLocalDayMs,
   startOfNextLocalDayMs,
@@ -54,6 +55,7 @@ import {
 import { buildQuotaStatsReportDocument } from "./quota-stats-format.js";
 import { buildQuotaStatusReportDocument, type SessionTokenError } from "./quota-status.js";
 import {
+  commandHeading,
   messageDocument,
   type ReportDocument,
   type ReportKvRow,
@@ -197,6 +199,7 @@ async function kickPricingRefresh(params: {
 
 async function buildQuotaReport(params: {
   title: string;
+  titleDetail?: string;
   sinceMs?: number;
   untilMs?: number;
   sessionID: string;
@@ -220,6 +223,7 @@ async function buildQuotaReport(params: {
   });
   const document = buildQuotaStatsReportDocument({
     title: params.title,
+    titleDetail: params.titleDetail,
     result,
     topModels: params.topModels,
     topSessions: params.topSessions,
@@ -506,7 +510,10 @@ function buildPricingRefreshCommandReport(params: {
   }
 
   return plainTextReport({
-    heading: { title: "Pricing Refresh (/pricing_refresh)", generatedAtMs: params.generatedAtMs },
+    heading: commandHeading({
+      title: "Pricing Refresh (/pricing_refresh)",
+      generatedAtMs: params.generatedAtMs,
+    }),
     sections: [
       { id: "refresh", title: "refresh:", blocks: [{ kind: "kv", rows: refreshRows }] },
       {
@@ -524,10 +531,11 @@ function buildTokenReportUnavailableReport(params: {
   error: SessionNotFoundError;
 }): CommandReport {
   return plainTextReport({
-    heading: {
+    heading: commandHeading({
       title: `Token report unavailable (${params.command})`,
+      detail: "Token report unavailable",
       generatedAtMs: params.generatedAtMs,
-    },
+    }),
     sections: [
       {
         id: "session_lookup_error",
@@ -584,10 +592,8 @@ async function buildQuotaAnnouncementsCommandReport(
   }
 
   return plainTextReport({
-    sections: [
-      { id: "title", blocks: [{ kind: "lines", lines: ["Maintainer announcements"] }] },
-      { id: "announcements", blocks: [{ kind: "lines", lines }] },
-    ],
+    heading: { line: "Maintainer announcements" },
+    sections: [{ id: "announcements", blocks: [{ kind: "lines", lines }] }],
   });
 }
 
@@ -647,6 +653,7 @@ async function buildTokenReportCommandReport(params: {
       const rangeUntilMs = startOfNextLocalDayMs(parsed.endYmd);
       return await buildQuotaReport({
         title: spec.titleForRange(parsed.startYmd, parsed.endYmd),
+        titleDetail: `${formatYmd(parsed.startYmd)} .. ${formatYmd(parsed.endYmd)}`,
         sinceMs,
         untilMs: rangeUntilMs,
         sessionID: sessionID ?? "",

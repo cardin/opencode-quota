@@ -40,6 +40,7 @@ import type { QuotaProviderDefinition } from "./quota-providers.js";
 import { isMaintainedQuotaProviderTuning } from "./quota-providers.js";
 import { aggregateUsage } from "./quota-stats.js";
 import {
+  commandHeading,
   type ReportDocument,
   type ReportKvRow,
   type ReportSection,
@@ -1128,10 +1129,11 @@ export async function buildQuotaStatusReportDocument(
   sections.push(createKvSection("unknown_pricing", "unknown_pricing:", unknownRows));
 
   return {
-    heading: {
+    heading: commandHeading({
       title: `Quota Status (opencode-quota v${v}) (/quota_status)`,
+      detail: `opencode-quota v${v}`,
       generatedAtMs: params.generatedAtMs,
-    },
+    }),
     sections,
   };
 }

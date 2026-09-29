@@ -1,9 +1,13 @@
-import { renderCommandHeading } from "./format-utils.js";
+import { formatLocalCallTimestamp } from "./format-utils.js";
 import { renderMarkdownTable, type WidthMode } from "./markdown-table.js";
 
+/**
+ * A report's first line. The text shows `line`. The TUI dialog has its own title, so it
+ * shows `subtitle` instead: the facts in the line that its title lacks, and the time.
+ */
 export type ReportHeading = {
-  title: string;
-  generatedAtMs?: number;
+  line: string;
+  subtitle?: string;
 };
 
 export type ReportKvRow = {
@@ -51,6 +55,23 @@ export function renderableSections(document: ReportDocument): ReportSection[] {
   return document.sections
     .map((section) => ({ ...section, blocks: section.blocks.filter(hasBlockContent) }))
     .filter((section) => section.title || section.blocks.length > 0);
+}
+
+/**
+ * A command report's heading: "# <title> <time>" in text, "<detail> · <time>" in the dialog.
+ * The title echoes the command, e.g. "Quota Status (opencode-quota v5.0.0) (/quota_status)";
+ * the detail repeats the facts in it that the dialog title lacks, e.g. "opencode-quota v5.0.0".
+ */
+export function commandHeading(params: {
+  title: string;
+  detail?: string;
+  generatedAtMs?: number;
+}): ReportHeading {
+  const time = formatLocalCallTimestamp(params.generatedAtMs);
+  return {
+    line: `# ${params.title} ${time}`,
+    subtitle: params.detail ? `${params.detail} · ${time}` : time,
+  };
 }
 
 /** A document of one plain message; it renders back to the same text. */
@@ -111,8 +132,8 @@ export function isReportDocument(value: unknown): value is ReportDocument {
     heading !== undefined &&
     !(
       isObject(heading) &&
-      typeof heading.title === "string" &&
-      isOptional(heading.generatedAtMs, "number")
+      typeof heading.line === "string" &&
+      isOptional(heading.subtitle, "string")
     )
   ) {
     return false;
@@ -177,14 +198,7 @@ function renderMarkdownBlock(block: ReportBlock): string[] {
 export function renderPlainTextReport(document: ReportDocument): string {
   const lines: string[] = [];
 
-  if (document.heading) {
-    lines.push(
-      renderCommandHeading({
-        title: document.heading.title,
-        generatedAtMs: document.heading.generatedAtMs,
-      }),
-    );
-  }
+  if (document.heading) lines.push(document.heading.line);
 
   for (const section of renderableSections(document)) {
     if (lines.length > 0) lines.push("");
@@ -205,14 +219,7 @@ export function renderPlainTextReport(document: ReportDocument): string {
 export function renderMarkdownReport(document: ReportDocument): string {
   const lines: string[] = [];
 
-  if (document.heading) {
-    lines.push(
-      renderCommandHeading({
-        title: document.heading.title,
-        generatedAtMs: document.heading.generatedAtMs,
-      }),
-    );
-  }
+  if (document.heading) lines.push(document.heading.line);
 
   for (const section of renderableSections(document)) {
     if (lines.length > 0) lines.push("");

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
 import { aggregateUsage } from "../src/lib/quota-stats.js";
-
 import {
   buildProviderStatusReport,
   buildQuotaStatusReportForTest,
+  DEFAULT_QUOTA_STATUS_REPORT_GENERATED_AT_MS,
   expectReportSection,
   getReportSection,
   makeProviderAvailability,
@@ -12,6 +12,7 @@ import {
   makeProviderProbe,
   makeProviderSafeFailureProbe,
   makeProviderSuccessProbe,
+  makeQuotaStatusReportParams,
   makeStatusDetails,
 } from "./helpers/quota-status-test-harness.js";
 
@@ -170,6 +171,23 @@ vi.mock("../src/lib/quota-stats.js", () => ({
 describe("buildQuotaStatusReport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("keeps the title line in text and gives the dialog the version and time", async () => {
+    const { buildQuotaStatusReportDocument } = await import("../src/lib/quota-status.js");
+    const time = formatLocalCallTimestamp(DEFAULT_QUOTA_STATUS_REPORT_GENERATED_AT_MS);
+
+    const report = await buildQuotaStatusReportForTest();
+    const document = await buildQuotaStatusReportDocument(makeQuotaStatusReportParams());
+
+    expect(report.split("\n").slice(0, 2)).toEqual([
+      `# Quota Status (opencode-quota v1.2.3) (/quota_status) ${time}`,
+      "",
+    ]);
+    expect(document.heading).toEqual({
+      line: `# Quota Status (opencode-quota v1.2.3) (/quota_status) ${time}`,
+      subtitle: `opencode-quota v1.2.3 · ${time}`,
+    });
   });
 
   it("uses a Unicode ellipsis for truncated pricing diagnostic lists", async () => {

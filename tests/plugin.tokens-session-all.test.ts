@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
+import type { TokenReportCommandId } from "../src/lib/quota-dialog-command-specs.js";
 import {
   type ReportDocument,
   renderMarkdownReport,
@@ -71,7 +72,8 @@ vi.mock("../src/lib/quota-stats-format.js", () => ({
 }));
 
 async function buildTokenDialogOutput(params: {
-  command: "tokens_session" | "tokens_session_all";
+  command: TokenReportCommandId;
+  arguments?: string;
   client: ReturnType<typeof createClient>;
   sessionID: string;
   generatedAtMs?: number;
@@ -81,6 +83,7 @@ async function buildTokenDialogOutput(params: {
   const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
   const result = await buildQuotaDialogCommandOutput({
     command: params.command,
+    arguments: params.arguments,
     client: params.client,
     roots: {
       workspaceRoot: process.cwd(),
@@ -92,14 +95,14 @@ async function buildTokenDialogOutput(params: {
   });
   expect(params.client.session.prompt).not.toHaveBeenCalled();
   expect(result.state).toBe("output");
-  if (result.state !== "output") return "";
+  if (result.state !== "output") throw new Error("expected report output");
   expect(params.render(result.document)).toBe(result.output);
-  return result.output;
+  return { output: result.output, document: result.document };
 }
 
 // A titled section, so the markdown and plain-text renderers give different text.
 const TOKEN_REPORT_DOCUMENT: ReportDocument = {
-  heading: { title: "Tokens used", generatedAtMs: 0 },
+  heading: { line: "# Tokens used 00:00 01/01/1970", subtitle: "00:00 01/01/1970" },
   sections: [
     {
       id: "summary",
@@ -170,7 +173,7 @@ describe("/tokens_session_all command", () => {
   it("aggregates the current session tree for /tokens_session_all", async () => {
     const client = createClient();
 
-    const output = await buildTokenDialogOutput({
+    const { output } = await buildTokenDialogOutput({
       command: "tokens_session_all",
       client,
       sessionID: "ses_parent",
@@ -250,7 +253,7 @@ describe("/tokens_session_all command", () => {
     const client = createClient();
 
     const generatedAtMs = Date.UTC(2026, 0, 2, 3, 4);
-    const injected = await buildTokenDialogOutput({
+    const { output: injected, document } = await buildTokenDialogOutput({
       command: "tokens_session_all",
       client,
       sessionID: "ses_missing",
@@ -267,6 +270,11 @@ describe("/tokens_session_all command", () => {
         "- checked_path: /tmp/opencode.db",
       ].join("\n"),
     );
+    // The dialog title is the report's name, so the dialog shows why and when instead.
+    expect(document.heading).toEqual({
+      line: injected.split("\n")[0],
+      subtitle: `Token report unavailable · ${formatLocalCallTimestamp(generatedAtMs)}`,
+    });
   });
 
   it("returns a dialog session lookup error for /tokens_session", async () => {
@@ -276,7 +284,7 @@ describe("/tokens_session_all command", () => {
 
     const client = createClient();
 
-    const injected = await buildTokenDialogOutput({
+    const { output: injected, document } = await buildTokenDialogOutput({
       command: "tokens_session",
       client,
       sessionID: "ses_parent",
@@ -285,5 +293,30 @@ describe("/tokens_session_all command", () => {
     expect(injected).toContain("Token report unavailable (/tokens_session)");
     expect(injected).toContain("- session_id: ses_parent");
     expect(injected).toContain("- checked_path: /tmp/opencode.db");
+    expect(document.heading?.subtitle).toMatch(/^Token report unavailable · /);
+  });
+
+  it("titles every token report; only /tokens_between has facts the dialog title lacks", async () => {
+    const { TOKEN_REPORT_COMMANDS } = await import("../src/lib/quota-dialog-command-specs.js");
+    for (const spec of TOKEN_REPORT_COMMANDS) {
+      mocks.buildQuotaStatsReportDocument.mockClear();
+      await buildTokenDialogOutput({
+        command: spec.id,
+        arguments: spec.kind === "between" ? "2026-01-01 2026-01-15" : undefined,
+        client: createClient(),
+        sessionID: "ses_parent",
+        render: renderMarkdownReport,
+      });
+      expect(mocks.buildQuotaStatsReportDocument).toHaveBeenCalledWith(
+        expect.objectContaining(
+          spec.kind === "between"
+            ? {
+                title: "Tokens used (2026-01-01 .. 2026-01-15) (/tokens_between)",
+                titleDetail: "2026-01-01 .. 2026-01-15",
+              }
+            : { title: spec.title, titleDetail: undefined },
+        ),
+      );
+    }
   });
 });

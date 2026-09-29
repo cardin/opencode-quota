@@ -8,7 +8,6 @@ import { createSignal, onCleanup, Show } from "solid-js";
 import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
-import { formatLocalCallTimestamp } from "./lib/format-utils.js";
 import { padTableColumns } from "./lib/markdown-table.js";
 import {
   parseQuotaSlashCommand,
@@ -331,21 +330,14 @@ function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX
 }
 
 /**
- * Draws a report document with the same spacing as its plain text: one blank row between
- * the heading, the sections, and the blocks of a section, and a section title directly
- * above its first block. The heading and section titles are bold.
+ * Draws a report document's sections with the same spacing as its plain text: one blank row
+ * between the sections and between the blocks of a section, and a section title directly
+ * above its first block. Section titles are bold. The dialog shows the heading's subtitle
+ * under its own title, so the heading line is left out.
  */
 function ReportDocumentView(props: { document: ReportDocument; theme: DialogTheme }): JSX.Element {
-  const heading = props.document.heading;
   return (
     <box flexDirection="column" gap={1}>
-      {heading ? (
-        <text attributes={TextAttributes.BOLD} fg={props.theme.text.base}>
-          {sanitizeDisplayText(
-            `${heading.title} ${formatLocalCallTimestamp(heading.generatedAtMs)}`,
-          )}
-        </text>
-      ) : null}
       {renderableSections(props.document).map((section) => (
         <box flexDirection="column">
           {section.title ? (
@@ -377,9 +369,12 @@ function QuotaOutputDialog(props: {
 }): JSX.Element {
   const theme = () => props.context.theme.surface("dialog");
   const dimensions = useTerminalDimensions();
+  const subtitle = props.document.heading?.subtitle;
   // The host dialog starts a quarter of the way down the terminal. The remaining
-  // 8 rows cover the title, ok button, paddings, gaps, and one spare row.
-  const maxHeight = () => Math.max(1, Math.floor(dimensions().height * 0.75) - 8);
+  // 8 rows cover the title, ok button, paddings, gaps, and one spare row; the subtitle
+  // takes one more.
+  const maxHeight = () =>
+    Math.max(1, Math.floor(dimensions().height * 0.75) - 8 - (subtitle ? 1 : 0));
   let scroll: ScrollBoxRenderable | undefined;
   const close = () => props.context.ui.dialog.clear();
 
@@ -413,13 +408,16 @@ function QuotaOutputDialog(props: {
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme().text.base}>
-          {props.title}
-        </text>
-        <text fg={theme().text.muted} onMouseUp={close}>
-          esc
-        </text>
+      <box>
+        <box flexDirection="row" justifyContent="space-between">
+          <text attributes={TextAttributes.BOLD} fg={theme().text.base}>
+            {props.title}
+          </text>
+          <text fg={theme().text.muted} onMouseUp={close}>
+            esc
+          </text>
+        </box>
+        {subtitle ? <text fg={theme().text.muted}>{sanitizeDisplayText(subtitle)}</text> : null}
       </box>
       <box paddingBottom={1}>
         <scrollbox
