@@ -23,6 +23,8 @@ export type ReportBlock =
   | {
       kind: "table";
       headers: string[];
+      /** Longer labels, one per column, that the TUI dialog shows when the table fits with them. */
+      fullHeaders?: string[];
       rows: string[][];
       aligns: Array<"left" | "right">;
       widthMode?: WidthMode;
@@ -111,6 +113,9 @@ function isReportBlock(value: unknown): boolean {
     case "table":
       return (
         isStringArray(value.headers) &&
+        (value.fullHeaders === undefined ||
+          (isStringArray(value.fullHeaders) &&
+            value.fullHeaders.length === value.headers.length)) &&
         Array.isArray(value.rows) &&
         value.rows.every(isStringArray) &&
         Array.isArray(value.aligns) &&

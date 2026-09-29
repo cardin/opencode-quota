@@ -25,6 +25,18 @@ type QuotaStatsReportTableOptions = {
   modelNameMaxWidth?: number;
 };
 
+/**
+ * A table's header labels: the compact ones when asked for, else the full ones. The full
+ * labels also ride along, so the TUI dialog can show them when the table fits with them.
+ */
+function tableHeaders(
+  options: QuotaStatsReportTableOptions,
+  compact: string[],
+  full: string[],
+): { headers: string[]; fullHeaders: string[] } {
+  return { headers: options.compactHeaders ? compact : full, fullHeaders: full };
+}
+
 function hasRenderableSessionUsage(row: SessionReportRow): boolean {
   return totalTokenBuckets(row.tokens) > 0 || row.costUsd > 0;
 }
@@ -204,9 +216,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Msgs", "Tok", "Cost"]
-            : ["Messages", "Tokens", "Cost"],
+          ...tableHeaders(tableOptions, ["Msgs", "Tok", "Cost"], ["Messages", "Tokens", "Cost"]),
           aligns: ["right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -225,9 +235,11 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Msgs", "Sess", "Tok", "Cost"]
-            : ["Messages", "Sessions", "Tokens", "Cost"],
+          ...tableHeaders(
+            tableOptions,
+            ["Msgs", "Sess", "Tok", "Cost"],
+            ["Messages", "Sessions", "Tokens", "Cost"],
+          ),
           aligns: ["right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -247,9 +259,11 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Window", "Msgs", "Sess", "Tok", "Cost"]
-            : ["Window", "Messages", "Sessions", "Tokens", "Cost"],
+          ...tableHeaders(
+            tableOptions,
+            ["Window", "Msgs", "Sess", "Tok", "Cost"],
+            ["Window", "Messages", "Sessions", "Tokens", "Cost"],
+          ),
           aligns: ["left", "right", "right", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: [
@@ -271,16 +285,18 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
     r.totals.unknown.reasoning > 0 ||
     r.totals.unpriced.reasoning > 0;
 
-  const headers = tableOptions.compactHeaders
-    ? ["Source", "Model", "In", "Out", "C.Rd", "C.Wr"]
-    : ["Source", "Model", "Input", "Output", "C.Read", "C.Write"];
+  const compactLabels = ["Source", "Model", "In", "Out", "C.Rd", "C.Wr"];
+  const fullLabels = ["Source", "Model", "Input", "Output", "Cache read", "Cache write"];
   const aligns: Array<"left" | "right"> = ["left", "left", "right", "right", "right", "right"];
   if (hasAnyReasoning) {
-    headers.push(tableOptions.compactHeaders ? "Rsn" : "Reasoning");
+    compactLabels.push("Rsn");
+    fullLabels.push("Reasoning");
     aligns.push("right");
   }
-  headers.push(tableOptions.compactHeaders ? "Tok" : "Total", "Cost");
+  compactLabels.push("Tok", "Cost");
+  fullLabels.push("Tokens", "Cost");
   aligns.push("right", "right");
+  const { headers, fullHeaders } = tableHeaders(tableOptions, compactLabels, fullLabels);
 
   const rows: string[][] = [];
   const grouped = new Map<string, AggregateResult["bySourceModel"]>();
@@ -332,6 +348,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
         {
           kind: "table",
           headers,
+          fullHeaders,
           rows,
           aligns,
           widthMode: TABLE_WIDTH_MODE,
@@ -361,9 +378,11 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Rel", "Parent", "Session", "Cost", "Tok", "Msgs", "Title"]
-            : ["Relation", "Parent", "Session", "Cost", "Tokens", "Msgs", "Title"],
+          ...tableHeaders(
+            tableOptions,
+            ["Rel", "Parent", "Session", "Cost", "Tok", "Msgs", "Title"],
+            ["Relation", "Parent", "Session", "Cost", "Tokens", "Messages", "Title"],
+          ),
           aligns: ["left", "left", "left", "right", "right", "right", "left"],
           widthMode: TABLE_WIDTH_MODE,
           rows: sessionTreeRows,
@@ -413,9 +432,11 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
           ? [
               {
                 kind: "table",
-                headers: tableOptions.compactHeaders
-                  ? ["Cur", "Session", "Cost", "Tok", "Msgs", "Title"]
-                  : ["Current", "Session", "Cost", "Tokens", "Msgs", "Title"],
+                ...tableHeaders(
+                  tableOptions,
+                  ["Cur", "Session", "Cost", "Tok", "Msgs", "Title"],
+                  ["Current", "Session", "Cost", "Tokens", "Messages", "Title"],
+                ),
                 aligns: ["left", "left", "right", "right", "right", "left"],
                 widthMode: TABLE_WIDTH_MODE,
                 rows: sessionRows,
@@ -432,9 +453,11 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Source", "Model", "Map", "Reason", "Tok", "Msgs"]
-            : ["Source", "Model", "Mapped", "Reason", "Tokens", "Msgs"],
+          ...tableHeaders(
+            tableOptions,
+            ["Source", "Model", "Map", "Reason", "Tok", "Msgs"],
+            ["Source", "Model", "Mapped", "Reason", "Tokens", "Messages"],
+          ),
           aligns: ["left", "left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unpriced.slice(0, 20).map((u) => {
@@ -460,9 +483,11 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
       blocks: [
         {
           kind: "table",
-          headers: tableOptions.compactHeaders
-            ? ["Source", "Model", "Map", "Tok", "Msgs"]
-            : ["Source", "Model", "Mapped", "Tokens", "Msgs"],
+          ...tableHeaders(
+            tableOptions,
+            ["Source", "Model", "Map", "Tok", "Msgs"],
+            ["Source", "Model", "Mapped", "Tokens", "Messages"],
+          ),
           aligns: ["left", "left", "left", "right", "right"],
           widthMode: TABLE_WIDTH_MODE,
           rows: r.unknown.slice(0, 20).map((u) => {

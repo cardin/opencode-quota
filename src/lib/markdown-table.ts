@@ -172,3 +172,43 @@ export function padTableColumns(params: {
     cells.map((cell, i) => padCell(cell, widths[i], params.aligns[i] ?? "left", "raw"));
   return { header: padRow(params.headers), rows: rows.map(padRow) };
 }
+
+/**
+ * Lays out a table drawn without pipes to span `width` columns, for the TUI dialog. The
+ * header uses the full labels when the table fits with them, else the compact ones. The
+ * spare width is spread over the gaps between columns (at least two spaces each, the
+ * leftmost gaps taking any remainder), so cells keep their alignment inside their columns.
+ * A table too wide even with the compact labels keeps its natural layout: compact labels
+ * and two-space gaps.
+ */
+export function fitTableToWidth(params: {
+  headers: string[];
+  fullHeaders?: string[];
+  rows: string[][];
+  aligns: Array<"left" | "right">;
+  width: number;
+}): { header: string; rows: string[] } {
+  const naturalWidth = (table: { header: string[] }) =>
+    table.header.reduce((sum, cell) => sum + measureWidth(cell), 0) + 2 * (table.header.length - 1);
+  const compact = padTableColumns(params);
+  const full = params.fullHeaders
+    ? padTableColumns({ ...params, headers: params.fullHeaders })
+    : undefined;
+  const fitting = [full, compact].find(
+    (table) => table !== undefined && naturalWidth(table) <= params.width,
+  );
+
+  const gapCount = params.headers.length - 1;
+  const gaps = new Array<number>(Math.max(0, gapCount)).fill(2);
+  if (fitting && gapCount > 0) {
+    const spare = params.width - naturalWidth(fitting);
+    for (let i = 0; i < gapCount; i++) {
+      gaps[i] += Math.floor(spare / gapCount) + (i < spare % gapCount ? 1 : 0);
+    }
+  }
+
+  const table = fitting ?? compact;
+  const joinRow = (cells: string[]) =>
+    cells.map((cell, i) => (i < gapCount ? cell + " ".repeat(gaps[i]) : cell)).join("");
+  return { header: joinRow(table.header), rows: table.rows.map(joinRow) };
+}

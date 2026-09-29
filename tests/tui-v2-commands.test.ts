@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { TextAttributes } from "@opentui/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const terminal = vi.hoisted(() => ({ width: 120, height: 40 }));
 vi.mock("@opentui/solid", () => ({
-  useTerminalDimensions: () => () => ({ width: 120, height: 40 }),
+  useTerminalDimensions: () => () => ({ ...terminal }),
 }));
 const loadConfig = vi.hoisted(() => vi.fn());
 vi.mock("../src/lib/config.js", async (importOriginal) => {
@@ -166,6 +167,7 @@ function startTui(
 
 describe("V2 quota TUI commands", () => {
   beforeEach(() => {
+    terminal.width = 120;
     rpc.command.mockReset().mockResolvedValue({
       state: "output",
       command: "tokens_today",
@@ -648,11 +650,12 @@ describe("V2 quota TUI commands", () => {
           blocks: [
             {
               kind: "table",
-              headers: ["Model", "Cost"],
-              aligns: ["left", "right"],
+              headers: ["Model", "Tok", "Cost"],
+              fullHeaders: ["Model", "Tokens", "Cost"],
+              aligns: ["left", "right", "right"],
               rows: [
-                ["gpt-5", "$1.23"],
-                ["claude-\u001b[31mopus", "$10.00"],
+                ["gpt-5", "1.0K", "$1.23"],
+                ["claude-\u001b[31mopus", "20K", "$10.00"],
               ],
             },
             { kind: "kv", rows: [{ key: "enabled", value: "true" }] },
@@ -694,11 +697,30 @@ describe("V2 quota TUI commands", () => {
     }));
     // Section titles are bold base, table headers bold accent, and values base. A key-value
     // row is a muted "- key:" with a base value; plain lines are muted.
+    // A 120-column terminal fits the whole 116-column dialog; minus its paddings and the
+    // scrollbar, a table spans 111 columns. It fits with its full labels (27 columns), so its
+    // two gaps share the 84 spare columns.
+    const gap = " ".repeat(44);
     expect(texts).toEqual([
       { children: "Top Models", fg: "base", bold: true, wrapMode: undefined },
-      { children: "Model          Cost", fg: "accent", bold: true, wrapMode: "none" },
-      { children: "gpt-5         $1.23", fg: "base", bold: false, wrapMode: "none" },
-      { children: "claude-opus  $10.00", fg: "base", bold: false, wrapMode: "none" },
+      {
+        children: `Model      ${gap}Tokens${gap}  Cost`,
+        fg: "accent",
+        bold: true,
+        wrapMode: "none",
+      },
+      {
+        children: `gpt-5      ${gap}  1.0K${gap} $1.23`,
+        fg: "base",
+        bold: false,
+        wrapMode: "none",
+      },
+      {
+        children: `claude-opus${gap}   20K${gap}$10.00`,
+        fg: "base",
+        bold: false,
+        wrapMode: "none",
+      },
       {
         children: [
           "- enabled:",
@@ -739,6 +761,49 @@ describe("V2 quota TUI commands", () => {
     expect(scroll.scrollTo).toHaveBeenCalledWith(80);
     run("return");
     expect(context.ui.dialog.clear).toHaveBeenCalledOnce();
+  });
+
+  it("lays popup tables out again for the terminal width, with compact labels when narrow", async () => {
+    stubRenderingReact();
+    rpc.command.mockResolvedValue({
+      state: "output",
+      command: "tokens_today",
+      title: "Tokens",
+      output: "the chat text",
+      document: {
+        sections: [
+          {
+            id: "models",
+            blocks: [
+              {
+                kind: "table",
+                headers: ["Model", "Tok", "Cost"],
+                fullHeaders: ["Model", "Tokens", "Cost"],
+                aligns: ["left", "right", "right"],
+                rows: [["claude-opus", "20K", "$10.00"]],
+              },
+            ],
+          },
+        ],
+      },
+      dialogSize: "xlarge",
+    });
+    const { context, command } = startTui();
+    await command("tokens_today").run();
+    const render = context.ui.dialog.show.mock.calls[0][0] as () => unknown;
+    const tableLines = () =>
+      findNodes(findNode(render(), "scrollbox")?.props.children, "text").map(
+        (node) => node.props.children as string,
+      );
+
+    // 33 columns: the dialog is 31 wide and a table 26; the full labels (27) do not fit,
+    // the compact ones (24) do, and the two gaps share the 2 spare columns.
+    terminal.width = 33;
+    expect(tableLines()).toEqual(["Model         Tok     Cost", "claude-opus   20K   $10.00"]);
+    // 30 columns: a table gets 23; even the compact labels do not fit, so it keeps its
+    // natural layout.
+    terminal.width = 30;
+    expect(tableLines()).toEqual(["Model        Tok    Cost", "claude-opus  20K  $10.00"]);
   });
 
   it("shows every command's report title once, as the dialog title, with the subtitle under it", async () => {

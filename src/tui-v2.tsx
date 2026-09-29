@@ -8,7 +8,7 @@ import { createSignal, onCleanup, Show } from "solid-js";
 import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
-import { padTableColumns } from "./lib/markdown-table.js";
+import { fitTableToWidth } from "./lib/markdown-table.js";
 import {
   parseQuotaSlashCommand,
   QUOTA_DIALOG_COMMANDS,
@@ -53,6 +53,7 @@ type KeymapCommand = {
   /** Returning false lets the key continue to the next layer. */
   run: () => void | false | Promise<void>;
 };
+type DialogSize = "medium" | "large" | "xlarge";
 type DialogTheme = {
   text: { base: RGBA; muted: RGBA; action: { primary: { focused: RGBA; selected: RGBA } } };
   background: { action: { primary: { focused: RGBA } } };
@@ -118,7 +119,7 @@ type TuiContext = {
       show: (render: () => JSX.Element, onClose?: () => void) => void;
       clear: () => void;
       prompt: (params: { title: string; placeholder?: string }) => Promise<string | undefined>;
-      set: (params: { size: "medium" | "large" | "xlarge" }) => void;
+      set: (params: { size: DialogSize }) => void;
     };
   };
 };
@@ -291,13 +292,20 @@ function reportFailure(error: unknown): void {
   console.warn(`[opencode-quota] failed to load quota: ${rpcErrorMessage(error)}${hint}`);
 }
 
+/** OpenCode's dialog widths (dialogWidth in its ui/dialog.tsx). */
+const DIALOG_WIDTHS: Record<DialogSize, number> = { medium: 60, large: 88, xlarge: 116 };
+
 /**
  * One block of a report. Lines and key-value rows wrap at words. A table keeps each row on
- * one line: its cells are padded to their column widths and joined by two spaces, with the
- * header row bold in OpenCode's primary accent (its text color for a selected tab). Like
- * OpenCode's sidebar, labels are muted and values are base.
+ * one line and spans `width` columns when it fits (see fitTableToWidth), with the header
+ * row bold in OpenCode's primary accent (its text color for a selected tab). Like OpenCode's
+ * sidebar, labels are muted and values are base.
  */
-function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX.Element {
+function ReportBlockView(props: {
+  block: ReportBlock;
+  theme: DialogTheme;
+  width: number;
+}): JSX.Element {
   const block = props.block;
   if (block.kind === "lines") {
     return <text fg={props.theme.text.muted}>{sanitizeDisplayText(block.lines.join("\n"))}</text>;
@@ -318,11 +326,15 @@ function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX
       </box>
     );
   }
-  const table = padTableColumns({
-    headers: block.headers.map(sanitizeDisplayText),
-    rows: block.rows.map((row) => row.map(sanitizeDisplayText)),
-    aligns: block.aligns,
-  });
+  // Read in the JSX, so the table is laid out again when the terminal is resized.
+  const table = () =>
+    fitTableToWidth({
+      headers: block.headers.map(sanitizeDisplayText),
+      fullHeaders: block.fullHeaders?.map(sanitizeDisplayText),
+      rows: block.rows.map((row) => row.map(sanitizeDisplayText)),
+      aligns: block.aligns,
+      width: props.width,
+    });
   return (
     <box flexDirection="column">
       <text
@@ -330,11 +342,11 @@ function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX
         fg={props.theme.text.action.primary.selected}
         wrapMode="none"
       >
-        {table.header.join("  ")}
+        {table().header}
       </text>
-      {table.rows.map((row) => (
+      {table().rows.map((row) => (
         <text fg={props.theme.text.base} wrapMode="none">
-          {row.join("  ")}
+          {row}
         </text>
       ))}
     </box>
@@ -347,7 +359,11 @@ function ReportBlockView(props: { block: ReportBlock; theme: DialogTheme }): JSX
  * above its first block. Section titles are bold. The dialog shows the heading's subtitle
  * under its own title, so the heading line is left out.
  */
-function ReportDocumentView(props: { document: ReportDocument; theme: DialogTheme }): JSX.Element {
+function ReportDocumentView(props: {
+  document: ReportDocument;
+  theme: DialogTheme;
+  width: number;
+}): JSX.Element {
   return (
     <box flexDirection="column" gap={1}>
       {renderableSections(props.document).map((section) => (
@@ -359,7 +375,7 @@ function ReportDocumentView(props: { document: ReportDocument; theme: DialogThem
           ) : null}
           <box flexDirection="column" gap={1}>
             {section.blocks.map((block) => (
-              <ReportBlockView block={block} theme={props.theme} />
+              <ReportBlockView block={block} theme={props.theme} width={props.width} />
             ))}
           </box>
         </box>
@@ -378,9 +394,14 @@ function QuotaOutputDialog(props: {
   context: TuiContext;
   title: string;
   document: ReportDocument;
+  size: DialogSize;
 }): JSX.Element {
   const theme = () => props.context.theme.surface("dialog");
   const dimensions = useTerminalDimensions();
+  // OpenCode's dialog is its size's width, at most the terminal width minus 2. Inside it
+  // come this box's paddings (2 + 2) and one column for the scrollbox's scrollbar, which
+  // shows when the report is taller than the box.
+  const tableWidth = () => Math.min(DIALOG_WIDTHS[props.size], dimensions().width - 2) - 4 - 1;
   const subtitle = props.document.heading?.subtitle;
   // The host dialog starts a quarter of the way down the terminal. The remaining
   // 8 rows cover the title, ok button, paddings, gaps, and one spare row; the subtitle
@@ -438,7 +459,7 @@ function QuotaOutputDialog(props: {
           }}
           maxHeight={maxHeight()}
         >
-          <ReportDocumentView document={props.document} theme={theme()} />
+          <ReportDocumentView document={props.document} theme={theme()} width={tableWidth()} />
         </scrollbox>
       </box>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
@@ -457,11 +478,18 @@ function QuotaOutputDialog(props: {
 
 function showQuotaOutputDialog(
   context: TuiContext,
-  output: { title: string; document: ReportDocument; dialogSize: "medium" | "large" | "xlarge" },
+  output: { title: string; document: ReportDocument; dialogSize: DialogSize },
 ): Promise<void> {
   return new Promise<void>((resolve) => {
     context.ui.dialog.show(
-      () => <QuotaOutputDialog context={context} title={output.title} document={output.document} />,
+      () => (
+        <QuotaOutputDialog
+          context={context}
+          title={output.title}
+          document={output.document}
+          size={output.dialogSize}
+        />
+      ),
       resolve,
     );
     context.ui.dialog.set({ size: output.dialogSize });

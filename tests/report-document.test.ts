@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
-import { padTableColumns } from "../src/lib/markdown-table.js";
+import { fitTableToWidth, padTableColumns } from "../src/lib/markdown-table.js";
 import {
   commandHeading,
   isReportDocument,
@@ -150,6 +150,64 @@ describe("report-document", () => {
     });
   });
 
+  describe("fitTableToWidth", () => {
+    const table = {
+      headers: ["Model", "Tok", "Cost"],
+      fullHeaders: ["Model", "Tokens", "Cost"],
+      rows: [
+        ["gpt-5", "1.0K", "$1.23"],
+        ["claude-opus", "20K", "$10.00"],
+      ],
+      aligns: ["left", "right", "right"] as Array<"left" | "right">,
+    };
+    // Natural widths: full labels 11 + 2 + 6 + 2 + 6 = 27, compact labels 11 + 2 + 4 + 2 + 6 = 25.
+
+    it("uses the full labels and spreads the spare width over the gaps", () => {
+      const out = fitTableToWidth({ ...table, width: 40 });
+      // 13 spare columns over 2 gaps: the left gap takes the odd one.
+      expect(out).toEqual({
+        header: `Model      ${" ".repeat(9)}Tokens${" ".repeat(8)}  Cost`,
+        rows: [
+          `gpt-5      ${" ".repeat(9)}  1.0K${" ".repeat(8)} $1.23`,
+          `claude-opus${" ".repeat(9)}   20K${" ".repeat(8)}$10.00`,
+        ],
+      });
+      for (const line of [out.header, ...out.rows]) expect(line).toHaveLength(40);
+    });
+
+    it("uses the full labels at exactly their natural width", () => {
+      const out = fitTableToWidth({ ...table, width: 27 });
+      expect(out.header).toBe("Model        Tokens    Cost");
+      expect(out.rows).toEqual(["gpt-5          1.0K   $1.23", "claude-opus     20K  $10.00"]);
+    });
+
+    it("falls back to the compact labels when the full ones do not fit", () => {
+      const out = fitTableToWidth({ ...table, width: 26 });
+      expect(out).toEqual({
+        header: "Model          Tok    Cost",
+        rows: ["gpt-5         1.0K   $1.23", "claude-opus    20K  $10.00"],
+      });
+      for (const line of [out.header, ...out.rows]) expect(line).toHaveLength(26);
+    });
+
+    it("keeps the natural compact layout when even the compact labels do not fit", () => {
+      const natural = padTableColumns(table);
+      expect(fitTableToWidth({ ...table, width: 24 })).toEqual({
+        header: natural.header.join("  "),
+        rows: natural.rows.map((row) => row.join("  ")),
+      });
+    });
+
+    it("stretches a table without full labels using its labels", () => {
+      const out = fitTableToWidth({ ...table, fullHeaders: undefined, width: 30 });
+      expect(out.header).toBe("Model            Tok      Cost");
+      expect(out.rows).toEqual([
+        "gpt-5           1.0K     $1.23",
+        "claude-opus      20K    $10.00",
+      ]);
+    });
+  });
+
   it("keeps only sections with a title or a block that has content", () => {
     const document: ReportDocument = {
       sections: [
@@ -212,6 +270,7 @@ describe("report-document", () => {
               aligns: ["right"],
               widthMode: "markdown-conceal",
             },
+            { kind: "table", headers: ["Tok"], fullHeaders: ["Tokens"], rows: [], aligns: [] },
           ],
         },
       ],
@@ -242,6 +301,16 @@ describe("report-document", () => {
           {
             id: "s",
             blocks: [{ kind: "table", headers: ["A"], rows: [["1"]], aligns: ["center"] }],
+          },
+        ],
+      },
+      {
+        sections: [
+          {
+            id: "s",
+            blocks: [
+              { kind: "table", headers: ["A"], fullHeaders: ["A", "B"], rows: [], aligns: [] },
+            ],
           },
         ],
       },
