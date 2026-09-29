@@ -10,6 +10,11 @@ npx @slkiser/opencode-quota@latest init
 
 Use this guide only if you want to edit OpenCode files yourself.
 
+## Requirements
+
+- OpenCode `2.0.16` or newer. On OpenCode 1, use `npx @slkiser/opencode-quota@4 init`.
+- Node.js `22.13+` is required for `npx @slkiser/opencode-quota ...` (on Node 23, `23.4+`).
+
 ## Choose where to install
 
 - **Global:** works in every project. Files live in `~/.config/opencode` on every OS (`$XDG_CONFIG_HOME/opencode` when `XDG_CONFIG_HOME` is set).
@@ -94,6 +99,7 @@ See [Configuration](configuration.md) for more examples and every setting.
 - Each report starts with `[OpenCode Quota report]` and ends with `[End of OpenCode Quota report]`. These lines keep the report out of compaction summaries too.
 - Web shows chat messages in a proportional font, so report columns may not line up. For aligned columns, use the TUI or run `npx @slkiser/opencode-quota show` in a terminal.
 - If the AI is working when you run a command, the report appears after the AI finishes.
+- The AI can call the `quota_status` tool to check your setup.
 - A new session whose first message is a report keeps its default title.
 
 ## Update safely

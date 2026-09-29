@@ -23,6 +23,15 @@ The TUI, Web, and Desktop get their numbers from OpenCode's background service. 
 - A relative `export.path` is relative to your home folder.
 - Cursor's plugin-entry check reads `opencode.json` in your global config folder and your home folder, not in the project folder.
 
+## Terminal commands
+
+`opencode-quota show` and `opencode-quota status` run in your terminal, not in OpenCode:
+
+- They work with OpenCode closed and read logins from `opencode.db` read-only.
+- They never refresh a token, so a sign-in can show as expired (for example `Token expired`) until you open OpenCode.
+- They use your shell's `PATH` and API-key variables.
+- They use the settings of the folder you run them in, so a project's `opencode-quota/quota-toast.jsonc` applies.
+
 ## Common problems
 
 | Problem                                                 | Try this                                                                                                                                          |
