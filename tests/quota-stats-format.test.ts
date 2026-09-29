@@ -77,7 +77,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).toMatch(
       /^# Tokens used \(Last 24 Hours\) \(\/tokens_daily\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}\n\n/,
     );
-    expect(out).toContain("## Models");
+    expect(out).toContain("## Model breakdown");
     expect(out).toContain("| Source");
     // blank separator row between sources
     expect(out).toContain("|          |");
@@ -229,7 +229,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).not.toContain("Reasoning");
   });
 
-  it("sessionOnly mode hides Window/Sessions columns and Top Sessions section", () => {
+  it("sessionOnly mode hides Window/Sessions columns and Top sessions section", () => {
     const r = makeEmptyResult({
       totals: {
         priced: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
@@ -279,8 +279,8 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).toContain("Tokens");
     expect(out).toContain("Cost");
 
-    // Top Sessions section should NOT be present
-    expect(out).not.toContain("## Top Sessions");
+    // Top sessions section should NOT be present
+    expect(out).not.toContain("## Top sessions");
   });
 
   it("session_tree mode renders a session breakdown and counts zero-usage descendants", () => {
@@ -346,17 +346,17 @@ describe("formatQuotaStatsReport (markdown)", () => {
 
     expect(out).toContain("| Messages");
     expect(out).toContain("| Sessions");
-    expect(out).toContain("## Session Tree");
+    expect(out).toContain("## Session tree");
     expect(out).toContain("current");
     expect(out).toContain("child");
     expect(out).toContain("grandchild");
     expect(out).toContain("ses_parent");
     expect(out).toContain("ses_grandchild");
     expect(out).toContain("$0.00");
-    expect(out).not.toContain("## Top Sessions");
+    expect(out).not.toContain("## Top sessions");
   });
 
-  it("standard mode includes Window/Sessions columns and Top Sessions section", () => {
+  it("standard mode includes Window/Sessions columns and Top sessions section", () => {
     const r = makeEmptyResult({
       totals: {
         priced: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
@@ -396,8 +396,8 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).toContain("Window");
     expect(out).toContain("Sessions");
 
-    // Top Sessions section SHOULD be present
-    expect(out).toContain("## Top Sessions");
+    // Top sessions section SHOULD be present
+    expect(out).toContain("## Top sessions");
     // Marker column should be named and not render as an empty header
     expect(out).toContain("| Current");
     expect(out).toContain("| Session");
@@ -603,25 +603,25 @@ describe("formatQuotaStatsReport (markdown)", () => {
       | -------- | -------: | -------: | -----: | ----: |
       | all time |        6 |        2 |   3.1K | $1.23 |
 
-      ## Models
+      ## Model breakdown
 
       | Source   | Model                | Input | Output | C.Read | C.Write | Total |  Cost |
       | -------- | -------------------- | ----: | -----: | -----: | ------: | ----: | ----: |
       | OpenCode | claude-opus-4-5-high |  1.0K |   2.0K |      0 |       0 |  3.0K | $1.23 |
 
-      ## Top Sessions
+      ## Top sessions
 
       | Current | Session |  Cost | Tokens | Msgs | Title        |
       | ------- | ------- | ----: | -----: | ---: | ------------ |
       |         | ses_123 | $0.50 |    300 |    3 | Test Session |
 
-      ## Unpriced Models
+      ## Models with no token prices
 
       | Source | Model     | Mapped           | Reason                 | Tokens | Msgs |
       | ------ | --------- | ---------------- | ---------------------- | -----: | ---: |
       | Cursor | foo-model | openai/foo-model | snapshot missing model |     70 |    1 |
 
-      ## Unknown Pricing
+      ## Models without pricing
 
       | Source   | Model     | Mapped                                          | Tokens | Msgs |
       | -------- | --------- | ----------------------------------------------- | -----: | ---: |

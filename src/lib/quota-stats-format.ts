@@ -163,7 +163,7 @@ type QuotaStatsReportParams = {
   topModels?: number;
   topSessions?: number;
   focusSessionID?: string;
-  /** When true, hides Window/Sessions columns and Top Sessions section (for session-only reports) */
+  /** When true, hides Window/Sessions columns and the Top sessions section (for session-only reports) */
   sessionOnly?: boolean;
   reportKind?: QuotaStatsReportKind;
   sessionTree?: {
@@ -327,7 +327,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
   if (rows.length > 0) {
     sections.push({
       id: "models",
-      title: "Models",
+      title: "Model breakdown",
       blocks: [
         {
           kind: "table",
@@ -357,7 +357,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
 
     sections.push({
       id: "session-tree",
-      title: "Session Tree",
+      title: "Session tree",
       blocks: [
         {
           kind: "table",
@@ -372,7 +372,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
     });
   }
 
-  // Skip Top Sessions for session-scoped reports (e.g., /tokens_session, /tokens_session_all).
+  // Skip Top sessions for session-scoped reports (e.g., /tokens_session, /tokens_session_all).
   if (reportKind === "standard") {
     const sessionRows: string[][] = [];
     const visibleSessions = r.bySession.filter(hasRenderableSessionUsage);
@@ -407,7 +407,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
 
     sections.push({
       id: "top-sessions",
-      title: "Top Sessions",
+      title: "Top sessions",
       blocks:
         sessionRows.length > 0
           ? [
@@ -428,7 +428,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
   if (r.unpriced.length > 0) {
     sections.push({
       id: "unpriced-models",
-      title: "Unpriced Models",
+      title: "Models with no token prices",
       blocks: [
         {
           kind: "table",
@@ -456,7 +456,7 @@ export function buildQuotaStatsReportDocument(params: QuotaStatsReportParams): R
   if (r.unknown.length > 0) {
     sections.push({
       id: "unknown-pricing",
-      title: "Unknown Pricing",
+      title: "Models without pricing",
       blocks: [
         {
           kind: "table",
