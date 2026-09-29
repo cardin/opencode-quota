@@ -1,14 +1,21 @@
 /**
- * OpenCode auth.json reader
+ * OpenCode auth reader (legacy `auth.json` + OpenCode 2 credential store)
  *
- * Shared helper to read auth from ~/.local/share/opencode/auth.json
- * (or platform equivalent). Providers should prefer this to duplicating
- * file/path parsing.
+ * Reads provider credentials from `~/.local/share/opencode/auth.json`
+ * (or platform equivalent) and layers the OpenCode 2 `credential` table of
+ * `opencode.db` on top of it: v2 entries are authoritative per integration id
+ * because OpenCode refreshes OAuth tokens in the database, while keys that only
+ * exist in the legacy file keep working as a fallback. Providers should prefer
+ * this to duplicating file/path parsing.
  */
 
 import { readFile } from "fs/promises";
 import { join } from "path";
 
+import {
+  type OpenCodeCredentialEntry,
+  readOpenCodeCredentialsCached,
+} from "./opencode-credential-store.js";
 import {
   getOpencodeRuntimeDirCandidates,
   getOpencodeRuntimeDirs,
@@ -56,7 +63,7 @@ export function getAuthPath(): string {
   return join(getOpencodeRuntimeDirs().dataDir, "auth.json");
 }
 
-export async function readAuthFile(): Promise<AuthData | null> {
+async function readLegacyAuthFile(): Promise<AuthData | null> {
   const paths = getAuthPaths();
 
   for (const path of paths) {
@@ -69,6 +76,59 @@ export async function readAuthFile(): Promise<AuthData | null> {
   }
 
   return null;
+}
+
+/** Credential fields a v2 store row replaces wholesale when merging. */
+const CREDENTIAL_FIELDS = ["type", "key", "access", "refresh", "expires"];
+
+/**
+ * Merge one OpenCode 2 credential-store entry over its legacy `auth.json` entry.
+ *
+ * The stored row wins for every credential field it carries (OpenCode refreshes
+ * OAuth tokens in the database), while non-credential metadata from `auth.json`
+ * (for example `email` or an enterprise host) survives when the row omits it.
+ * Legacy credential fields are dropped so a stale file token can never mix with
+ * the stored credential of the same integration id.
+ */
+function mergeStoredAuthEntry(
+  legacy: Record<string, unknown> | undefined,
+  stored: OpenCodeCredentialEntry,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(legacy ?? {})) {
+    if (CREDENTIAL_FIELDS.includes(key)) continue;
+    merged[key] = value;
+  }
+  return { ...merged, ...stored };
+}
+
+/**
+ * Read provider auth from the OpenCode 2 credential store, falling back to the
+ * legacy `auth.json`.
+ *
+ * Returns `null` only when neither source yields any credential.
+ */
+export async function readAuthFile(params?: { maxAgeMs?: number }): Promise<AuthData | null> {
+  const legacy = await readLegacyAuthFile();
+
+  let stored: Record<string, OpenCodeCredentialEntry> | null = null;
+  try {
+    stored = await readOpenCodeCredentialsCached({ maxAgeMs: params?.maxAgeMs ?? 0 });
+  } catch {
+    // A missing/unreadable opencode.db must never block the legacy file.
+    stored = null;
+  }
+  if (!stored || Object.keys(stored).length === 0) return legacy;
+
+  const legacyRecord = (legacy ?? {}) as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...legacyRecord };
+  for (const [integrationId, entry] of Object.entries(stored)) {
+    merged[integrationId] = mergeStoredAuthEntry(
+      legacyRecord[integrationId] as Record<string, unknown> | undefined,
+      entry,
+    );
+  }
+  return merged as AuthData;
 }
 
 /**
@@ -88,7 +148,7 @@ export async function readAuthFileCached(params?: { maxAgeMs?: number }): Promis
   }
 
   const inFlight = (async () => {
-    const value = await readAuthFile();
+    const value = await readAuthFile({ maxAgeMs });
     authCache = { timestamp: Date.now(), value };
     return value;
   })();

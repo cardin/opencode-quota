@@ -60,6 +60,49 @@ describe("opencode-credential-store", () => {
       ).toEqual({ type: "oauth", access: "a", refresh: "", expires: 0, accountId: "acct-top" });
     });
 
+    it("keeps an explicit enterprise host on stored oauth rows", () => {
+      expect(
+        normalizeStoredCredential('{"type":"oauth","access":"a","enterpriseUrl":"acme.ghe.com"}'),
+      ).toEqual({
+        type: "oauth",
+        access: "a",
+        refresh: "",
+        expires: 0,
+        enterpriseUrl: "acme.ghe.com",
+      });
+      expect(
+        normalizeStoredCredential(
+          '{"type":"oauth","access":"a","metadata":{"enterpriseUrl":"https://acme.ghe.com"}}',
+        ),
+      ).toEqual({
+        type: "oauth",
+        access: "a",
+        refresh: "",
+        expires: 0,
+        enterpriseUrl: "https://acme.ghe.com",
+      });
+    });
+
+    it("derives an enterprise host from a ghe.com api endpoint only", () => {
+      expect(
+        normalizeStoredCredential(
+          '{"type":"oauth","access":"a","metadata":{"apiEndpoint":"https://api.acme.ghe.com"}}',
+        ),
+      ).toEqual({
+        type: "oauth",
+        access: "a",
+        refresh: "",
+        expires: 0,
+        enterpriseUrl: "acme.ghe.com",
+      });
+      // GitHub.com Copilot stores its API endpoint, which is not an enterprise host.
+      expect(
+        normalizeStoredCredential(
+          '{"type":"oauth","access":"a","metadata":{"apiEndpoint":"https://api.individual.githubcopilot.com"}}',
+        ),
+      ).toEqual({ type: "oauth", access: "a", refresh: "", expires: 0 });
+    });
+
     it("rejects malformed, empty, and unknown entries", () => {
       expect(normalizeStoredCredential("not json")).toBeNull();
       expect(normalizeStoredCredential('{"type":"key","key":"  "}')).toBeNull();

@@ -58,6 +58,39 @@ function parseStoredValue(raw: unknown): unknown {
 }
 
 /**
+ * Resolve the OpenCode-managed GitHub Enterprise Cloud host for a stored OAuth
+ * row, if any.
+ *
+ * An explicit `enterpriseUrl` (top level or under `metadata`) is forwarded
+ * verbatim so Copilot's own enterprise-host validation can report it. The
+ * `metadata.apiEndpoint` fallback only resolves `.ghe.com` hosts: for GitHub.com
+ * Copilot that field holds the Copilot API endpoint
+ * (`https://api.individual.githubcopilot.com`), which is not an enterprise host,
+ * and Copilot's validation rejects `api.` prefixes, so the prefix is stripped.
+ */
+function pickStoredEnterpriseUrl(
+  record: Record<string, unknown>,
+  metadata: Record<string, unknown> | null,
+): string | undefined {
+  for (const explicit of [record.enterpriseUrl, metadata?.enterpriseUrl]) {
+    if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
+  }
+
+  const endpoint = metadata?.apiEndpoint;
+  if (typeof endpoint !== "string" || !endpoint.trim()) return undefined;
+  const raw = endpoint.trim();
+
+  let hostname: string;
+  try {
+    hostname = new URL(raw.includes("://") ? raw : `https://${raw}`).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (!hostname.endsWith(".ghe.com")) return undefined;
+  return hostname.startsWith("api.") ? hostname.slice("api.".length) : hostname;
+}
+
+/**
  * Normalize a stored v2 credential value into the legacy `auth.json` shape so
  * existing auth consumers can use it without special-casing the v2 format.
  *
@@ -87,6 +120,8 @@ export function normalizeStoredCredential(raw: unknown): OpenCodeCredentialEntry
       (typeof metadata?.accountId === "string" && metadata.accountId) ||
       "";
     if (accountId) entry.accountId = accountId;
+    const enterpriseUrl = pickStoredEnterpriseUrl(record, metadata);
+    if (enterpriseUrl) entry.enterpriseUrl = enterpriseUrl;
     return entry;
   }
 
