@@ -14,9 +14,7 @@ import {
   findGitWorktreeRoot,
   getPluginSpecFromEntry,
   isQuotaPluginSpec,
-  PLUGIN_CONFIG_KEYS,
   resolveEditableConfigPath,
-  resolvePluginConfigKey,
 } from "./config-file-utils.js";
 import { writeConfiguredJsonAtomic } from "./config-write-target.js";
 import { parseJsonOrJsonc } from "./jsonc.js";
@@ -26,7 +24,8 @@ import {
   planConfigDocumentEdit,
   validateConfigDocumentEdit,
 } from "./opencode-config-editor.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { detectOpenCodeMajor } from "./opencode-version.js";
 import {
   getQuotaProviderDisplayLabel,
   normalizeQuotaProviderId,
@@ -40,8 +39,8 @@ import {
 } from "./quota-format-style.js";
 import { QUOTA_PROVIDERS_AGGREGATE_ID } from "./quota-providers.js";
 import type { QuotaToastConfig, SessionTokenScope, TuiCommandDisplay } from "./types.js";
+import { getPackageVersion } from "./version.js";
 
-const QUOTA_PLUGIN_SPEC = "@cardinal4/opencode-quota@latest";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
 const GITHUB_REPO_URL = "https://github.com/cardin/opencode-quota";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
@@ -76,7 +75,7 @@ export interface InitInstallerQuickSetupNote {
 }
 
 export interface PlannedConfigEdit {
-  kind: "opencode" | "tui" | "quota";
+  kind: "opencode" | "quota";
   path: string;
   existed: boolean;
   format: ConfigFileFormat;
@@ -121,6 +120,21 @@ export class InitInstallerError extends Error {
 
 type JsonObject = Record<string, unknown>;
 
+/** A prerelease (version with `-`) installs from the npm `next` tag; a stable release from `latest`. */
+export function getQuotaPluginSpecForVersion(version: string): string {
+  return version.includes("-")
+    ? "@cardinal4/opencode-quota@next"
+    : "@cardinal4/opencode-quota@latest";
+}
+
+async function resolveQuotaPluginSpec(): Promise<string> {
+  const version = await getPackageVersion();
+  if (!version) {
+    throw new InitInstallerError("Cannot read the OpenCode Quota package version.");
+  }
+  return getQuotaPluginSpecForVersion(version);
+}
+
 type PromptOption = {
   label: string;
   value: string;
@@ -130,7 +144,6 @@ type PromptOption = {
 type NormalizedQuotaUiIntent = {
   choices: InitQuotaUiChoice[];
   enableToast: boolean;
-  installTuiPlugin: boolean;
   enableSidebarPanel: boolean;
   enableCompactStatus: boolean;
 };
@@ -211,7 +224,6 @@ function normalizeQuotaUiIntent(selections: InitInstallerSelections): Normalized
   return {
     choices,
     enableToast: choices.includes("toast"),
-    installTuiPlugin: selections.interfaces !== "web",
     enableSidebarPanel,
     enableCompactStatus,
   };
@@ -286,52 +298,45 @@ function ensureSchema(root: JsonObject, schemaUrl: string, edit: PlannedConfigEd
   pushSkippedIfChanged(edit, "$schema", root.$schema, schemaUrl);
 }
 
+function isQuotaPluginEntry(entry: unknown): boolean {
+  const spec = getPluginSpecFromEntry(entry);
+  return typeof spec === "string" && isQuotaPluginSpec(spec);
+}
+
 function appendQuotaPluginIfMissing(params: {
   container: unknown[];
   pathLabel: string;
-  kind: "opencode" | "tui";
+  pluginSpec: string;
   edit: PlannedConfigEdit;
 }): void {
-  const alreadyConfigured = params.container.some((entry) => {
-    const spec = getPluginSpecFromEntry(entry);
-    return typeof spec === "string" && isQuotaPluginSpec(spec, params.kind);
-  });
+  const alreadyConfigured = params.container.some(isQuotaPluginEntry);
 
   if (alreadyConfigured) {
-    params.edit.skippedValues.push(`${params.pathLabel} already includes ${QUOTA_PLUGIN_SPEC}`);
+    params.edit.skippedValues.push(`${params.pathLabel} already includes ${params.pluginSpec}`);
     return;
   }
 
-  params.container.push(QUOTA_PLUGIN_SPEC);
+  params.container.push(params.pluginSpec);
   params.edit.changed = true;
-  params.edit.addedPlugins.push(`${params.pathLabel}: ${QUOTA_PLUGIN_SPEC}`);
+  params.edit.addedPlugins.push(`${params.pathLabel}: ${params.pluginSpec}`);
 }
 
-function ensureTopLevelPluginArray(
-  root: JsonObject,
-  edit: PlannedConfigEdit,
-): {
-  container: unknown[];
-  pathLabel: string;
-} {
-  const key = resolvePluginConfigKey(root);
-  if (!hasOwnKey(root, key)) {
+function ensureTopLevelPluginArray(root: JsonObject, edit: PlannedConfigEdit): unknown[] {
+  if (!hasOwnKey(root, "plugin")) {
     const next: unknown[] = [];
-    root[key] = next;
+    root.plugin = next;
     edit.changed = true;
-    return { container: next, pathLabel: key };
+    return next;
   }
 
-  if (!Array.isArray(root[key])) {
+  if (!Array.isArray(root.plugin)) {
     throw new InitInstallerError(
-      `Cannot update ${edit.kind} config because ${key} is not an array.`,
-      {
-        path: edit.path,
-      },
+      `Cannot update ${edit.kind} config because plugin is not an array.`,
+      { path: edit.path },
     );
   }
 
-  return { container: root[key], pathLabel: key };
+  return root.plugin;
 }
 
 function addSettingIfMissing(
@@ -492,13 +497,6 @@ function planTuiCompactStatusConfig(params: {
     `${pathLabel}.sessionPrompt`,
     params.edit,
   );
-  setInstallerOwnedSetting(
-    tuiCompactStatus,
-    "suppressWhenNativeProviderQuota",
-    true,
-    `${pathLabel}.suppressWhenNativeProviderQuota`,
-    params.edit,
-  );
 }
 
 async function readExistingConfig(params: {
@@ -626,6 +624,7 @@ function syncLegacyQuotaToast(params: {
 async function planOpencodeEdit(params: {
   selections: InitInstallerSelections;
   baseDir: string;
+  pluginSpec: string;
   legacyQuotaToastToSync?: JsonObject;
 }): Promise<PlannedConfigEdit> {
   const target = resolveEditableConfigPath({
@@ -659,13 +658,18 @@ async function planOpencodeEdit(params: {
     ensureSchema(root, OPENCODE_SCHEMA_URL, edit);
   }
 
-  const pluginTarget = ensureTopLevelPluginArray(root, edit);
-  appendQuotaPluginIfMissing({
-    container: pluginTarget.container,
-    pathLabel: pluginTarget.pathLabel,
-    kind: "opencode",
-    edit,
-  });
+  // OpenCode 2 also loads plugins from the native `plugins` array; never add a second entry.
+  if (Array.isArray(root.plugins) && root.plugins.some(isQuotaPluginEntry)) {
+    edit.skippedValues.push(`plugins already includes ${params.pluginSpec}`);
+  } else {
+    const plugin = ensureTopLevelPluginArray(root, edit);
+    appendQuotaPluginIfMissing({
+      container: plugin,
+      pathLabel: "plugin",
+      pluginSpec: params.pluginSpec,
+      edit,
+    });
+  }
 
   if (params.legacyQuotaToastToSync) {
     syncLegacyQuotaToast({
@@ -680,11 +684,11 @@ async function planOpencodeEdit(params: {
     desiredData: root,
     managedComments: [
       {
-        path: [pluginTarget.pathLabel],
+        path: ["plugin"],
         text: TUI_COMMAND_DISPLAY_COMMENT,
       },
       {
-        path: [pluginTarget.pathLabel],
+        path: ["plugin"],
         text: "// OpenCode Quota: loads the server plugin for slash commands and quota checks.",
       },
     ],
@@ -903,107 +907,6 @@ async function planQuotaConfigEdit(params: {
   return edit;
 }
 
-function getCanonicalQuotaPackageSpecForRemoval(entry: unknown): string | undefined {
-  const spec =
-    typeof entry === "string"
-      ? entry
-      : Array.isArray(entry) && typeof entry[0] === "string"
-        ? entry[0]
-        : undefined;
-  if (spec === "@cardinal4/opencode-quota" || spec === QUOTA_PLUGIN_SPEC) return spec;
-  if (
-    spec !== undefined &&
-    /^@cardinal4\/opencode-quota@(?:v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?|[A-Za-z][0-9A-Za-z._-]*)$/.test(
-      spec,
-    )
-  ) {
-    return spec;
-  }
-  return undefined;
-}
-
-function removeQuotaPluginsFromTui(root: JsonObject, edit: PlannedConfigEdit): void {
-  const containers: Array<{ value: unknown; pathLabel: string }> = [];
-  for (const key of PLUGIN_CONFIG_KEYS) {
-    containers.push({ value: root[key], pathLabel: key });
-  }
-  if (isPlainObject(root.tui)) {
-    const tuiRoot = root.tui as JsonObject;
-    for (const key of PLUGIN_CONFIG_KEYS) {
-      containers.push({ value: tuiRoot[key], pathLabel: `tui.${key}` });
-    }
-  }
-
-  for (const container of containers) {
-    if (!Array.isArray(container.value)) continue;
-    const retained = container.value.filter((entry) => {
-      const spec = getCanonicalQuotaPackageSpecForRemoval(entry);
-      if (spec !== undefined) {
-        edit.updatedKeys.push(`${container.pathLabel}: remove ${spec}`);
-        return false;
-      }
-      return true;
-    });
-    if (retained.length !== container.value.length) {
-      container.value.splice(0, container.value.length, ...retained);
-      edit.changed = true;
-    }
-  }
-}
-
-async function planTuiEdit(params: {
-  selections: InitInstallerSelections;
-  baseDir: string;
-}): Promise<PlannedConfigEdit> {
-  const target = resolveEditableConfigPath({
-    dir: params.baseDir,
-    kind: "tui",
-    preferredFormat: params.selections.configFormat ?? "jsonc",
-    convertJsonToJsonc: params.selections.interfaces !== "web",
-  });
-  const edit: PlannedConfigEdit = {
-    kind: "tui",
-    path: target.path,
-    existed: target.existed,
-    format: target.format,
-    changed: false,
-    addedPlugins: [],
-    addedKeys: [],
-    updatedKeys: [],
-    valueChanges: [],
-    skippedValues: [],
-    warnings: [],
-  };
-
-  // OpenCode V2 loads a server plugin's TUI component from the `plugins`
-  // entry in `opencode.json(c)` automatically, so no separate TUI/CLI
-  // registration file is created. A legacy `tui.json(c)` is only cleaned up in
-  // place when it already exists.
-  if (!target.existed) {
-    return edit;
-  }
-
-  const root = await readExistingConfig({
-    path: target.sourcePath,
-    format: target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json",
-  });
-
-  removeQuotaPluginsFromTui(root, edit);
-  if (!edit.changed) {
-    return edit;
-  }
-
-  const documentEdit = await planConfigDocumentEdit({
-    target,
-    desiredData: root,
-    managedComments: [],
-  });
-  edit.changed = documentEdit.changed;
-  edit.documentEdit = documentEdit;
-
-  return edit;
-}
-
 function buildPlanSummary(plan: InitInstallerPlan): string[] {
   const quotaUiIntent = normalizeQuotaUiIntent(plan.selections);
   const opencodeFormat =
@@ -1084,7 +987,7 @@ function buildPlanSummary(plan: InitInstallerPlan): string[] {
   if (plan.quickSetupNotes.length > 0) {
     lines.push("Quick setup reminders:");
     for (const note of plan.quickSetupNotes) {
-      lines.push(`  - ${note.label}: README.md#${note.anchor}`);
+      lines.push(`  - ${note.label}: docs/readme/providers.md#${note.anchor}`);
     }
   }
 
@@ -1115,11 +1018,7 @@ export function resolveInitInstallerBaseDir(params: {
   homeDir?: string;
 }): string {
   if (params.scope === "global") {
-    const candidates = getOpencodeRuntimeDirCandidates({
-      env: params.env,
-      homeDir: params.homeDir,
-    });
-    return candidates.configDirs[0]!;
+    return getOpencodeRuntimeDirs({ env: params.env, homeDir: params.homeDir }).configDir;
   }
 
   const cwd = params.cwd ?? process.cwd();
@@ -1145,7 +1044,7 @@ export async function planInitInstaller(params: {
     tuiCommandDisplay:
       params.selections.interfaces === "web"
         ? undefined
-        : (params.selections.tuiCommandDisplay ?? "inline"),
+        : (params.selections.tuiCommandDisplay ?? "dialog"),
     maintainerAnnouncements: params.selections.maintainerAnnouncements,
     manualProviders:
       params.selections.providerMode === "manual"
@@ -1163,14 +1062,11 @@ export async function planInitInstaller(params: {
     await planOpencodeEdit({
       selections,
       baseDir,
+      pluginSpec: await resolveQuotaPluginSpec(),
       legacyQuotaToastToSync: params.syncLegacyConfig ? quotaEdit.plannedData : undefined,
     }),
     quotaEdit,
   ];
-  const tuiEdit = await planTuiEdit({ selections, baseDir });
-  if (selections.interfaces !== "web" || tuiEdit.existed) {
-    edits.push(tuiEdit);
-  }
 
   const quickSetupNotes = buildQuickSetupNotes(selections);
   const warnings = edits.flatMap((edit) => edit.warnings);
@@ -1318,7 +1214,7 @@ async function readExistingInstallerAnswers(baseDir: string): Promise<ExistingIn
 
 async function promptForSelections(
   prompts: PromptAdapter,
-  context: { cwd?: string; env?: NodeJS.ProcessEnv; homeDir?: string },
+  context: { cwd?: string; env?: NodeJS.ProcessEnv; homeDir?: string; pluginSpec: string },
 ): Promise<InitInstallerSelections | null> {
   const interfaces = await prompts.select({
     message: "Which OpenCode interfaces do you use?",
@@ -1336,7 +1232,7 @@ async function promptForSelections(
 
   if (interfaces === "web") {
     prompts.log.info(
-      "Web slash commands appear inline. TUI-only surfaces and popup dialogs are unavailable.",
+      "Web and Desktop have quota slash commands but no toasts or panels. A command posts its report in the chat as your message; the AI never answers it.",
     );
   }
 
@@ -1414,7 +1310,7 @@ async function promptForSelections(
 
     tuiCommandDisplay = await prompts.select({
       message: "Where should slash commands (e.g. /quota) appear?",
-      initialValue: existing.tuiCommandDisplay ?? "inline",
+      initialValue: existing.tuiCommandDisplay ?? "dialog",
       options: [
         {
           label: "Inline with messages",
@@ -1464,7 +1360,7 @@ async function promptForSelections(
     manualProviders = selected.filter((value): value is string => typeof value === "string");
   }
   prompts.log.info("Custom providers are configured after installation.");
-  prompts.log.info("npx @cardinal4/opencode-quota@latest provider add");
+  prompts.log.info(`npx ${context.pluginSpec} provider add`);
 
   const formatStyle = await prompts.select({
     message: "Quota reset periods",
@@ -1565,10 +1461,34 @@ export async function runInitInstaller(params?: {
   prompts.intro("Configure @cardinal4/opencode-quota");
 
   try {
+    let openCodeMajor = await detectOpenCodeMajor();
+    if (openCodeMajor === undefined) {
+      const answer = await prompts.select({
+        message: "Could not detect your OpenCode version. Which OpenCode do you use?",
+        initialValue: "2",
+        options: [
+          { label: "OpenCode 2", value: "2", hint: "default" },
+          { label: "OpenCode 1", value: "1" },
+        ],
+      });
+      if (prompts.isCancel(answer)) {
+        prompts.outro("OpenCode Quota setup cancelled — no files changed.");
+        return 0;
+      }
+      openCodeMajor = answer === "1" ? 1 : 2;
+    }
+    if (openCodeMajor === 1) {
+      prompts.log.error("You're on OpenCode 1. OpenCode Quota 5 needs OpenCode 2.");
+      prompts.outro("Upgrade to OpenCode 2 before installing this fork — no files changed.");
+      return 1;
+    }
+
+    const pluginSpec = await resolveQuotaPluginSpec();
     const selections = await promptForSelections(prompts, {
       cwd: params?.cwd,
       env: params?.env,
       homeDir: params?.homeDir,
+      pluginSpec,
     });
     if (!selections) {
       prompts.outro("OpenCode Quota setup cancelled — no files changed.");
@@ -1596,7 +1516,7 @@ export async function runInitInstaller(params?: {
 
     if (params?.dryRun) {
       prompts.outro(
-        "OpenCode Quota setup preview complete — no files changed. Run npx @cardinal4/opencode-quota@latest init to apply.",
+        `OpenCode Quota setup preview complete — no files changed. Run npx ${pluginSpec} init to apply.`,
       );
       return 0;
     }
@@ -1621,7 +1541,7 @@ export async function runInitInstaller(params?: {
     if (plan.quickSetupNotes.length > 0) {
       prompts.log.info("Manual quick-setup still needed:");
       for (const note of plan.quickSetupNotes) {
-        prompts.log.info(`- ${note.label}: README.md#${note.anchor}`);
+        prompts.log.info(`- ${note.label}: docs/readme/providers.md#${note.anchor}`);
       }
     }
 
@@ -1638,7 +1558,9 @@ export async function runInitInstaller(params?: {
         `Interfaces: ${interfaceLabel}`,
         "Configured paths:",
         ...configuredPaths.map((path) => `- ${path}`),
-        "Restart OpenCode and run /quota.",
+        plan.selections.interfaces === "web"
+          ? "Run `npx @cardinal4/opencode-quota show` in a terminal to check quota."
+          : "Restart OpenCode and run /quota.",
         `If OpenCode Quota helps, please consider a star: ${GITHUB_REPO_URL}`,
       ].join("\n"),
     );

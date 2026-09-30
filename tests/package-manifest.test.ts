@@ -1,10 +1,16 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
 interface WorkflowStep {
+  id?: string;
   name?: string;
+  env?: Record<string, string>;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
@@ -147,28 +153,17 @@ describe("package manifest compatibility", () => {
 
     expect(packageManagerMatch).not.toBeNull();
     expect(Number(packageManagerMatch?.[1])).toBeGreaterThanOrEqual(11);
-    expect(pkg.engines?.node).toBe(">=22.0.0");
+    expect(pkg.engines?.node).toBe("^22.13.0 || >=23.4.0");
     expect(pkg.devDependencies?.typescript).toBe("7.0.2");
     expect(pkg.devDependencies?.yaml).toBe("^2.8.3");
   });
 
-  it("keeps the public plugin peer broad and reference-compatible development targets exact", () => {
-    // OpenCode 2 plugins depend on `@opencode/plugin` (the V1
-    // `@opencode-ai/plugin` package was removed in the port).
-    expect(pkg.peerDependencies?.["@opencode/plugin"]).toBe("^2.0.7");
-    expect(pkg.peerDependencies?.["@opentui/core"]).toBe(">=0.5.10");
-    expect(pkg.peerDependencies?.["@opentui/solid"]).toBe(">=0.5.10");
-    expect(pkg.peerDependencies?.["solid-js"]).toBe(">=1.9.0");
-    expect(pkg.peerDependenciesMeta?.["@opentui/core"]?.optional).toBe(true);
-    expect(pkg.peerDependenciesMeta?.["@opentui/solid"]?.optional).toBe(true);
-    expect(pkg.devDependencies?.["@opencode/plugin"]).toBe("2.0.7");
-    expect(pkg.devDependencies?.["@opencode/client"]).toBe("2.0.7");
-    expect(pkg.devDependencies?.["@opencode/schema"]).toBe("2.0.7");
-    expect(pkg.devDependencies?.["@opencode/theme"]).toBe("2.0.7");
-    expect(pkg.devDependencies?.["@opentui/core"]).toBe("0.5.11");
-    expect(pkg.devDependencies?.["@opentui/solid"]).toBe("0.5.11");
-    expect(pkg.devDependencies).not.toHaveProperty("@opencode-ai/plugin");
-    expect(readme).toContain("Node.js `>= 22` is required.");
+  it("reflects the local OpenCode V2 plugin dependency override", () => {
+    expect(pkg.peerDependencies?.["@opencode/plugin"]).toBe("2.0.16");
+    expect(pkg.devDependencies?.["@opencode/plugin"]).toBe("2.0.16");
+    expect(pkg.dependencies?.["@opentui/core"]).toBe("^0.5.10");
+    expect(pkg.dependencies?.["@opentui/solid"]).toBe("^0.5.10");
+    expect(readme).toContain("Node.js `22.13+` or `23.4+`");
     expect(readme).not.toContain("OpenCode `>= 1.4.3`");
     expect(pkg.engines).not.toHaveProperty("opencode");
   });
@@ -176,8 +171,10 @@ describe("package manifest compatibility", () => {
   it("keeps the TypeScript 7 toolchain explicit without suppressing the known peer mismatch", () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["node"]);
     expect(typescriptValidator).toContain('const EXPECTED_TYPESCRIPT_VERSION = "7.0.2";');
-    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "2.0.7";');
-    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.5.11";');
+    expect(typescriptValidator).toContain('const EXPECTED_PLUGIN_VERSION = "2.0.16";');
+    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_SPECIFIER = "^0.5.10";');
+    expect(typescriptValidator).toContain('const EXPECTED_OPENTUI_VERSION = "0.5.10";');
+    expect(typescriptValidator).toContain('const BUN_FFI_STRUCTS_VERSION = "0.3.1";');
     expect(typescriptValidator).toContain('const BUN_FFI_TYPESCRIPT_PEER = "^5";');
     expect(typescriptValidator).toContain("Known unmet peer:");
     expect(typescriptValidator).not.toMatch(/TypeScript v4 freeze|\^5\.9/);
@@ -227,7 +224,7 @@ describe("package manifest compatibility", () => {
 
     expect(lefthookConfig["pre-commit"]?.commands).toEqual({
       biome: {
-        glob: "*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
+        glob: "**/*.{js,cjs,mjs,jsx,ts,tsx,json,jsonc,css}",
         run: "pnpm exec biome check --write --no-errors-on-unmatched {staged_files}",
         stage_fixed: true,
       },
@@ -248,22 +245,15 @@ describe("package manifest compatibility", () => {
   });
 
   it("ships the OpenTelemetry API while keeping the metrics SDK host-owned", () => {
+    expect(pkg).not.toHaveProperty("optionalDependencies");
     expect(pkg.dependencies?.["@opentelemetry/api"]).toBe("^1.9.1");
-    for (const dependencyType of [
-      pkg.devDependencies,
-      pkg.optionalDependencies,
-      pkg.peerDependencies,
-    ]) {
+    for (const dependencyType of [pkg.devDependencies, pkg.peerDependencies]) {
       expect(dependencyType).not.toHaveProperty("@opentelemetry/api");
     }
     expect(pkg.peerDependenciesMeta?.["@opentelemetry/api"]).toBeUndefined();
 
     expect(pkg.devDependencies?.["@opentelemetry/sdk-metrics"]).toBe("2.10.0");
-    for (const dependencyType of [
-      pkg.dependencies,
-      pkg.optionalDependencies,
-      pkg.peerDependencies,
-    ]) {
+    for (const dependencyType of [pkg.dependencies, pkg.peerDependencies]) {
       expect(dependencyType).not.toHaveProperty("@opentelemetry/sdk-metrics");
     }
   });
@@ -273,16 +263,11 @@ describe("package manifest compatibility", () => {
     expect(pnpmWorkspace).toContain("minimumReleaseAgeStrict: true");
     expect(pnpmWorkspace).toContain("minimumReleaseAgeIgnoreMissingTime: false");
     expect(pnpmWorkspace).toContain("blockExoticSubdeps: true");
-    // `@opencode/*` packages publish same-day; excluding them from the
-    // minimum-release-age gate keeps V2 dev tooling installable.
-    expect(pnpmWorkspace).toContain("minimumReleaseAgeExclude:");
-    expect(pnpmWorkspace).toContain('- "@opencode/*"');
     expect(pnpmWorkspaceConfig.allowBuilds).toEqual({
-      "better-sqlite3": true,
       esbuild: true,
       lefthook: true,
       "msgpackr-extract": true,
-      protobufjs: true,
+      protobufjs: false,
     });
   });
 
@@ -299,8 +284,6 @@ describe("package manifest compatibility", () => {
     expect(pkg.bin).toEqual({
       "opencode-quota": "./dist/bin/opencode-quota.js",
     });
-    // V2 discovers plugins from the package `exports`; the V1 manifest
-    // `oc-plugin` field no longer exists.
     expect(pkg["oc-plugin"]).toBeUndefined();
     expect(pkg.dependencies?.["@clack/prompts"]).toBeTruthy();
     expect(pkg.exports?.["."]).toEqual({
@@ -581,14 +564,17 @@ describe("package manifest compatibility", () => {
       name: "release-package",
       path: "package-artifacts",
     });
-    const publishRun = namedStep(publish, "Verify and publish exact release artifact").run ?? "";
+    expect(stepIndex(publish, "Choose npm dist-tag")).toBeLessThan(
+      stepIndex(publish, "Verify and publish exact release artifact"),
+    );
+    const publishStep = namedStep(publish, "Verify and publish exact release artifact");
+    expect(publishStep.env).toEqual({ DIST_TAG: "${{ steps.dist-tag.outputs.dist-tag }}" });
+    const publishRun = publishStep.run ?? "";
     expect(publishRun).toContain("node scripts/verify-release-artifact.mjs package-artifacts");
     expect(publishRun).toContain(
-      'npm publish "./${TARBALLS[0]}" --access public --provenance --ignore-scripts',
+      'npm publish "./${TARBALLS[0]}" --tag "$DIST_TAG" --access public --provenance --ignore-scripts',
     );
-    expect(publishRun).not.toContain(
-      'npm publish "${TARBALLS[0]}" --access public --provenance --ignore-scripts',
-    );
+    expect(publishRun).not.toContain('npm publish "${TARBALLS[0]}"');
     expect(publishRun).not.toContain("pnpm pack");
     expect(publishRun).not.toContain("pnpm run build");
 
@@ -611,8 +597,46 @@ describe("package manifest compatibility", () => {
     expect(namedStep(backfill, "Sync and verify version for repository backfill").run).toContain(
       "pnpm run verify:release-version",
     );
-    expect(namedStep(backfill, "Commit synced version back to repository").run).toContain(
-      'git push origin HEAD:"$BRANCH"',
+    const backfillCommitRun =
+      namedStep(backfill, "Commit synced version back to repository").run ?? "";
+    expect(backfillCommitRun).toContain('git push origin HEAD:"$BRANCH"');
+    // A beta targets the v5 branch; never write its version onto a branch without the release commit.
+    const ancestryCheck = backfillCommitRun.indexOf(
+      'git merge-base --is-ancestor "$GITHUB_SHA" "origin/$BRANCH"',
     );
+    expect(ancestryCheck).toBeGreaterThanOrEqual(0);
+    expect(ancestryCheck).toBeLessThan(backfillCommitRun.indexOf("git commit"));
+  });
+
+  it("publishes prereleases to the npm next tag and stable releases to latest", () => {
+    const chooseTag = namedStep(publishWorkflow.jobs.publish, "Choose npm dist-tag");
+    expect(chooseTag.id).toBe("dist-tag");
+    expect(chooseTag.env).toEqual({
+      RELEASE_TAG: "${{ github.event.release.tag_name }}",
+      RELEASE_PRERELEASE: "${{ github.event.release.prerelease }}",
+    });
+
+    const distTagFor = (tag: string, prerelease: string): string => {
+      const dir = mkdtempSync(join(tmpdir(), "opencode-quota-dist-tag-"));
+      try {
+        const output = join(dir, "github-output");
+        execFileSync("bash", ["-e", "-c", chooseTag.run ?? "exit 1"], {
+          env: {
+            ...process.env,
+            RELEASE_TAG: tag,
+            RELEASE_PRERELEASE: prerelease,
+            GITHUB_OUTPUT: output,
+          },
+          stdio: "ignore",
+        });
+        return readFileSync(output, "utf8");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    expect(distTagFor("v5.0.0-beta.1", "true")).toBe("dist-tag=next\n");
+    expect(distTagFor("v5.0.0-beta.1", "false")).toBe("dist-tag=next\n");
+    expect(distTagFor("v5.0.0", "true")).toBe("dist-tag=next\n");
+    expect(distTagFor("v5.0.0", "false")).toBe("dist-tag=latest\n");
   });
 });

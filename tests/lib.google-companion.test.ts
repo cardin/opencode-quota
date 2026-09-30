@@ -5,14 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const moduleMocks = vi.hoisted(() => ({
   resolveImpl: vi.fn<(specifier: string, options?: { paths?: string[] }) => string>(),
-  runtimeDirs: { value: { cacheDirs: [] as string[] } },
+  runtimeDirs: { value: { cacheDir: "" } },
 }));
 
 vi.mock("node:module", () => ({
   createRequire: () => ({ resolve: moduleMocks.resolveImpl }),
 }));
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => moduleMocks.runtimeDirs.value,
+  getOpencodeRuntimeDirs: () => moduleMocks.runtimeDirs.value,
 }));
 
 type Presence = {
@@ -135,11 +135,11 @@ function writeCredentials(
 async function loadWith(
   companion: CompanionCase,
   resolveImpl: (specifier: string, options?: { paths?: string[] }) => string,
-  cacheDirs: string[] = [],
+  cacheDir: string = join(tmpdir(), "opencode-quota-google-companion-missing-cache"),
 ): Promise<LoadedCompanion> {
   vi.resetModules();
   moduleMocks.resolveImpl.mockReset();
-  moduleMocks.runtimeDirs.value = { cacheDirs };
+  moduleMocks.runtimeDirs.value = { cacheDir };
   moduleMocks.resolveImpl.mockImplementation(resolveImpl);
   return companion.load();
 }
@@ -291,7 +291,7 @@ describe("google companion credential resolution", () => {
           if (specifier === companion.sourceSpecifier) return sourcePath;
           throw moduleNotFound();
         },
-        [cacheDir],
+        cacheDir,
       );
       await expectConfigured(loaded, sourcePath, "-source");
     }
@@ -305,9 +305,13 @@ describe("google companion credential resolution", () => {
       const fallbackPath = join(packageRoot, ...companion.runtimeCandidates[1]!);
       mkdirSync(unreadablePath, { recursive: true });
       writeCredentials(fallbackPath, companion, "var");
-      const loaded = await loadWith(companion, () => {
-        throw moduleNotFound();
-      }, [cacheDir]);
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
       await expectConfigured(loaded, fallbackPath);
     }
   });
@@ -340,10 +344,114 @@ describe("google companion credential resolution", () => {
         : packageRoot;
       const candidatePath = join(credentialRoot, "dist", "index.js");
       writeCredentials(candidatePath, companion, "var");
-      const loaded = await loadWith(companion, () => {
-        throw moduleNotFound();
-      }, [cacheDir]);
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
       await expectConfigured(loaded, candidatePath);
+    }
+  });
+
+  it("finds each companion in OpenCode 2's npm plugin install layout", async () => {
+    for (const companion of companions) {
+      const cacheDir = join(tempDir, `${companion.id}-opencode2-cache`);
+      const bundlePath = join(
+        cacheDir,
+        "npm",
+        `${companion.packageName}@latest`,
+        "1790000000000",
+        "node_modules",
+        companion.packageName,
+        "dist",
+        "index.js",
+      );
+      writeCredentials(bundlePath, companion, "var");
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
+      await expect(loaded.inspect()).resolves.toEqual({
+        state: "present",
+        importSpecifier: companion.sourceSpecifier,
+        resolvedPath: bundlePath,
+      });
+      await expectConfigured(loaded, bundlePath);
+    }
+  });
+
+  it("picks the OpenCode 2 install that OpenCode 2 loads", async () => {
+    for (const companion of companions) {
+      const cacheDir = join(tempDir, `${companion.id}-opencode2-pick`);
+      const bundle = (spec: string, generation: string) =>
+        join(
+          cacheDir,
+          "npm",
+          `${companion.packageName}@${spec}`,
+          generation,
+          "node_modules",
+          companion.packageName,
+          "dist",
+          "index.js",
+        );
+      writeCredentials(bundle("latest", "999"), companion, "var", "-older-generation");
+      writeCredentials(bundle("latest", "1000"), companion, "var", "-newest");
+      writeCredentials(bundle("alpha", "998"), companion, "var", "-older-spec");
+      mkdirSync(join(cacheDir, "npm", `${companion.packageName}@latest`, ".staging-2000-x"), {
+        recursive: true,
+      });
+      writeCredentials(
+        join(cacheDir, "node_modules", companion.packageName, "dist", "index.js"),
+        companion,
+        "var",
+        "-opencode1",
+      );
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
+      await expectConfigured(loaded, bundle("latest", "1000"), "-newest");
+    }
+  });
+
+  it("reports a missing companion when OpenCode 2 has not installed it", async () => {
+    for (const companion of companions) {
+      const cacheDir = join(tempDir, `${companion.id}-opencode2-missing`);
+      mkdirSync(join(cacheDir, "npm", `${companion.packageName}@latest`), { recursive: true });
+      writeCredentials(
+        join(
+          cacheDir,
+          "npm",
+          "other-plugin@latest",
+          "1",
+          "node_modules",
+          "other-plugin",
+          "dist",
+          "index.js",
+        ),
+        companion,
+        "var",
+      );
+      const loaded = await loadWith(
+        companion,
+        () => {
+          throw moduleNotFound();
+        },
+        cacheDir,
+      );
+      await expect(loaded.inspect()).resolves.toEqual({
+        state: "missing",
+        importSpecifier: companion.sourceSpecifier,
+        error: companion.missingError,
+      });
     }
   });
 
@@ -352,9 +460,13 @@ describe("google companion credential resolution", () => {
     const cacheDir = join(tempDir, "gemini-runtime-cache");
     const rootBundle = join(cacheDir, "node_modules", companion.packageName, "dist", "index.js");
     writeCredentials(rootBundle, companion, "var", "-root");
-    let loaded = await loadWith(companion, () => {
-      throw moduleNotFound();
-    }, [cacheDir]);
+    let loaded = await loadWith(
+      companion,
+      () => {
+        throw moduleNotFound();
+      },
+      cacheDir,
+    );
     await expectConfigured(loaded, rootBundle, "-root");
 
     const resolvedRoot = join(tempDir, "gemini-resolved-root", "dist", "index.js");
@@ -369,7 +481,7 @@ describe("google companion credential resolution", () => {
         if (specifier.startsWith(`${companion.packageName}/`)) throw packagePathNotExported();
         throw moduleNotFound();
       },
-      [resolvedCacheDir],
+      resolvedCacheDir,
     );
     await expectConfigured(loaded, resolvedRoot, "-resolved");
     expect(moduleMocks.resolveImpl).toHaveBeenCalledWith(companion.packageName, {

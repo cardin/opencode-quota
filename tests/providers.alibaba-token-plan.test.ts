@@ -25,6 +25,15 @@ vi.mock("../src/lib/alibaba-token-plan.js", async () => {
   };
 });
 
+vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/lib/alibaba-coding-plan-local-quota.js")>();
+  return {
+    ...actual,
+    readAlibabaCodingPlanQuotaState: vi.fn(actual.readAlibabaCodingPlanQuotaState),
+  };
+});
+
 const accounting = {
   resultType: "quota" as const,
   acquisitionMethod: "local_cli" as const,
@@ -83,6 +92,24 @@ describe("alibaba-token-plan provider", () => {
     expect(modelProviderMatchesRuntimeId("alibaba-token-plan/qwen3", "alibaba-token-plan")).toBe(
       true,
     );
+  });
+
+  it("probes bl for the project folder quota is computed for", async () => {
+    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
+    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
+      ok: true,
+      weekly: { percentRemaining: 60 },
+    });
+
+    await alibabaTokenPlanProvider.fetch({
+      workspaceRoot: "/home/user/project",
+      config: { requestTimeoutMs: 5000 },
+    } as never);
+
+    expect(queryAlibabaTokenPlanQuota).toHaveBeenLastCalledWith({
+      requestTimeoutMs: 5000,
+      runtime: { cwd: "/home/user/project" },
+    });
   });
 
   it("returns a fixed attempted setup failure when the CLI is absent", async () => {
@@ -167,6 +194,14 @@ describe("alibaba-token-plan provider", () => {
       const tokenOut = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
       expectAttemptedWithErrorLabel(tokenOut, "Alibaba Personal Token Plan");
 
+      const { readAlibabaCodingPlanQuotaState } = await import(
+        "../src/lib/alibaba-coding-plan-local-quota.js"
+      );
+      vi.mocked(readAlibabaCodingPlanQuotaState).mockResolvedValue({
+        version: 1,
+        recent: [],
+        updatedAt: Date.now(),
+      });
       const codingOut = await alibabaCodingPlanProvider.fetch({
         config: { quotaProviders: [] },
       } as any);

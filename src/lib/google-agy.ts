@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { readGlobalProviderConfigString } from "./api-key-resolver.js";
 import {
   type AgyConfiguredCredentials,
   clearAgyCompanionCacheForTests,
@@ -85,12 +86,6 @@ export type AgyAuthPresence =
       error: string;
     };
 
-type ConfigClient = {
-  config?: {
-    get?: () => Promise<{ data?: unknown }>;
-  };
-};
-
 function normalizeString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -167,27 +162,15 @@ export function resolveAgyAccounts(
   return accounts;
 }
 
-export async function resolveAgyConfiguredProjectId(
-  client?: ConfigClient,
-): Promise<string | undefined> {
+export async function resolveAgyConfiguredProjectId(): Promise<string | undefined> {
   const explicitEnvProjectId = normalizeString(process.env.OPENCODE_AGY_PROJECT_ID);
   if (explicitEnvProjectId) {
     return explicitEnvProjectId;
   }
 
-  if (client?.config?.get) {
-    try {
-      const result = await client.config.get();
-      const data = result?.data as {
-        provider?: Record<string, { options?: Record<string, unknown> }>;
-      };
-      const configProjectId = normalizeString(data?.provider?.["google-agy"]?.options?.projectId);
-      if (configProjectId) {
-        return configProjectId;
-      }
-    } catch {
-      // ignore and fall back
-    }
+  const configProjectId = await readGlobalProviderConfigString("google-agy", "projectId");
+  if (configProjectId) {
+    return configProjectId;
   }
 
   return (
@@ -196,12 +179,13 @@ export async function resolveAgyConfiguredProjectId(
   );
 }
 
-export async function resolveGoogleAgyAuthIdentity(
-  client?: ConfigClient,
-): Promise<ResolvedAuthIdentity | null> {
+export async function resolveGoogleAgyAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
   const [auth, configuredProjectId, credentials] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
-    resolveAgyConfiguredProjectId(client),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: AGY_AUTH_KEYS,
+    }),
+    resolveAgyConfiguredProjectId(),
     resolveAgyClientCredentials(),
   ]);
   const accounts = resolveAgyAccounts(auth, configuredProjectId);
@@ -231,10 +215,13 @@ export async function resolveGoogleAgyAuthIdentity(
   });
 }
 
-export async function inspectAgyAuthPresence(client?: ConfigClient): Promise<AgyAuthPresence> {
+export async function inspectAgyAuthPresence(): Promise<AgyAuthPresence> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
-    resolveAgyConfiguredProjectId(client),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: AGY_AUTH_KEYS,
+    }),
+    resolveAgyConfiguredProjectId(),
   ]);
 
   let accountCount = 0;
@@ -273,9 +260,9 @@ export async function inspectAgyAuthPresence(client?: ConfigClient): Promise<Agy
   };
 }
 
-export async function hasAgyQuotaRuntimeAvailable(client?: ConfigClient): Promise<boolean> {
+export async function hasAgyQuotaRuntimeAvailable(): Promise<boolean> {
   const [authPresence, companionPresence] = await Promise.all([
-    inspectAgyAuthPresence(client),
+    inspectAgyAuthPresence(),
     inspectAgyCompanionPresence(),
   ]);
 
@@ -713,12 +700,15 @@ async function fetchAccountQuota(params: {
 }
 
 export async function queryGoogleAgyQuota(
-  client?: ConfigClient,
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<GoogleAgyResult> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS }),
-    resolveAgyConfiguredProjectId(client),
+    options.authData ??
+      readAuthFileCached({
+        maxAgeMs: DEFAULT_AGY_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: AGY_AUTH_KEYS,
+      }),
+    resolveAgyConfiguredProjectId(),
   ]);
   const accounts = resolveAgyAccounts(auth, configuredProjectId);
   if (accounts.length === 0) {

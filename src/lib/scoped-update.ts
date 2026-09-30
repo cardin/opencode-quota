@@ -15,10 +15,8 @@ import {
 } from "./config-write-target.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import { editConfigDocumentPaths, parseConfigDocument } from "./opencode-config-editor.js";
-import {
-  getOpencodeRuntimeDirCandidates,
-  getOpencodeRuntimeDirs,
-} from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
+import { detectOpenCodeMajor, type OpenCodeMajor } from "./opencode-version.js";
 import {
   auditObsoleteUpdateSources,
   discoverExistingScopedUpdateMigrationCandidates,
@@ -32,10 +30,14 @@ import {
 } from "./scoped-update-migration.js";
 
 export const QUOTA_PACKAGE_NAME = "@cardinal4/opencode-quota";
-// This fork is v5-only and requires OpenCode 2, so bare/latest/legacy specs pin to the v5 line.
-export const QUOTA_V4_SPEC = `${QUOTA_PACKAGE_NAME}@5`;
-const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
-const V4_PIN_REASON = "Pinned to @5 because this fork requires OpenCode 2.";
+export const QUOTA_LATEST_SPEC = `${QUOTA_PACKAGE_NAME}@latest`;
+export const QUOTA_V5_SPEC = `${QUOTA_PACKAGE_NAME}@5`;
+/** Moving specs that update keeps as written; OpenCode re-resolves them after the cache cleanup. */
+const QUOTA_MOVING_SPECS: ReadonlySet<string> = new Set([
+  QUOTA_LATEST_SPEC,
+  `${QUOTA_PACKAGE_NAME}@next`,
+  QUOTA_V5_SPEC,
+]);
 const GITHUB_REPO_URL = "https://github.com/cardin/opencode-quota";
 
 const EXACT_SEMVER =
@@ -69,7 +71,8 @@ export interface ScopedUpdatePlan {
   configPaths: string[];
   foundSpecs: string[];
   cacheCandidates: string[];
-  authoritativeV4: boolean;
+  authoritativeLatest: boolean;
+  openCodeMajor: OpenCodeMajor | undefined;
   safeActions: ScopedUpdateSafeAction[];
   manualFindings: ScopedUpdateManualFinding[];
 }
@@ -91,13 +94,9 @@ export class ScopedUpdateError extends Error {
 }
 
 export function isCanonicalQuotaUpdateSpec(spec: string): boolean {
-  if (spec === QUOTA_PACKAGE_NAME || spec === QUOTA_LATEST_SPEC || spec === QUOTA_V4_SPEC) {
-    return true;
-  }
+  if (spec === QUOTA_PACKAGE_NAME || QUOTA_MOVING_SPECS.has(spec)) return true;
   const prefix = `${QUOTA_PACKAGE_NAME}@`;
-  if (!spec.startsWith(prefix)) return false;
-  const version = spec.slice(prefix.length);
-  return EXACT_SEMVER.test(version) && Number(version.split(".")[0]) <= 5;
+  return spec.startsWith(prefix) && EXACT_SEMVER.test(spec.slice(prefix.length));
 }
 
 export function sanitizeOpenCodePackageSpec(
@@ -111,10 +110,8 @@ export function sanitizeOpenCodePackageSpec(
 }
 
 function selectedConfigPaths(root: string): string[] {
-  return (["opencode", "tui"] as const).flatMap((kind) => {
-    const path = resolveExistingConfigPath(root, kind);
-    return path ? [path] : [];
-  });
+  const path = resolveExistingConfigPath(root, "opencode");
+  return path ? [path] : [];
 }
 
 async function dedupeByRealPath(paths: string[]): Promise<string[]> {
@@ -129,21 +126,43 @@ async function dedupeByRealPath(paths: string[]): Promise<string[]> {
   return output;
 }
 
+/** OpenCode 2 native `plugins` entry: `{ "package": "...", "options": { ... } }`. */
+function isPackageEntry(entry: unknown): entry is { package: string } {
+  return (
+    !!entry &&
+    typeof entry === "object" &&
+    !Array.isArray(entry) &&
+    typeof (entry as { package?: unknown }).package === "string"
+  );
+}
+
+/** OpenCode 2 reads both the legacy `plugin` array and the native `plugins` array. */
 function pluginArrays(config: unknown): Array<{ path: (string | number)[]; entries: unknown[] }> {
   if (!config || typeof config !== "object" || Array.isArray(config)) return [];
   const root = config as Record<string, unknown>;
   const arrays: Array<{ path: (string | number)[]; entries: unknown[] }> = [];
   if (Array.isArray(root.plugin)) arrays.push({ path: ["plugin"], entries: root.plugin });
-  if (root.tui && typeof root.tui === "object" && !Array.isArray(root.tui)) {
-    const tui = root.tui as Record<string, unknown>;
-    if (Array.isArray(tui.plugin)) arrays.push({ path: ["tui", "plugin"], entries: tui.plugin });
-  }
+  if (Array.isArray(root.plugins)) arrays.push({ path: ["plugins"], entries: root.plugins });
   return arrays;
+}
+
+/** This fork has no OpenCode 1 release line; never pin it to a nonexistent @4. */
+function quotaUpdateTarget(openCodeMajor: OpenCodeMajor | undefined): {
+  keptSpecs: ReadonlySet<string>;
+  replacementSpec: string;
+} {
+  if (openCodeMajor === 1) {
+    throw new ScopedUpdateError(
+      "You're on OpenCode 1. @cardinal4/opencode-quota requires OpenCode 2. Upgrade OpenCode before updating this fork.",
+    );
+  }
+  return { keptSpecs: QUOTA_MOVING_SPECS, replacementSpec: QUOTA_LATEST_SPEC };
 }
 
 function updateConfig(
   raw: string,
   path: string,
+  openCodeMajor: OpenCodeMajor | undefined,
 ): {
   updated: string;
   replacements: number;
@@ -157,6 +176,7 @@ function updateConfig(
     throw new ScopedUpdateError(`Cannot update unparseable config: ${path}`, { path });
   }
 
+  const target = quotaUpdateTarget(openCodeMajor);
   const edits: Array<{ path: (string | number)[]; value: unknown }> = [];
   let replacements = 0;
   const specs: string[] = [];
@@ -168,13 +188,20 @@ function updateConfig(
           ? entry
           : Array.isArray(entry) && typeof entry[0] === "string"
             ? entry[0]
-            : null;
+            : isPackageEntry(entry)
+              ? entry.package
+              : null;
       if (spec === null || !isCanonicalQuotaUpdateSpec(spec)) continue;
       specs.push(spec);
-      if (spec === QUOTA_V4_SPEC) continue;
+      if (target.keptSpecs.has(spec)) continue;
+      // Replace only the package spec; keep the entry's plugin options.
       const targetPath =
-        typeof entry === "string" ? [...array.path, index] : [...array.path, index, 0];
-      edits.push({ path: targetPath, value: QUOTA_V4_SPEC });
+        typeof entry === "string"
+          ? [...array.path, index]
+          : Array.isArray(entry)
+            ? [...array.path, index, 0]
+            : [...array.path, index, "package"];
+      edits.push({ path: targetPath, value: target.replacementSpec });
       replacements++;
     }
   }
@@ -205,21 +232,17 @@ export async function planScopedUpdate(
     env?: NodeJS.ProcessEnv;
     homeDir?: string;
     platform?: NodeJS.Platform;
+    openCodeMajor?: OpenCodeMajor;
   } = {},
 ): Promise<ScopedUpdatePlan> {
+  quotaUpdateTarget(params.openCodeMajor);
   const cwd = params.cwd ?? process.cwd();
   const env = params.env ?? process.env;
   const projectRoot = findGitWorktreeRoot(cwd) ?? cwd;
-  const primaryRuntime = getOpencodeRuntimeDirs({ env, homeDir: params.homeDir });
-  const runtime = getOpencodeRuntimeDirCandidates({
-    platform: params.platform,
-    env,
-    homeDir: params.homeDir,
-    primary: primaryRuntime,
-  });
+  const runtime = getOpencodeRuntimeDirs({ env, homeDir: params.homeDir });
   const configPaths = await dedupeByRealPath([
     ...selectedConfigPaths(projectRoot),
-    ...selectedConfigPaths(primaryRuntime.configDir),
+    ...selectedConfigPaths(runtime.configDir),
   ]);
 
   const workingDocuments = new Map<string, ScopedUpdateWorkingDocument>();
@@ -231,7 +254,7 @@ export async function planScopedUpdate(
     const canonicalPath = await realpath(path);
     const originalBytes = await readFile(path);
     const original = originalBytes.toString("utf8");
-    const planned = updateConfig(original, path);
+    const planned = updateConfig(original, path, params.openCodeMajor);
     foundSpecs.push(...planned.specs);
     const roles = new Set<ScopedUpdateConfigRole>(["package-authority"]);
     if (planned.replacements > 0) {
@@ -254,7 +277,7 @@ export async function planScopedUpdate(
   }
 
   const migrationDiscovery = await discoverExistingScopedUpdateMigrationCandidates({
-    globalRoots: runtime.configDirs,
+    globalRoot: runtime.configDir,
     workspaceRoot: projectRoot,
     selectedPackagePaths: configPaths,
   });
@@ -316,7 +339,7 @@ export async function planScopedUpdate(
   manualFindings.push(
     ...(await auditObsoleteUpdateSources({
       env,
-      configDirs: runtime.configDirs,
+      configDir: runtime.configDir,
     })),
   );
 
@@ -356,11 +379,11 @@ export async function planScopedUpdate(
   }
 
   const uniqueSpecs = [...new Set(foundSpecs)];
-  const cacheSpecs = [...new Set([...uniqueSpecs, QUOTA_V4_SPEC])];
-  const cacheCandidates = runtime.cacheDirs.flatMap((cacheDir) =>
-    cacheSpecs.map((spec) =>
-      join(cacheDir, "packages", sanitizeOpenCodePackageSpec(spec, params.platform)),
-    ),
+  const cacheSpecs = [
+    ...new Set([...uniqueSpecs, quotaUpdateTarget(params.openCodeMajor).replacementSpec]),
+  ];
+  const cacheCandidates = cacheSpecs.map((spec) =>
+    join(runtime.cacheDir, "packages", sanitizeOpenCodePackageSpec(spec, params.platform)),
   );
 
   return {
@@ -369,7 +392,8 @@ export async function planScopedUpdate(
     configPaths,
     foundSpecs: uniqueSpecs,
     cacheCandidates: [...new Set(cacheCandidates)],
-    authoritativeV4: uniqueSpecs.length > 0,
+    authoritativeLatest: uniqueSpecs.length > 0,
+    openCodeMajor: params.openCodeMajor,
     safeActions: sortScopedUpdateSafeActions(safeActions),
     manualFindings: sortScopedUpdateManualFindings(manualFindings),
   };
@@ -420,7 +444,7 @@ function formatSafeAction(action: ScopedUpdateSafeAction): string {
   const path = displayUpdatePath(action.path);
   if (action.kind === "package-spec") {
     const noun = action.replacements === 1 ? "replacement" : "replacements";
-    return `  edit ${path} (${action.replacements} package ${noun} to ${QUOTA_V4_SPEC})`;
+    return `  edit ${path} (${action.replacements} package ${noun})`;
   }
 
   switch (action.outcome) {
@@ -434,10 +458,10 @@ function formatSafeAction(action: ScopedUpdateSafeAction): string {
 }
 
 const OBSOLETE_GO_GUIDANCE =
-  "OpenCode Go no longer uses this workspace/cookie source, and it cannot be converted into the official API key. Configure OPENCODE_API_KEY, trusted global provider.opencode-go.options.apiKey, fallback provider.opencode.options.apiKey, or run opencode auth login -p opencode-go. This updater will not read, copy, or delete credentials; remove the old variable/file manually after the supported key works.";
+  "OpenCode Go no longer uses this workspace/cookie source, and it cannot be converted into the official API key. Configure OPENCODE_API_KEY, trusted global provider.opencode-go.options.apiKey, fallback provider.opencode.options.apiKey, or run opencode auth login opencode-go. This updater will not read, copy, or delete credentials; remove the old variable/file manually after the supported key works.";
 
 const ZEN_CONSOLE_GUIDANCE =
-  "OpenCode Zen now uses the OpenCode Console session: run opencode console login (and opencode console switch to pick an organization), then verify with opencode-quota status.";
+  "OpenCode Zen now uses the OpenCode Console sign-in: run opencode auth login opencode (and opencode auth switch opencode to pick a saved organization), then verify with opencode-quota status.";
 
 function formatManualFinding(finding: ScopedUpdateManualFinding): string {
   switch (finding.kind) {
@@ -481,6 +505,13 @@ function formatManualFinding(finding: ScopedUpdateManualFinding): string {
 export function formatScopedUpdatePreview(plan: ScopedUpdatePlan): string[] {
   const lines = ["Responsible OpenCode Quota update preview"];
 
+  if (plan.openCodeMajor === undefined) {
+    lines.push(
+      "",
+      "Could not detect your OpenCode version; assuming OpenCode 2. This fork requires OpenCode 2.",
+    );
+  }
+
   if (plan.safeActions.length > 0) {
     lines.push("", "Safe changes this command can make:");
     lines.push(...plan.safeActions.map(formatSafeAction));
@@ -491,7 +522,7 @@ export function formatScopedUpdatePreview(plan: ScopedUpdatePlan): string[] {
     lines.push(...plan.manualFindings.map(formatManualFinding));
   }
 
-  if (plan.authoritativeV4 && plan.cacheCandidates.length > 0) {
+  if (plan.authoritativeLatest && plan.cacheCandidates.length > 0) {
     lines.push("", "Package-cache candidates (removed only after verification):");
     lines.push(...plan.cacheCandidates.map((path) => `  ${displayUpdatePath(path)}`));
   }
@@ -615,7 +646,7 @@ export async function applyScopedUpdatePlan(
     });
   }
 
-  let authoritativeV4 = false;
+  let authoritativeLatest = false;
   for (const snapshot of plan.configSnapshots) {
     let current: Buffer;
     try {
@@ -627,13 +658,13 @@ export async function applyScopedUpdatePlan(
       throw failure("Config changed before cache deletion:", snapshot.path);
     }
     if (!snapshot.roles.includes("package-authority")) continue;
-    const currentPlan = updateConfig(current.toString("utf8"), snapshot.path);
-    if (currentPlan.specs.includes(QUOTA_V4_SPEC)) authoritativeV4 = true;
+    const currentPlan = updateConfig(current.toString("utf8"), snapshot.path, plan.openCodeMajor);
+    if (currentPlan.specs.some((spec) => QUOTA_MOVING_SPECS.has(spec))) authoritativeLatest = true;
   }
 
   const removedCachePaths: string[] = [];
   const skippedCachePaths: string[] = [];
-  if (authoritativeV4) {
+  if (authoritativeLatest) {
     for (const candidate of plan.cacheCandidates) {
       const result = await removeVerifiedCacheCandidate(candidate);
       (result === "removed" ? removedCachePaths : skippedCachePaths).push(candidate);
@@ -661,11 +692,14 @@ export async function runScopedUpdateCommand(
   const yes = argv.includes("--yes");
   const log = params.log ?? console.log;
   try {
-    const plan = await planScopedUpdate(params);
+    const plan = await planScopedUpdate({
+      ...params,
+      openCodeMajor: await detectOpenCodeMajor(),
+    });
     for (const line of formatScopedUpdatePreview(plan)) log(line);
 
     const hasConfigChanges = plan.configSnapshots.some((snapshot) => snapshot.changed);
-    const hasAutomaticWork = hasConfigChanges || plan.authoritativeV4;
+    const hasAutomaticWork = hasConfigChanges || plan.authoritativeLatest;
 
     if (dryRun) {
       log(
@@ -706,7 +740,6 @@ export async function runScopedUpdateCommand(
 
     const result = await applyScopedUpdatePlan(plan);
     for (const path of result.writtenPaths) log(`Updated ${displayUpdatePath(path)}`);
-    if (plan.safeActions.some((action) => action.kind === "package-spec")) log(V4_PIN_REASON);
     for (const path of result.removedCachePaths) log(`Removed ${displayUpdatePath(path)}`);
     for (const path of result.skippedCachePaths) {
       log(`Skipped unverified cache candidate ${displayUpdatePath(path)}`);

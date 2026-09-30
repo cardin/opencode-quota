@@ -110,6 +110,7 @@ export const alibabaTokenPlanProvider: QuotaProvider = {
   async fetch(ctx: QuotaProviderContext): Promise<QuotaProviderResult> {
     const result = await queryAlibabaTokenPlanQuota({
       requestTimeoutMs: ctx.config?.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+      runtime: { cwd: ctx.workspaceRoot },
     });
     return withStatusDetails(
       mapClosedResult(result),

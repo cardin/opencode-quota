@@ -123,7 +123,7 @@ describe("v4 release gates", () => {
     const typescript = run(typescriptScript);
     expect(typescript.status).toBe(0);
     expect(typescript.stdout).toContain(
-      "TypeScript 7.0.2 and @opencode/plugin 2.0.7 lock entries verified",
+      "TypeScript 7.0.2 and @opencode/plugin 2.0.16 lock entries verified",
     );
 
     const historyRepo = path.join(tempDir, "clean-history");
@@ -195,7 +195,7 @@ describe("v4 release gates", () => {
       "references/local/opencode-1.18.2/package.json",
       "references/branches/private-plan.md",
       "prompt-exports/session.md",
-      "opencode-quota/auth.json",
+      "opencode-quota/opencode.db",
       "images/private-smoke.png",
       "local-live-tests/google-agy/account.json",
       "local-live-tests/openai/account.json",
@@ -261,7 +261,7 @@ describe("v4 release gates", () => {
       "references/local/v4.0.0-consolidated-plan.md",
       "references/upstream-plugins/README.md",
       "prompt-exports/review.md",
-      "opencode-quota/auth.json",
+      "opencode-quota/opencode.db",
       "tests/package-manifest.test.ts",
       "scripts/verify-release-version.mjs",
       "images/opencode-quota-logo-dark.svg",
@@ -304,7 +304,7 @@ describe("v4 release gates", () => {
 
   it("verifies one exact release tarball and rejects content tampering", async () => {
     const artifactDir = path.join(tempDir, "artifact");
-    const filename = "cardinal4-opencode-quota-5.0.0.tgz";
+    const filename = "slkiser-opencode-quota-4.0.0.tgz";
     const tarballPath = path.join(artifactDir, filename);
     const contents = Buffer.from("exact release artifact");
     await mkdir(artifactDir);

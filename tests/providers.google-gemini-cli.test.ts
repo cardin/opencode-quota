@@ -8,6 +8,13 @@ import {
 } from "./helpers/provider-assertions.js";
 
 vi.mock("../src/lib/google-gemini-cli.js", () => ({
+  GEMINI_CLI_AUTH_KEYS: [
+    "google-gemini-cli",
+    "gemini-cli",
+    "opencode-gemini-auth",
+    "gemini",
+    "google",
+  ],
   hasGeminiCliQuotaRuntimeAvailable: vi.fn(),
   queryGeminiCliQuota: vi.fn(),
   inspectGeminiCliAuthPresence: vi.fn(async () => ({
@@ -16,6 +23,11 @@ vi.mock("../src/lib/google-gemini-cli.js", () => ({
     accountCount: 0,
     validAccountCount: 0,
   })),
+}));
+
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readCredentialRows: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../src/lib/google-gemini-cli-companion.js", () => ({
@@ -31,13 +43,13 @@ describe("google gemini cli provider", () => {
     (queryGeminiCliQuota as any).mockResolvedValue(null);
 
     await googleGeminiCliProvider.fetch({ client: {}, config: { requestTimeoutMs: 5000 } } as any);
-    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({}, { requestTimeoutMs: undefined });
+    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({ requestTimeoutMs: undefined });
 
     await googleGeminiCliProvider.fetch({
       client: {},
       config: { requestTimeoutMs: 12000, requestTimeoutMsConfigured: true },
     } as any);
-    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({}, { requestTimeoutMs: 12000 });
+    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({ requestTimeoutMs: 12000 });
   });
 
   it("returns attempted:false when Gemini CLI auth is not configured", async () => {
@@ -164,6 +176,63 @@ describe("google gemini cli provider", () => {
 
     const out = await googleGeminiCliProvider.fetch({ client: {} } as any);
     expectAttemptedWithErrorLabel(out, "Gemini CLI");
+  });
+
+  it("adds an error row per login OpenCode could not return, next to working accounts", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryGeminiCliQuota } = await import("../src/lib/google-gemini-cli.js");
+    (readCredentialRows as any).mockResolvedValueOnce([
+      {
+        id: "failed-id",
+        integrationId: "google",
+        label: "work@example.com",
+        active: true,
+        value: { type: "oauth" },
+        resolveError: "refresh_failed: HTTP 400",
+      },
+      {
+        id: "working-id",
+        integrationId: "google-gemini-cli",
+        label: "home@example.com",
+        active: false,
+        value: { type: "oauth", refresh: "refresh-token|project-id" },
+      },
+    ]);
+    (queryGeminiCliQuota as any).mockResolvedValueOnce({
+      success: true,
+      buckets: [
+        {
+          modelId: "gemini-2.5-pro",
+          displayName: "Gemini Pro",
+          accountEmail: "home@example.com",
+          percentRemaining: 64,
+        },
+      ],
+    });
+
+    const out = await googleGeminiCliProvider.fetch({ client: {} } as any);
+
+    expect(readCredentialRows).toHaveBeenCalledWith(
+      ["google-gemini-cli", "gemini-cli", "opencode-gemini-auth", "gemini", "google"],
+      { methods: ["oauth"] },
+    );
+    // Only the working row is queried.
+    expect(queryGeminiCliQuota).toHaveBeenCalledTimes(1);
+    expect(queryGeminiCliQuota).toHaveBeenLastCalledWith({
+      requestTimeoutMs: undefined,
+      authData: { "google-gemini-cli": { type: "oauth", refresh: "refresh-token|project-id" } },
+    });
+    expect(out.attempted).toBe(true);
+    expect(out.errors).toEqual([
+      {
+        label: "[Gemini CLI work@example.com] (active)",
+        message:
+          "Gemini CLI sign-in could not be refreshed: refresh_failed: HTTP 400. Run `opencode auth login google`.",
+      },
+    ]);
+    expect(out.entries.map((entry) => [entry.group, entry.accounting.sourceId])).toEqual([
+      ["[Gemini CLI home@example.com]", "working-id"],
+    ]);
   });
 
   it("is available only when the Gemini CLI runtime is configured", async () => {

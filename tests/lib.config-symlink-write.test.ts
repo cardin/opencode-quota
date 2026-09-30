@@ -225,7 +225,14 @@ describe("scoped update symlink writes", () => {
     const root = makeTempDir();
     const project = join(root, "project");
     const real = join(root, "dotfiles", "opencode.json");
-    const cache = join(root, "cache", "opencode", "packages", "@cardinal4", "opencode-quota@5");
+    const cache = join(
+      root,
+      "cache",
+      "opencode",
+      "packages",
+      "@cardinal4",
+      "opencode-quota@latest",
+    );
     mkdirSync(join(project, ".git"), { recursive: true });
     mkdirSync(join(root, "dotfiles"), { recursive: true });
     writeFileSync(real, '{"plugin":["@cardinal4/opencode-quota@3.11.1"]}\n');
@@ -251,7 +258,7 @@ describe("scoped update symlink writes", () => {
     const result = await applyScopedUpdatePlan(plan);
     expect(result.writtenPaths).toEqual([join(project, "opencode.json")]);
     expect(lstatSync(join(project, "opencode.json")).isSymbolicLink()).toBe(true);
-    expect(readFileSync(real, "utf8")).toContain("@5");
+    expect(readFileSync(real, "utf8")).toContain("@latest");
     expect(result.removedCachePaths).toContain(cache);
     expect(existsSync(cache)).toBe(false);
   });
@@ -261,7 +268,14 @@ describe("scoped update symlink writes", () => {
     const project = join(root, "project");
     const real = join(root, "dotfiles", "opencode.json");
     const other = join(root, "other.json");
-    const cache = join(root, "cache", "opencode", "packages", "@cardinal4", "opencode-quota@5");
+    const cache = join(
+      root,
+      "cache",
+      "opencode",
+      "packages",
+      "@cardinal4",
+      "opencode-quota@latest",
+    );
     mkdirSync(join(project, ".git"), { recursive: true });
     mkdirSync(join(root, "dotfiles"), { recursive: true });
     writeFileSync(real, '{"plugin":["@cardinal4/opencode-quota@3.11.1"]}\n');

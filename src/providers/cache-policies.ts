@@ -27,11 +27,11 @@ import {
 import { resolveNanoGptApiKey } from "../lib/nanogpt-config.js";
 import { resolveOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
 import { resolveOpenAIAuthIdentity } from "../lib/openai.js";
+import { consoleBaseUrl, resolveOpenCodeConsoleAuth } from "../lib/opencode-console-auth.js";
 import {
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
   resolveOpenCodeGoAuthCached,
 } from "../lib/opencode-go-auth.js";
-import { resolveOpenCodeZenAccountCached } from "../lib/opencode-zen-config.js";
 import { resolveOpenRouterAuthIdentity } from "../lib/openrouter.js";
 import type { CanonicalQuotaProviderId } from "../lib/provider-registration.js";
 import type {
@@ -158,11 +158,11 @@ export const PROVIDER_CACHE_POLICIES = {
   }),
   "google-gemini-cli": {
     kind: "resolved-auth",
-    resolveIdentity: (ctx) => resolveGeminiCliAuthIdentity(ctx.client),
+    resolveIdentity: () => resolveGeminiCliAuthIdentity(),
   },
   "google-agy": {
     kind: "resolved-auth",
-    resolveIdentity: (ctx) => resolveGoogleAgyAuthIdentity(ctx.client),
+    resolveIdentity: () => resolveGoogleAgyAuthIdentity(),
   },
   zai: resolvedCredentialPolicy("zai", async () => {
     const resolved = await resolveZaiAuthCached({ maxAgeMs: DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS });
@@ -231,14 +231,15 @@ export const PROVIDER_CACHE_POLICIES = {
     return resolved.state === "configured" ? { credential: resolved.apiKey } : null;
   }),
   opencode: resolvedCredentialPolicy("opencode", async () => {
-    const resolved = await resolveOpenCodeZenAccountCached();
+    const resolved = await resolveOpenCodeConsoleAuth();
     if (resolved.state !== "configured") return null;
-    // Org ids can collide across self-hosted Console URLs, so the cache
-    // identity is the (org id, console URL) tuple.
+    const { credential } = resolved;
+    // The identity is the org (else the account, else the token) plus the Console URL:
+    // org ids can collide across self-hosted Console URLs.
     return {
-      credential: resolved.account.activeOrgId,
-      principalKind: "stable-id",
-      qualifiers: [resolved.account.baseUrl],
+      credential: credential.orgId ?? credential.accountId ?? credential.accessToken,
+      principalKind: credential.orgId || credential.accountId ? "stable-id" : "credential",
+      qualifiers: [consoleBaseUrl(credential)],
     };
   }),
   "ollama-cloud": resolvedCredentialPolicy("ollama-cloud", async () => {

@@ -1,4 +1,3 @@
-import { getAmbientAbortSignal } from "./abort-context.js";
 import {
   createProviderApiKeyResolver,
   getApiKeyCheckedPaths,
@@ -6,8 +5,7 @@ import {
 } from "./api-key-resolver.js";
 import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
 import type { AccountingResultType, QuotaToastEntry } from "./entries.js";
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
-import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 import type {
   JsonV1Mapping,
   JsonV1NumberSource,
@@ -42,18 +40,13 @@ const RESULT_TYPES = new Set<AccountingResultType>([
 ]);
 const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-export type QuotaProviderAuthSource =
-  | "env"
-  | "opencode.json"
-  | "opencode.jsonc"
-  | "auth.json"
-  | OpenCodeCredentialSource;
+export type QuotaProviderAuthSource = "env" | "opencode.json" | "opencode.jsonc" | "opencode.db";
 
 export interface QuotaProviderAuthResolution {
   key?: string;
   source: QuotaProviderAuthSource | null;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
 }
 
 export type RemoteQuotaProviderResult =
@@ -110,9 +103,11 @@ export async function resolveQuotaProviderApiKey(
     configJsoncSource: "opencode.jsonc",
     getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     auth: {
-      readAuth: readAuthFile,
+      // Key logins only: `providerId` can name an integration with OAuth sign-ins
+      // (for example `opencode`), and resolving one could refresh its token for nothing.
+      readAuth: () => readAuthFile({ integrationIds: [source.providerId], methods: ["key"] }),
       authKeys: [source.providerId],
-      authSource: "auth.json",
+      authSource: "opencode.db",
     },
   });
 
@@ -124,7 +119,7 @@ export async function resolveQuotaProviderApiKey(
       envVarNames: source.apiKeyEnv ? [source.apiKeyEnv] : [],
       getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
     }),
-    authPaths: getAuthPaths(),
+    credentialDatabasePaths: getCredentialDatabasePaths(),
   };
 }
 
@@ -744,20 +739,7 @@ export async function fetchRemoteQuotaProvider(
 ): Promise<RemoteQuotaProviderResult> {
   const timeoutMs = requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const ambientSignal = getAmbientAbortSignal();
-  const abortFromAmbient = () => controller.abort(ambientSignal?.reason);
-  if (ambientSignal) {
-    if (ambientSignal.aborted) {
-      controller.abort(ambientSignal.reason);
-    } else {
-      ambientSignal.addEventListener("abort", abortFromAmbient, { once: true });
-    }
-  }
-  let timedOut = false;
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(source.url, {
@@ -790,9 +772,7 @@ export async function fetchRemoteQuotaProvider(
     if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
       return {
         success: false,
-        error: timedOut
-          ? `Request timeout after ${Math.round(timeoutMs / 1000)}s`
-          : "Request cancelled",
+        error: `Request timeout after ${Math.round(timeoutMs / 1000)}s`,
       };
     }
     if (

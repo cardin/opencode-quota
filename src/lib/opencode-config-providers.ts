@@ -5,11 +5,8 @@ import {
   dedupeNonEmptyStrings,
   extractPluginSpecsFromParsedConfig,
   extractProviderIdsFromParsedConfig,
-  PLUGIN_CONFIG_KEYS,
-  PROVIDER_CONFIG_KEYS,
   resolveEditableConfigPath,
   resolveExistingConfigPath,
-  resolveProviderConfigKey,
 } from "./config-file-utils.js";
 import {
   applyConfigDocumentEdit,
@@ -23,7 +20,7 @@ import {
   readOpenCodeConfigCandidate,
   selectFirstExistingOpenCodeConfigCandidate,
 } from "./opencode-config-read.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import {
   getQuotaProviderRuntimeIds,
   getQuotaProviderShape,
@@ -53,18 +50,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function getCandidates(configRootDir: string): OpenCodeConfigCandidate[] {
-  return dedupeNonEmptyStrings([
-    ...getOpencodeRuntimeDirCandidates().configDirs,
-    configRootDir,
-  ]).flatMap((directory) => {
-    const selected = selectFirstExistingOpenCodeConfigCandidate(
-      buildOpenCodeConfigCandidates({
-        directories: [directory],
-        formatOrder: ["jsonc", "json"],
-      }),
-    );
-    return selected ? [selected] : [];
-  });
+  return dedupeNonEmptyStrings([getOpencodeRuntimeDirs().configDir, configRootDir]).flatMap(
+    (directory) => {
+      const selected = selectFirstExistingOpenCodeConfigCandidate(
+        buildOpenCodeConfigCandidates({
+          directories: [directory],
+          formatOrder: ["jsonc", "json"],
+        }),
+      );
+      return selected ? [selected] : [];
+    },
+  );
 }
 
 async function readConfig(
@@ -79,16 +75,7 @@ const COMPANION_PLUGIN_PROVIDER_IDS: ReadonlyArray<{
   matches: readonly string[];
 }> = [
   { providerId: "google-gemini-cli", matches: ["opencode-gemini-auth"] },
-  {
-    providerId: "cursor",
-    matches: [
-      "@playwo/opencode-cursor-oauth",
-      "opencode-cursor-oauth",
-      "opencode-cursor",
-      "open-cursor",
-      "@rama_nigg/open-cursor",
-    ],
-  },
+  { providerId: "cursor", matches: ["cursor-opencode-provider"] },
 ];
 
 function mergeOpenCodeConfig(
@@ -97,22 +84,32 @@ function mergeOpenCodeConfig(
 ): Record<string, unknown> {
   const merged = { ...base, ...next };
 
-  for (const key of PROVIDER_CONFIG_KEYS) {
-    if (isRecord(base[key]) || isRecord(next[key])) {
-      merged[key] = {
-        ...(isRecord(base[key]) ? base[key] : {}),
-        ...(isRecord(next[key]) ? next[key] : {}),
-      };
-    }
+  if (isRecord(base.provider) || isRecord(next.provider)) {
+    merged.provider = {
+      ...(isRecord(base.provider) ? base.provider : {}),
+      ...(isRecord(next.provider) ? next.provider : {}),
+    };
   }
 
-  for (const key of PLUGIN_CONFIG_KEYS) {
-    if (Array.isArray(base[key]) || Array.isArray(next[key])) {
-      merged[key] = [
-        ...(Array.isArray(base[key]) ? base[key] : []),
-        ...(Array.isArray(next[key]) ? next[key] : []),
-      ];
-    }
+  if (isRecord(base.providers) || isRecord(next.providers)) {
+    merged.providers = {
+      ...(isRecord(base.providers) ? base.providers : {}),
+      ...(isRecord(next.providers) ? next.providers : {}),
+    };
+  }
+
+  if (Array.isArray(base.plugin) || Array.isArray(next.plugin)) {
+    merged.plugin = [
+      ...(Array.isArray(base.plugin) ? base.plugin : []),
+      ...(Array.isArray(next.plugin) ? next.plugin : []),
+    ];
+  }
+
+  if (Array.isArray(base.plugins) || Array.isArray(next.plugins)) {
+    merged.plugins = [
+      ...(Array.isArray(base.plugins) ? base.plugins : []),
+      ...(Array.isArray(next.plugins) ? next.plugins : []),
+    ];
   }
 
   return merged;
@@ -176,9 +173,8 @@ export async function reconcileDetectedProvidersInGlobalConfig(
         return Boolean(shape && shape.id !== "quota-providers");
       }),
   );
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  const globalConfigDir = configDirs[0];
-  if (!globalConfigDir || detectedProviderIds.length === 0) {
+  const globalConfigDir = getOpencodeRuntimeDirs().configDir;
+  if (detectedProviderIds.length === 0) {
     return { path: null, format: null, addedProviderIds: [], changed: false };
   }
 
@@ -210,23 +206,22 @@ export async function reconcileDetectedProvidersInGlobalConfig(
   const raw = target.existed ? await readFile(target.sourcePath, "utf8") : "{}\n";
   const sourceFormat: ConfigFileFormat = target.sourcePath.endsWith(".jsonc") ? "jsonc" : "json";
   const root = parseConfigDocument(raw, sourceFormat, target.sourcePath);
-  const providerKey = resolveProviderConfigKey(root);
-  if (root[providerKey] !== undefined && !isRecord(root[providerKey])) {
+  if (root.provider !== undefined && !isRecord(root.provider)) {
     throw new ConfigDocumentError(
-      `Cannot add detected providers because ${providerKey} is not an object: ${target.sourcePath}`,
+      `Cannot add detected providers because provider is not an object: ${target.sourcePath}`,
       target.sourcePath,
     );
   }
-  const provider = isRecord(root[providerKey]) ? { ...root[providerKey] } : {};
+  const provider = isRecord(root.provider) ? { ...root.provider } : {};
   for (const providerId of addedProviderIds) {
     provider[providerId] = {};
   }
 
   const edit = await planConfigDocumentEdit({
     target,
-    desiredData: { ...root, [providerKey]: provider },
+    desiredData: { ...root, provider },
     managedComments: addedProviderIds.map((providerId) => ({
-      path: [providerKey, providerId],
+      path: ["provider", providerId],
       text: `// Detected ${providerId} authentication; opencode-quota added this global provider declaration.`,
     })),
   });

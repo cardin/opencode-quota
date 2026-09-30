@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
 import { aggregateUsage } from "../src/lib/quota-stats.js";
-
 import {
   buildProviderStatusReport,
   buildQuotaStatusReportForTest,
+  DEFAULT_QUOTA_STATUS_REPORT_GENERATED_AT_MS,
   expectReportSection,
   getReportSection,
   makeProviderAvailability,
@@ -12,6 +12,7 @@ import {
   makeProviderProbe,
   makeProviderSafeFailureProbe,
   makeProviderSuccessProbe,
+  makeQuotaStatusReportParams,
   makeStatusDetails,
 } from "./helpers/quota-status-test-harness.js";
 
@@ -47,7 +48,7 @@ const openrouterMocks = vi.hoisted(() => ({
   resolveOpenRouterApiKey: vi.fn(async () => ({
     source: null,
     checkedPaths: [],
-    authPaths: [],
+    credentialDatabasePaths: [],
   })),
 }));
 
@@ -55,9 +56,17 @@ vi.mock("fs/promises", () => ({
   stat: fsPromiseMocks.stat,
 }));
 
+const credentialSourceMocks = vi.hoisted(() => ({
+  getCredentialSourceDiagnostics: vi.fn(() => ({
+    state: "bound",
+    kind: "opencode-integration-api",
+    failures: [],
+  })),
+}));
+
 vi.mock("../src/lib/opencode-auth.js", () => ({
-  getAuthPath: () => "/tmp/auth.json",
-  getAuthPaths: () => ["/tmp/auth.json"],
+  getCredentialDatabasePaths: () => ["/tmp/opencode.db"],
+  getCredentialSourceDiagnostics: credentialSourceMocks.getCredentialSourceDiagnostics,
   readAuthFileCached: vi.fn(async () => ({})),
 }));
 
@@ -67,9 +76,6 @@ vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
     configDir: "/tmp/config",
     cacheDir: "/tmp/cache",
     stateDir: "/tmp/state",
-  }),
-  getOpencodeRuntimeDirCandidates: () => ({
-    configDirs: ["/tmp/config"],
   }),
 }));
 
@@ -128,8 +134,6 @@ vi.mock("../src/providers/registry.js", () => ({
     { id: "deepseek" },
     { id: "opencode-go" },
     { id: "xiaomi" },
-    { id: "kimi-code-plan-global" },
-    { id: "kimi-code-plan-cn" },
     { id: "kimi-for-coding" },
     { id: "kimi-code" },
   ],
@@ -139,9 +143,11 @@ vi.mock("../src/lib/version.js", () => ({
   getPackageVersion: vi.fn(async () => "1.2.3"),
 }));
 
-vi.mock("../src/lib/opencode-storage.js", () => ({
+vi.mock("../src/lib/opencode-db-path.js", () => ({
   getOpenCodeDbPath: () => "/tmp/opencode.db",
-  getOpenCodeDbPathCandidates: () => ["/tmp/opencode.db"],
+}));
+
+vi.mock("../src/lib/opencode-storage.js", () => ({
   getOpenCodeDbStats: vi.fn(async () => ({
     sessionCount: 0,
     messageCount: 0,
@@ -165,6 +171,23 @@ vi.mock("../src/lib/quota-stats.js", () => ({
 describe("buildQuotaStatusReport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("keeps the title line in text and gives the dialog the version and time", async () => {
+    const { buildQuotaStatusReportDocument } = await import("../src/lib/quota-status.js");
+    const time = formatLocalCallTimestamp(DEFAULT_QUOTA_STATUS_REPORT_GENERATED_AT_MS);
+
+    const report = await buildQuotaStatusReportForTest();
+    const document = await buildQuotaStatusReportDocument(makeQuotaStatusReportParams());
+
+    expect(report.split("\n").slice(0, 2)).toEqual([
+      `# Quota Status (opencode-quota v1.2.3) (/quota_status) ${time}`,
+      "",
+    ]);
+    expect(document.heading).toEqual({
+      line: `# Quota Status (opencode-quota v1.2.3) (/quota_status) ${time}`,
+      subtitle: `opencode-quota v1.2.3 · ${time}`,
+    });
   });
 
   it("uses a Unicode ellipsis for truncated pricing diagnostic lists", async () => {
@@ -282,7 +305,7 @@ describe("buildQuotaStatusReport", () => {
                 httpStatus: 401,
                 entryCount: 0,
                 checkedPaths: ["env:INTERNAL_GATEWAY_KEY", "/trusted/opencode.jsonc"],
-                authPaths: ["/trusted/auth.json"],
+                credentialDatabasePaths: ["/trusted/opencode.db"],
               },
             ],
           },
@@ -299,7 +322,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain("outcome=http_error");
     expect(section).toContain("credential_category=trusted_global_config");
     expect(section).toContain("env_name=INTERNAL_GATEWAY_KEY");
-    expect(section).toContain("/trusted/opencode.jsonc | /trusted/auth.json");
+    expect(section).toContain("/trusted/opencode.jsonc | /trusted/opencode.db");
     expect(section).toContain("provider_second-source:");
     expect(section).toContain("outcome=unavailable");
     expect(section).not.toContain("private.example");
@@ -443,20 +466,9 @@ describe("buildQuotaStatusReport", () => {
         showOnBothFail: "/tmp/config/opencode.json (experimental.quotaToast)",
         "layout.maxWidth": "/tmp/project/opencode.jsonc (experimental.quotaToast)",
       },
-      tuiDiagnostics: {
+      runtimeRoots: {
         workspaceRoot: "/tmp/workspace",
         configRoot: "/tmp/project",
-        configured: true,
-        inferredSelectedPath: "/tmp/project/tui.jsonc",
-        presentPaths: ["/tmp/config/tui.json", "/tmp/project/tui.jsonc"],
-        candidatePaths: [
-          "/tmp/config/tui.json",
-          "/tmp/config/tui.jsonc",
-          "/tmp/project/tui.json",
-          "/tmp/project/tui.jsonc",
-        ],
-        quotaPluginConfigured: true,
-        quotaPluginConfigPaths: ["/tmp/project/tui.jsonc"],
       },
       enabledProviders: ["copilot"],
       anthropicBinaryPath: "/opt/claude/bin/claude",
@@ -502,21 +514,11 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain(
       "- setting_sources: enabled<=/tmp/config/opencode.json (experimental.quotaToast) | enableToast<=/tmp/config/opencode.json (experimental.quotaToast) | minIntervalMs<=/tmp/project/opencode.jsonc (experimental.quotaToast) | enabledProviders<=/tmp/project/opencode.jsonc (experimental.quotaToast) | pricingSnapshot.source<=/tmp/config/opencode.json (experimental.quotaToast) | pricingSnapshot.autoRefresh<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnIdle<=/tmp/config/opencode.json (experimental.quotaToast) | showOnQuestion<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnCompact<=/tmp/project/opencode.jsonc (experimental.quotaToast) | showOnBothFail<=/tmp/config/opencode.json (experimental.quotaToast) | layout.maxWidth<=/tmp/project/opencode.jsonc (experimental.quotaToast)",
     );
-    expect(report).toContain("tui:");
+    expect(report).not.toContain("tui:");
     expect(report).toContain("- workspace_root: /tmp/workspace");
     expect(report).toContain("- config_root: /tmp/project");
-    expect(report).toContain("- config_configured: true");
-    expect(report).toContain("- inferred_selected_config_path: /tmp/project/tui.jsonc");
     expect(report).toContain(
-      "- present_config_paths: /tmp/config/tui.json | /tmp/project/tui.jsonc",
-    );
-    expect(report).toContain(
-      "- candidate_config_paths: /tmp/config/tui.json | /tmp/config/tui.jsonc | /tmp/project/tui.json | /tmp/project/tui.jsonc",
-    );
-    expect(report).toContain("- quota_plugin_configured: true");
-    expect(report).toContain("- quota_plugin_paths: /tmp/project/tui.jsonc");
-    expect(report).toContain(
-      "- auth.json: preferred=/tmp/auth.json present=(none) candidates=/tmp/auth.json",
+      "- opencode.db: path=/tmp/opencode.db present=false (session and token history)",
     );
     expect(report).toContain(
       "- pricing: source=test active_source=bundled generated_at=2026-01-01T00:00:00.000Z units=usd_per_1m_tokens",
@@ -553,12 +555,6 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(report).toContain(
       "- nanogpt: pricing=no (subscription request quota + account balance (not token-priced))",
-    );
-    expect(report).toContain(
-      "- kimi-code-plan-global: pricing=no (request quota via Kimi Code API (not token-priced))",
-    );
-    expect(report).toContain(
-      "- kimi-code-plan-cn: pricing=no (request quota via Kimi Code API (not token-priced))",
     );
     expect(report).toContain(
       "- kimi-for-coding: pricing=no (request quota via Kimi Code API (not token-priced))",
@@ -882,7 +878,7 @@ describe("buildQuotaStatusReport", () => {
         makeProviderSuccessProbe("nanogpt", {
           api_key_configured: "true",
           api_key_source: "env:NANOGPT_API_KEY",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
           subscription_active: "false",
           subscription_state: "grace",
           enforce_daily_limit: "true",
@@ -902,7 +898,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("nanogpt:");
     expect(report).toContain("- api_key_configured: true");
     expect(report).toContain("- api_key_source: env:NANOGPT_API_KEY");
-    expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(report).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(report).toContain("- subscription_active: false");
     expect(report).toContain("- subscription_state: grace");
     expect(report).toContain("- enforce_daily_limit: true");
@@ -1003,7 +999,7 @@ describe("buildQuotaStatusReport", () => {
           api_key_configured: "true",
           api_key_source: "env:DEEPSEEK_API_KEY",
           api_key_checked_paths: "env:DEEPSEEK_API_KEY",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
         }),
       ],
     });
@@ -1012,7 +1008,7 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- api_key_configured: true");
     expect(report).toContain("- api_key_source: env:DEEPSEEK_API_KEY");
     expect(report).toContain("- api_key_checked_paths: env:DEEPSEEK_API_KEY");
-    expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(report).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(report).toContain("- deepseek: pricing=no (account balance only (not token-priced))");
   });
 
@@ -1023,7 +1019,7 @@ describe("buildQuotaStatusReport", () => {
           api_key_configured: "true",
           api_key_source: "env",
           api_key_checked_paths: "env:OPENROUTER_API_KEY",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
         }),
       ],
     });
@@ -1032,7 +1028,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain("- api_key_configured: true");
     expect(section).toContain("- api_key_source: env");
     expect(section).toContain("- api_key_checked_paths: env:OPENROUTER_API_KEY");
-    expect(section).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(section).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(openrouterMocks.resolveOpenRouterApiKey).not.toHaveBeenCalled();
     expect(openrouterMocks.queryOpenRouterQuota).not.toHaveBeenCalled();
     expect(openrouterMocks.hasOpenRouterApiKeyConfigured).not.toHaveBeenCalled();
@@ -1045,7 +1041,7 @@ describe("buildQuotaStatusReport", () => {
           "openrouter",
           {
             api_key_configured: "true",
-            api_key_source: "auth.json",
+            api_key_source: "opencode.db",
           },
           {
             errors: [{ label: "OpenRouter", message: "HTTP 401" }],
@@ -1056,7 +1052,7 @@ describe("buildQuotaStatusReport", () => {
 
     const section = getReportSection(report, "openrouter:");
     expect(section).toContain("- api_key_configured: true");
-    expect(section).toContain("- api_key_source: auth.json");
+    expect(section).toContain("- api_key_source: opencode.db");
     expect(section).toContain("- live_probe: error");
     expect(section).toContain("- live_error_1: HTTP 401");
     expect(openrouterMocks.resolveOpenRouterApiKey).not.toHaveBeenCalled();
@@ -1083,7 +1079,7 @@ describe("buildQuotaStatusReport", () => {
             api_key_configured: "true",
             api_key_source: "env",
             api_key_checked_paths: "env:OPENROUTER_API_KEY",
-            api_key_auth_paths: "/tmp/auth.json",
+            api_key_credential_database_paths: "/tmp/opencode.db",
           },
           {
             errors: [{ label: "OpenRouter", message: "HTTP 401" }],
@@ -1135,7 +1131,7 @@ describe("buildQuotaStatusReport", () => {
           auth_state: "configured",
           auth_source: "env:OPENCODE_API_KEY",
           auth_checked_paths: "env:OPENCODE_API_KEY | provider.opencode.options.apiKey",
-          auth_paths: "/tmp/auth.json",
+          credential_database_paths: "/tmp/opencode.db",
           selected_windows: "rolling,weekly,monthly",
           rolling_usage:
             "status=ok percent_used=7 percent_remaining=93 reset_at=2026-03-12T17:45:00.000Z",
@@ -1157,7 +1153,7 @@ describe("buildQuotaStatusReport", () => {
     expect(section).toContain(
       "- auth_checked_paths: env:OPENCODE_API_KEY | provider.opencode.options.apiKey",
     );
-    expect(section).toContain("- auth_paths: /tmp/auth.json");
+    expect(section).toContain("- credential_database_paths: /tmp/opencode.db");
     expect(section).toContain("- selected_windows: rolling,weekly,monthly");
     expect(section).toContain(
       "- rolling_usage: status=ok percent_used=7 percent_remaining=93 reset_at=2026-03-12T17:45:00.000Z",
@@ -1177,16 +1173,40 @@ describe("buildQuotaStatusReport", () => {
     );
   });
 
+  it("reports which source answered OpenCode Go and why the Console failed", async () => {
+    const report = await buildOpenCodeGoStatusReport({
+      providerAvailability: [makeProviderAvailability("opencode-go")],
+      providerLiveProbes: [
+        makeProviderProbe("opencode-go", {
+          statusDetails: makeStatusDetails({
+            auth_state: "none",
+            console_auth_state: "configured",
+            console_server: "https://opencode.ai",
+            console_error: "OpenCode Console API error 500 (/api/go/status)",
+            go_source: "legacy_key",
+            selected_windows: "rolling,weekly,monthly",
+          }),
+        }),
+      ],
+    });
+
+    const section = getReportSection(report, "opencode_go:");
+    expect(section).toContain("- console_auth_state: configured");
+    expect(section).toContain("- console_server: https://opencode.ai");
+    expect(section).toContain("- console_error: OpenCode Console API error 500 (/api/go/status)");
+    expect(section).toContain("- go_source: legacy_key");
+  });
+
   it("reports safe OpenCode Go invalid-auth details without legacy config fields", async () => {
     const report = await buildOpenCodeGoStatusReport({
       providerLiveProbes: [
         makeProviderProbe("opencode-go", {
           statusDetails: makeStatusDetails({
             auth_state: "invalid",
-            auth_source: "auth.json",
+            auth_source: "opencode.db",
             auth_checked_paths: "env:OPENCODE_API_KEY | provider.opencode.options.apiKey",
-            auth_paths: "/tmp/auth.json",
-            auth_error: "auth.json entry opencode must contain a non-empty API key",
+            credential_database_paths: "/tmp/opencode.db",
+            auth_error: "opencode.db entry opencode must contain a non-empty API key",
             selected_windows: "rolling,weekly,monthly",
             config_state: "invalid",
             config_error: "legacy secret",
@@ -1197,10 +1217,10 @@ describe("buildQuotaStatusReport", () => {
 
     const section = getReportSection(report, "opencode_go:");
     expect(section).toContain("- auth_state: invalid");
-    expect(section).toContain("- auth_source: auth.json");
-    expect(section).toContain("- auth_paths: /tmp/auth.json");
+    expect(section).toContain("- auth_source: opencode.db");
+    expect(section).toContain("- credential_database_paths: /tmp/opencode.db");
     expect(section).toContain(
-      "- auth_error: auth.json entry opencode must contain a non-empty API key",
+      "- auth_error: opencode.db entry opencode must contain a non-empty API key",
     );
     expect(section).toContain("- selected_windows: rolling,weekly,monthly");
     expect(section).not.toContain("config_");
@@ -1215,9 +1235,9 @@ describe("buildQuotaStatusReport", () => {
           "opencode-go",
           {
             auth_state: "configured",
-            auth_source: "auth.json",
+            auth_source: "opencode.db",
             auth_checked_paths: "env:OPENCODE_API_KEY",
-            auth_paths: "/tmp/auth.json",
+            credential_database_paths: "/tmp/opencode.db",
             selected_windows: "rolling,weekly,monthly",
             live_fetch_error: "OpenCode Go API error 503: unavailable",
             dashboard_url: "https://opencode.ai/workspace/private",
@@ -1235,23 +1255,29 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("workspace/private");
   });
 
-  it("reports OpenCode Zen console account and live billing details without exposing credentials", async () => {
+  it("reports OpenCode Zen Console sign-in and live billing details without exposing credentials", async () => {
     const report = await buildOpenCodeZenStatusReport({
       providerLiveProbes: [
         makeProviderSuccessProbe("opencode", {
-          account_state: "configured",
-          console_url: "https://opencode.ai/console",
-          balance_usd: "$42.50",
-          monthly_limit_usd: "$50.00",
+          console_auth_state: "configured",
+          console_server: "https://opencode.ai/console",
+          console_org: "Acme",
+          balance_usd: "USD 42.5",
+          monthly_limit_usd: "USD 50",
+          monthly_usage_usd: "USD 11.82",
+          budget_source: "org_budget",
         }),
       ],
     });
 
     expect(report).toContain("opencode_zen:");
-    expect(report).toContain("- account_state: configured");
-    expect(report).toContain("- console_url: https://opencode.ai/console");
-    expect(report).toContain("- balance_usd: $42.50");
-    expect(report).toContain("- monthly_limit_usd: $50.00");
+    expect(report).toContain("- console_auth_state: configured");
+    expect(report).toContain("- console_server: https://opencode.ai/console");
+    expect(report).toContain("- console_org: Acme");
+    expect(report).toContain("- balance_usd: USD 42.5");
+    expect(report).toContain("- monthly_limit_usd: USD 50");
+    expect(report).toContain("- monthly_usage_usd: USD 11.82");
+    expect(report).toContain("- budget_source: org_budget");
     expect(report).not.toContain("st-secret-token");
   });
 
@@ -1263,10 +1289,10 @@ describe("buildQuotaStatusReport", () => {
           result: {
             attempted: true,
             entries: [],
-            errors: [{ label: "OpenCode", message: "Request timeout after 10s" }],
+            errors: [{ label: "OpenCode Zen", message: "Request timeout after 10s" }],
             statusDetails: makeStatusDetails({
-              account_state: "configured",
-              console_url: "https://opencode.ai/console",
+              console_auth_state: "configured",
+              console_server: "https://opencode.ai/console",
             }),
           },
         },
@@ -1276,21 +1302,17 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("- live_probe: error");
   });
 
-  it("reports a fixed OpenCode Zen auth error without attempting a live fetch", async () => {
+  it("reports a missing OpenCode Console sign-in without attempting a live fetch", async () => {
     const report = await buildOpenCodeZenStatusReport({
       providerLiveProbes: [
         makeProviderProbe("opencode", {
-          statusDetails: makeStatusDetails({
-            account_state: "expired",
-            account_error: "OpenCode Console session expired",
-          }),
+          statusDetails: makeStatusDetails({ console_auth_state: "none" }),
         }),
       ],
     });
 
     expect(report).toContain("opencode_zen:");
-    expect(report).toContain("- account_state: expired");
-    expect(report).toContain("- account_error: OpenCode Console session expired");
+    expect(report).toContain("- console_auth_state: none");
   });
 
   it("reports safe Xiaomi config and partial live summaries without exposing cookie data", async () => {
@@ -1362,9 +1384,9 @@ describe("buildQuotaStatusReport", () => {
         makeProviderSuccessProbe("minimax-coding-plan", {
           auth_state: "configured",
           api_key_configured: "true",
-          api_key_source: "auth.json",
+          api_key_source: "opencode.db",
           api_key_checked_paths: "(none)",
-          api_key_auth_paths: "/tmp/auth.json",
+          api_key_credential_database_paths: "/tmp/opencode.db",
           five_hour_usage: "70/4500 percent_remaining=98 reset_at=2026-03-25T18:00:00.000Z",
           weekly_usage: "105/45000 percent_remaining=100 reset_at=2026-04-01T00:00:00.000Z",
         }),
@@ -1375,9 +1397,9 @@ describe("buildQuotaStatusReport", () => {
     expect(report).toContain("minimax:");
     expect(report).toContain("- auth_state: configured");
     expect(report).toContain("- api_key_configured: true");
-    expect(report).toContain("- api_key_source: auth.json");
+    expect(report).toContain("- api_key_source: opencode.db");
     expect(report).toContain("- api_key_checked_paths: (none)");
-    expect(report).toContain("- api_key_auth_paths: /tmp/auth.json");
+    expect(report).toContain("- api_key_credential_database_paths: /tmp/opencode.db");
     expect(report).toContain(
       "- five_hour_usage: 70/4500 percent_remaining=98 reset_at=2026-03-25T18:00:00.000Z",
     );
@@ -1449,6 +1471,71 @@ describe("buildQuotaStatusReport", () => {
     expect(section).not.toContain("live_error");
   });
 
+  it("reports the login source, its last list error, and each login OpenCode could not return", async () => {
+    credentialSourceMocks.getCredentialSourceDiagnostics.mockReturnValueOnce({
+      state: "bound",
+      kind: "opencode-integration-api",
+      lastListError: { at: 1, detail: "Invalid credential value" },
+      failures: [
+        {
+          integrationId: "openai",
+          connectionId: "cred_1",
+          label: "Work",
+          category: "refresh_failed",
+          detail: "HTTP 401 [redacted]",
+          at: 2,
+        },
+        {
+          integrationId: "xai",
+          connectionId: "xai",
+          label: "",
+          category: "active_failed",
+          detail: "database is locked",
+          at: 3,
+        },
+      ],
+    } as never);
+
+    const report = await buildQuotaStatusReportForTest();
+
+    expect(getReportSection(report, "credential_source:")).toMatchInlineSnapshot(`
+      "credential_source:
+      - source: opencode-integration-api
+      - list_error: Invalid credential value
+      - failures: openai:Work:refresh_failed:HTTP 401 [redacted] | xai::active_failed:database is locked
+      "
+    `);
+  });
+
+  it("reports the terminal command's database login source", async () => {
+    credentialSourceMocks.getCredentialSourceDiagnostics.mockReturnValueOnce({
+      state: "bound",
+      kind: "sqlite",
+      failures: [],
+    } as never);
+
+    const report = await buildQuotaStatusReportForTest();
+
+    expect(getReportSection(report, "credential_source:")).toMatchInlineSnapshot(`
+      "credential_source:
+      - source: sqlite
+      - list_error: (none)
+      - failures: (none)
+      "
+    `);
+  });
+
+  it("reports an unbound login source", async () => {
+    credentialSourceMocks.getCredentialSourceDiagnostics.mockReturnValueOnce({
+      state: "unbound",
+      failures: [],
+    } as never);
+
+    const report = await buildQuotaStatusReportForTest();
+
+    expect(getReportSection(report, "credential_source:")).toContain("- source: unbound");
+  });
+
   it("locks the early /quota_status section layout after the shared report-document migration", async () => {
     const report = await buildProviderStatusReport("copilot", {
       configSource: "defaults",
@@ -1457,7 +1544,7 @@ describe("buildQuotaStatusReport", () => {
           "alibaba auth configured": "false",
           alibaba_api_key_source: "(none)",
           alibaba_api_key_checked_paths: "(none)",
-          alibaba_api_key_auth_paths: "/tmp/auth.json",
+          alibaba_api_key_credential_database_paths: "/tmp/opencode.db",
           alibaba_coding_plan: "(none)",
         }),
         makeProviderSuccessProbe("openai", {
@@ -1471,6 +1558,7 @@ describe("buildQuotaStatusReport", () => {
         makeProviderSuccessProbe("anthropic", {
           cli_installed: "true",
           cli_version: "1.2.3",
+          binary_path: "claude (PATH)",
           auth_status: "authenticated",
           quota_supported: "false",
           quota_source: "(none)",
@@ -1492,7 +1580,7 @@ describe("buildQuotaStatusReport", () => {
     );
     expect(blank).toBe("");
 
-    const excerpt = body.slice(0, 47).join("\n");
+    const excerpt = body.slice(0, 53).join("\n");
     expect(excerpt).toMatchInlineSnapshot(`
       "toast:
       - configSource: defaults
@@ -1509,13 +1597,17 @@ describe("buildQuotaStatusReport", () => {
 
       paths:
       - opencode_dirs: data=/tmp/data config=/tmp/config cache=/tmp/cache state=/tmp/state
-      - auth.json: preferred=/tmp/auth.json present=(none) candidates=/tmp/auth.json
-      - opencode db: preferred=/tmp/opencode.db present=(none) candidates=/tmp/opencode.db
+      - opencode.db: path=/tmp/opencode.db present=false (session and token history)
       - alibaba auth configured: false
       - alibaba_api_key_source: (none)
       - alibaba_api_key_checked_paths: (none)
-      - alibaba_api_key_auth_paths: /tmp/auth.json
+      - alibaba_api_key_credential_database_paths: /tmp/opencode.db
       - alibaba_coding_plan: (none)
+
+      credential_source:
+      - source: opencode-integration-api
+      - list_error: (none)
+      - failures: (none)
 
       openai:
       - auth_configured: false
@@ -1528,6 +1620,7 @@ describe("buildQuotaStatusReport", () => {
       anthropic:
       - cli_installed: true
       - cli_version: 1.2.3
+      - binary_path: claude (PATH)
       - auth_status: authenticated
       - quota_supported: false
       - quota_source: (none)
@@ -1540,7 +1633,8 @@ describe("buildQuotaStatusReport", () => {
       - billing_cycle_start_day: (calendar month)
 
       minimax:
-      "
+
+      minimax_china:"
     `);
 
     const titles = report
@@ -1550,6 +1644,7 @@ describe("buildQuotaStatusReport", () => {
     expect(titles).toMatchInlineSnapshot(`
       "toast:
 paths:
+credential_source:
 openai:
 anthropic:
 cursor:

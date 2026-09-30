@@ -1,41 +1,20 @@
 /**
- * OpenCode auth reader (legacy `auth.json` + OpenCode 2 credential store)
+ * OpenCode login reader
  *
- * Reads provider credentials from `~/.local/share/opencode/auth.json`
- * (or platform equivalent) and layers the OpenCode 2 `credential` table of
- * `opencode.db` on top of it: v2 entries are authoritative per integration id
- * because OpenCode refreshes OAuth tokens in the database, while keys that only
- * exist in the legacy file keep working as a fallback. Providers should prefer
- * this to duplicating file/path parsing.
+ * Reads OpenCode 2 logins through the bound credential source. The server
+ * plugin binds its integration API (`ctx.integration`) in `setup`; the terminal
+ * command binds the read-only database reader in `opencode-auth-sqlite.ts`
+ * while one report runs; the TUI binds nothing, so a read there finds no login.
+ * Every read names the integration ids it needs, so OpenCode resolves (and may
+ * refresh) only those logins.
  */
 
-import { readFile } from "fs/promises";
-import { join } from "path";
+import type { Plugin } from "@opencode/plugin";
 
-import {
-  type OpenCodeCredentialEntry,
-  readOpenCodeCredentialsCached,
-} from "./opencode-credential-store.js";
-import {
-  getOpencodeRuntimeDirCandidates,
-  getOpencodeRuntimeDirs,
-} from "./opencode-runtime-paths.js";
+import { sanitizeSingleLineDisplayText } from "./display-sanitize.js";
+import { getOpenCodeDbPath } from "./opencode-db-path.js";
 
 import type { AuthData } from "./types.js";
-
-export {
-  clearOpenCodeCredentialCacheForTests,
-  getExistingOpenCodeCredentialPaths,
-  normalizeStoredCredential,
-  OPENCODE_CREDENTIAL_SOURCE,
-  type OpenCodeCredentialEntry,
-  type OpenCodeCredentialSource,
-  type OpenCodeCredentials,
-  readOpenCodeCredentials,
-  readOpenCodeCredentialsCached,
-} from "./opencode-credential-store.js";
-
-const DEFAULT_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
 type AuthCacheEntry = {
   timestamp: number;
@@ -43,132 +22,542 @@ type AuthCacheEntry = {
   inFlight?: Promise<AuthData | null>;
 };
 
-let authCache: AuthCacheEntry | null = null;
+export type CredentialRow = {
+  id: string;
+  integrationId: string;
+  label: string;
+  active: boolean;
+  value: Record<string, unknown>;
+  /**
+   * Why OpenCode could not return this login (for example a failed token
+   * refresh), as `<category>: <scrubbed detail>`. A failed row keeps its id,
+   * label and position, but its `value` is only `{ type: "api" | "oauth" }`;
+   * consumers show `resolveError` as a per-account error.
+   */
+  resolveError?: string;
+};
+
+/** OpenCode 2 connection methods: a stored API key or an OAuth sign-in. */
+export type CredentialMethod = "key" | "oauth";
+
+export type ReadCredentialRowsOptions = {
+  /** Keep only connections using one of these methods; checked before OpenCode resolves them. */
+  methods?: readonly CredentialMethod[];
+  /** Read only the active connection of each integration id. */
+  firstOnly?: boolean;
+};
+
+export type CredentialReadRequest = ReadCredentialRowsOptions & {
+  integrationIds: readonly string[];
+};
+
+export type CredentialSourceKind = "opencode-integration-api" | "sqlite";
 
 /**
- * Get candidate auth.json paths in priority order.
- * Some OpenCode installations use Linux-style paths even on macOS,
- * so we check multiple locations.
+ * Where logins come from. The two production sources: `ctx.integration` in the
+ * server plugin, and the terminal command's read-only reader of OpenCode's database.
  */
-export function getAuthPaths(): string[] {
-  // OpenCode stores auth at `${Global.Path.data}/auth.json`.
-  // We generate candidates based on OpenCode runtime dir semantics (xdg-basedir)
-  // plus platform fallbacks for alternate/legacy installs.
-  const { dataDirs } = getOpencodeRuntimeDirCandidates();
-  return dataDirs.map((d) => join(d, "auth.json"));
+export type CredentialSource = {
+  kind: CredentialSourceKind;
+  readRows(request: CredentialReadRequest): Promise<CredentialRow[]>;
+};
+
+/** The parts of the server plugin's `ctx.integration` the reader uses. */
+export type CredentialIntegration = Pick<Plugin.Context["integration"], "list" | "connection">;
+
+type Connection = NonNullable<Awaited<ReturnType<CredentialIntegration["connection"]["active"]>>>;
+type CredentialConnection = Extract<Connection, { type: "credential" }>;
+type CredentialValue = NonNullable<
+  Awaited<ReturnType<CredentialIntegration["connection"]["resolve"]>>
+>;
+
+type CredentialFailureCategory = "refresh_failed" | "resolve_empty" | "active_failed";
+
+type CredentialFailure = {
+  at: number;
+  category: CredentialFailureCategory;
+  detail: string;
+  integrationId: string;
+  label: string;
+};
+
+export type CredentialSourceDiagnostics = (
+  | { state: "bound"; kind: CredentialSourceKind }
+  | { state: "unbound" }
+) & {
+  lastListError?: { at: number; detail: string };
+  failures: Array<{
+    integrationId: string;
+    connectionId: string;
+    label: string;
+    category: CredentialFailureCategory;
+    detail: string;
+    at: number;
+  }>;
+};
+
+/** A failed login is resolved again at most this often. */
+const FAILED_LOGIN_RETRY_MS = 60_000;
+
+/** Bound sources; reads use the last one. */
+const credentialSources: Array<{ source: CredentialSource }> = [];
+let unboundWarningShown = false;
+/**
+ * Failed logins, keyed by connection id (by integration id for a failed
+ * `active()`, which has no connection). An entry lives until that login reads
+ * again, a credential event arrives, or `notifyCredentialsChanged` runs.
+ */
+const credentialFailures = new Map<string, CredentialFailure>();
+/** One `resolve()` at a time per connection id. */
+const pendingResolves = new Map<string, Promise<ResolveOutcome>>();
+let lastListError: { at: number; detail: string } | undefined;
+
+/**
+ * Connection labels OpenCode assigns when the user never named the connection:
+ * `default` for a new connection, and `OAuth` / `API key` for credentials
+ * imported from the legacy auth.json. They say nothing about the account, so
+ * they must not appear in headers like `[OpenAI OAuth]`.
+ */
+const GENERIC_CREDENTIAL_LABELS: ReadonlySet<string> = new Set(["default", "oauth", "api key"]);
+
+export function formatCredentialDisplayNames(
+  providerName: string,
+  credentials: ReadonlyArray<{ row: CredentialRow; fallbackName: string }>,
+): string[] {
+  const counts = new Map<string, number>();
+  return credentials.map(({ row, fallbackName }) => {
+    const alias = row.label.trim();
+    const redundantAlias =
+      !alias ||
+      GENERIC_CREDENTIAL_LABELS.has(alias.toLowerCase()) ||
+      alias.toLowerCase() === providerName.toLowerCase();
+    const fallbackCategory = fallbackName
+      .trim()
+      .replace(new RegExp(`^${providerName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\s*`, "iu"), "")
+      .trim()
+      .replace(/^\((.*)\)$/u, "$1")
+      .trim();
+    const aliasKey = redundantAlias ? "" : alias;
+    const duplicate = aliasKey ? (counts.get(aliasKey) ?? 0) + 1 : 1;
+    if (aliasKey) counts.set(aliasKey, duplicate);
+    const numberedAlias = duplicate === 1 ? aliasKey : `${aliasKey} ${duplicate}`;
+    const base = `[${providerName}${numberedAlias ? ` ${numberedAlias}` : ""}]`;
+    const category = fallbackCategory ? ` (${fallbackCategory})` : "";
+    // Only a provider with several logins marks the one OpenCode uses.
+    const active = credentials.length > 1 && row.active;
+    return `${base}${category}${active ? " (active)" : ""}`;
+  });
 }
 
-/** Returns OpenCode's primary auth.json path (for display/logging) */
-export function getAuthPath(): string {
-  return join(getOpencodeRuntimeDirs().dataDir, "auth.json");
+/** Cached auth maps keyed by the sorted integration id list and the method filter. */
+const authCache = new Map<string, AuthCacheEntry>();
+/** Changes when the cache is dropped, so a read started before that does not refill it. */
+let authCacheGeneration = 0;
+
+/**
+ * The database OpenCode keeps its logins in: the one resolved path, or none
+ * when `OPENCODE_DB` is `:memory:`. Inside OpenCode it is for diagnostics only
+ * (logins are read through OpenCode); the terminal command reads its logins
+ * from this file.
+ */
+export function getCredentialDatabasePaths(): string[] {
+  const path = getOpenCodeDbPath();
+  return path === ":memory:" ? [] : [path];
 }
 
-async function readLegacyAuthFile(): Promise<AuthData | null> {
-  const paths = getAuthPaths();
+/**
+ * Makes `source` the one reads use until the returned function unbinds it.
+ * Unbinding removes only this binding; the last binding still bound wins.
+ */
+export function bindCredentialSource(source: CredentialSource): () => void {
+  const binding = { source };
+  credentialSources.push(binding);
+  return () => {
+    const index = credentialSources.indexOf(binding);
+    if (index !== -1) credentialSources.splice(index, 1);
+  };
+}
 
-  for (const path of paths) {
-    try {
-      const content = await readFile(path, "utf-8");
-      return JSON.parse(content) as AuthData;
-    } catch {
-      // Try next path
+/** Drops cached logins, failed-login entries and the last `list()` error. */
+export function notifyCredentialsChanged(): void {
+  credentialFailures.clear();
+  authCache.clear();
+  authCacheGeneration += 1;
+  lastListError = undefined;
+}
+
+export function getCredentialSourceDiagnostics(): CredentialSourceDiagnostics {
+  const source = credentialSources.at(-1)?.source;
+  return {
+    ...(source ? { state: "bound" as const, kind: source.kind } : { state: "unbound" as const }),
+    ...(lastListError ? { lastListError: { ...lastListError } } : {}),
+    failures: Array.from(credentialFailures, ([connectionId, failure]) => ({
+      integrationId: failure.integrationId,
+      connectionId,
+      label: failure.label,
+      category: failure.category,
+      detail: failure.detail,
+      at: failure.at,
+    })),
+  };
+}
+
+/**
+ * Error text that is safe to show and to store: one sanitized line with
+ * JWT-shaped and long opaque strings (tokens) replaced, at most 120 characters.
+ */
+export function scrubCredentialErrorText(message: string): string {
+  // Redact before cutting to length, so a token cut at the limit cannot leave a readable part.
+  return sanitizeSingleLineDisplayText(message)
+    .replace(/eyJ[A-Za-z0-9_-]{10,}(\.[A-Za-z0-9_-]+)*/gu, "[redacted]")
+    .replace(/[A-Za-z0-9_-]{32,}/gu, "[redacted]")
+    .slice(0, 120);
+}
+
+function credentialErrorDetail(error: unknown): string {
+  return scrubCredentialErrorText(error instanceof Error ? error.message : String(error));
+}
+
+type ConnectionSlot =
+  | { integrationId: string; connection: CredentialConnection }
+  | { integrationId: string; activeFailure: CredentialFailure };
+
+type ResolveOutcome = { value: CredentialValue } | { failure: CredentialFailure };
+
+/** The active connection of one integration id; works for ids OpenCode has not registered. */
+async function activeConnectionSlots(
+  integration: CredentialIntegration,
+  integrationId: string,
+): Promise<ConnectionSlot[]> {
+  try {
+    const connection = await integration.connection.active(integrationId);
+    credentialFailures.delete(integrationId);
+    // An env connection means no stored login; providers apply their own env rules.
+    return connection?.type === "credential" ? [{ integrationId, connection }] : [];
+  } catch (error) {
+    const activeFailure: CredentialFailure = {
+      at: Date.now(),
+      category: "active_failed",
+      detail: credentialErrorDetail(error),
+      integrationId,
+      label: "",
+    };
+    credentialFailures.set(integrationId, activeFailure);
+    return [{ integrationId, activeFailure }];
+  }
+}
+
+/**
+ * Every connection of the requested ids: all of them for ids `list()` shows
+ * (registered integrations), the active one for any other id.
+ */
+async function listedConnectionSlots(
+  integration: CredentialIntegration,
+  integrationIds: readonly string[],
+): Promise<ConnectionSlot[]> {
+  let listed: Map<string, readonly Connection[]> | undefined;
+  try {
+    const { data } = await integration.list();
+    listed = new Map(data.map((info) => [info.id, info.connections]));
+    lastListError = undefined;
+  } catch (error) {
+    // One malformed login anywhere makes list() fail; each id's active login still reads.
+    lastListError = { at: Date.now(), detail: credentialErrorDetail(error) };
+  }
+
+  const slots: ConnectionSlot[] = [];
+  for (const integrationId of integrationIds) {
+    const connections = listed?.get(integrationId);
+    if (connections === undefined) {
+      slots.push(...(await activeConnectionSlots(integration, integrationId)));
+      continue;
+    }
+    for (const connection of connections) {
+      if (connection.type === "credential") slots.push({ integrationId, connection });
     }
   }
-
-  return null;
+  return slots;
 }
 
-/** Credential fields a v2 store row replaces wholesale when merging. */
-const CREDENTIAL_FIELDS = ["type", "key", "access", "refresh", "expires"];
-
-/**
- * Merge one OpenCode 2 credential-store entry over its legacy `auth.json` entry.
- *
- * The stored row wins for every credential field it carries (OpenCode refreshes
- * OAuth tokens in the database), while non-credential metadata from `auth.json`
- * (for example `email` or an enterprise host) survives when the row omits it.
- * Legacy credential fields are dropped so a stale file token can never mix with
- * the stored credential of the same integration id.
- */
-function mergeStoredAuthEntry(
-  legacy: Record<string, unknown> | undefined,
-  stored: OpenCodeCredentialEntry,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(legacy ?? {})) {
-    if (CREDENTIAL_FIELDS.includes(key)) continue;
-    merged[key] = value;
-  }
-  return { ...merged, ...stored };
+function recordResolveFailure(
+  connection: CredentialConnection,
+  failure: Omit<CredentialFailure, "at" | "label">,
+): ResolveOutcome {
+  const recorded: CredentialFailure = { ...failure, at: Date.now(), label: connection.label };
+  credentialFailures.set(connection.id, recorded);
+  return { failure: recorded };
 }
 
 /**
- * Read provider auth from the OpenCode 2 credential store, falling back to the
- * legacy `auth.json`.
- *
- * Returns `null` only when neither source yields any credential.
+ * Resolves one connection (OpenCode may refresh its token). A login that failed
+ * less than a minute ago is not resolved again; concurrent reads share one call.
  */
-export async function readAuthFile(params?: { maxAgeMs?: number }): Promise<AuthData | null> {
-  const legacy = await readLegacyAuthFile();
-
-  let stored: Record<string, OpenCodeCredentialEntry> | null = null;
-  try {
-    stored = await readOpenCodeCredentialsCached({ maxAgeMs: params?.maxAgeMs ?? 0 });
-  } catch {
-    // A missing/unreadable opencode.db must never block the legacy file.
-    stored = null;
+function resolveCredentialConnection(
+  integration: CredentialIntegration,
+  integrationId: string,
+  connection: CredentialConnection,
+): Promise<ResolveOutcome> {
+  const failure = credentialFailures.get(connection.id);
+  if (failure && Date.now() - failure.at < FAILED_LOGIN_RETRY_MS) {
+    return Promise.resolve({ failure });
   }
-  if (!stored || Object.keys(stored).length === 0) return legacy;
+  const pending = pendingResolves.get(connection.id);
+  if (pending) return pending;
 
-  const legacyRecord = (legacy ?? {}) as Record<string, unknown>;
-  const merged: Record<string, unknown> = { ...legacyRecord };
-  for (const [integrationId, entry] of Object.entries(stored)) {
-    merged[integrationId] = mergeStoredAuthEntry(
-      legacyRecord[integrationId] as Record<string, unknown> | undefined,
-      entry,
+  const outcome = (async (): Promise<ResolveOutcome> => {
+    try {
+      const value = await integration.connection.resolve(connection);
+      if (value === undefined) {
+        return recordResolveFailure(connection, {
+          category: "resolve_empty",
+          detail: "OpenCode returned no login",
+          integrationId,
+        });
+      }
+      credentialFailures.delete(connection.id);
+      return { value };
+    } catch (error) {
+      return recordResolveFailure(connection, {
+        category: "refresh_failed",
+        detail: credentialErrorDetail(error),
+        integrationId,
+      });
+    }
+  })().finally(() => {
+    pendingResolves.delete(connection.id);
+  });
+  pendingResolves.set(connection.id, outcome);
+  return outcome;
+}
+
+/** The value resolvers read: metadata fields on top (kept under `metadata` too), `key` as `api`. */
+function credentialRowValue(value: CredentialValue): Record<string, unknown> {
+  const flattened: Record<string, unknown> = { ...value.metadata, ...value };
+  if (flattened.type === "key") flattened.type = "api";
+  return flattened;
+}
+
+async function credentialRowForSlot(
+  integration: CredentialIntegration,
+  slot: ConnectionSlot,
+  methods: readonly CredentialMethod[] | undefined,
+): Promise<CredentialRow> {
+  if ("activeFailure" in slot) {
+    const failure = slot.activeFailure;
+    return {
+      id: slot.integrationId,
+      integrationId: slot.integrationId,
+      label: "",
+      active: false,
+      // A failed active() has no connection, so its method is unknown: a key-only read
+      // gets a key-shaped failure, every other read an OAuth-shaped one.
+      value: { type: methods && !methods.includes("oauth") ? "api" : "oauth" },
+      resolveError: `${failure.category}: ${failure.detail}`,
+    };
+  }
+
+  const { connection } = slot;
+  const outcome = await resolveCredentialConnection(integration, slot.integrationId, connection);
+  if ("value" in outcome) {
+    return {
+      id: connection.id,
+      integrationId: slot.integrationId,
+      label: connection.label,
+      active: false,
+      value: credentialRowValue(outcome.value),
+    };
+  }
+  return {
+    id: connection.id,
+    integrationId: slot.integrationId,
+    label: connection.label,
+    active: false,
+    value: { type: connection.method === "key" ? "api" : "oauth" },
+    resolveError: `${outcome.failure.category}: ${outcome.failure.detail}`,
+  };
+}
+
+/** The credential source backed by the server plugin's `ctx.integration`. */
+export function createIntegrationCredentialSource(
+  integration: CredentialIntegration,
+): CredentialSource {
+  return {
+    kind: "opencode-integration-api",
+    async readRows(request) {
+      const slots: ConnectionSlot[] = [];
+      if (request.firstOnly) {
+        for (const integrationId of request.integrationIds) {
+          slots.push(...(await activeConnectionSlots(integration, integrationId)));
+        }
+      } else {
+        slots.push(...(await listedConnectionSlots(integration, request.integrationIds)));
+      }
+
+      const methods = request.methods;
+      const wanted = slots.filter(
+        (slot) => !methods || !("connection" in slot) || methods.includes(slot.connection.method),
+      );
+      const rows = await Promise.all(
+        wanted.map((slot) => credentialRowForSlot(integration, slot, methods)),
+      );
+      // The active mark goes to the first row of the first requested id that has rows.
+      return rows.map((row, index) => ({ ...row, active: index === 0 }));
+    },
+  };
+}
+
+/**
+ * The auth entry resolvers read for a row: its value, plus `resolveError`
+ * when OpenCode could not return the login.
+ */
+export function credentialRowAuthEntry(row: CredentialRow): Record<string, unknown> {
+  return row.resolveError === undefined
+    ? row.value
+    : { ...row.value, resolveError: row.resolveError };
+}
+
+/**
+ * Map of the first (active) login per requested integration id. With `methods`,
+ * an active login using another method is left out without OpenCode resolving it.
+ */
+export async function readAuthFile(params: {
+  integrationIds: readonly string[];
+  methods?: readonly CredentialMethod[];
+}): Promise<AuthData | null> {
+  const rows = await readCredentialRows(params.integrationIds, {
+    methods: params.methods,
+    firstOnly: true,
+  });
+  const auth: Record<string, unknown> = {};
+  for (const row of rows) {
+    if (!(row.integrationId in auth)) auth[row.integrationId] = credentialRowAuthEntry(row);
+  }
+  return Object.keys(auth).length > 0 ? (auth as AuthData) : null;
+}
+
+/**
+ * Credential rows of the requested integration ids from the last bound source.
+ * Row order depends on the source: the integration API returns request-id
+ * order, then OpenCode's connection order (active first, then newest); the
+ * database reader returns database order. With no bound source (the TUI) there
+ * are none.
+ */
+export async function readCredentialRows(
+  integrationIds: readonly string[],
+  options: ReadCredentialRowsOptions = {},
+): Promise<CredentialRow[]> {
+  const source = credentialSources.at(-1)?.source;
+  if (!source) {
+    if (!unboundWarningShown) {
+      unboundWarningShown = true;
+      console.warn("[opencode-quota] credential source is not bound");
+    }
+    return [];
+  }
+  return source.readRows({ integrationIds, ...options });
+}
+
+function canonicalCredentialValueKey(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalCredentialValueKey(item)).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0,
     );
+    return `{${entries
+      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalCredentialValueKey(nested)}`)
+      .join(",")}}`;
   }
-  return merged as AuthData;
+  return value === undefined ? "undefined" : JSON.stringify(value);
+}
+
+/**
+ * Collapse credential rows that represent the same upstream connection.
+ *
+ * Rows holding identical credential values are the same connection (e.g. the
+ * same workspace key stored under the `opencode-go` integration and its legacy
+ * `opencode` alias), and rows under `primaryIntegrationId` take precedence over
+ * alias rows so a real credential for another integration that shares the key
+ * is not reported as an additional connection. A failed row holds only
+ * `{ type }`, so its connection id keeps each failed login a row of its own.
+ * Input order is preserved otherwise.
+ */
+export function selectConnectionCredentialRows(
+  rows: readonly CredentialRow[],
+  primaryIntegrationId: string,
+): CredentialRow[] {
+  const primaryRows = rows.filter((row) => row.integrationId === primaryIntegrationId);
+  const candidates = primaryRows.length > 0 ? primaryRows : [...rows];
+  const seen = new Set<string>();
+  const selected: CredentialRow[] = [];
+  for (const row of candidates) {
+    const key =
+      row.resolveError === undefined
+        ? canonicalCredentialValueKey(row.value)
+        : canonicalCredentialValueKey({ failedConnectionId: row.id, value: row.value });
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(row);
+  }
+  return selected;
 }
 
 /**
  * Cached auth reader for frequently triggered code paths (e.g. per-question hooks).
- * This avoids repeated filesystem reads while keeping auth updates visible quickly.
+ * This avoids asking OpenCode on every call while keeping login changes visible quickly.
  */
-export async function readAuthFileCached(params?: { maxAgeMs?: number }): Promise<AuthData | null> {
-  const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_AUTH_CACHE_MAX_AGE_MS);
+export async function readAuthFileCached(params: {
+  maxAgeMs: number;
+  integrationIds: readonly string[];
+  methods?: readonly CredentialMethod[];
+}): Promise<AuthData | null> {
+  const maxAgeMs = Math.max(0, params.maxAgeMs);
+  const cacheKey = `${[...params.integrationIds].sort().join(",")}|${
+    params.methods ? [...params.methods].sort().join(",") : "any"
+  }`;
+  const cached = authCache.get(cacheKey);
   const now = Date.now();
 
-  if (authCache && now - authCache.timestamp <= maxAgeMs) {
-    return authCache.value;
+  if (cached && now - cached.timestamp <= maxAgeMs) {
+    return cached.value;
   }
 
-  if (authCache?.inFlight) {
-    return authCache.inFlight;
+  if (cached?.inFlight) {
+    return cached.inFlight;
   }
 
+  const generation = authCacheGeneration;
   const inFlight = (async () => {
-    const value = await readAuthFile({ maxAgeMs });
-    authCache = { timestamp: Date.now(), value };
+    const value = await readAuthFile({
+      integrationIds: params.integrationIds,
+      methods: params.methods,
+    });
+    // A login change during the read may make this value stale: return it, but do not cache it.
+    if (generation === authCacheGeneration) {
+      authCache.set(cacheKey, { timestamp: Date.now(), value });
+    }
     return value;
   })();
 
-  authCache = {
-    timestamp: authCache?.timestamp ?? 0,
-    value: authCache?.value ?? null,
+  authCache.set(cacheKey, {
+    timestamp: cached?.timestamp ?? 0,
+    value: cached?.value ?? null,
     inFlight,
-  };
+  });
 
   try {
     return await inFlight;
   } finally {
-    if (authCache?.inFlight === inFlight) {
-      authCache.inFlight = undefined;
+    const entry = authCache.get(cacheKey);
+    if (entry?.inFlight === inFlight) {
+      entry.inFlight = undefined;
     }
   }
 }
 
 /** Test helper to clear cached auth state between test cases. */
 export function clearReadAuthFileCacheForTests(): void {
-  authCache = null;
+  authCache.clear();
+  authCacheGeneration += 1;
 }

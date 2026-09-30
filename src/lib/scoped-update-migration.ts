@@ -74,7 +74,7 @@ export const OBSOLETE_GO_ENV_NAMES = [
 export const AMBIGUOUS_ZEN_ENV_NAMES = ["OPENCODE_WORKSPACE_ID", "OPENCODE_AUTH_COOKIE"] as const;
 
 export const OBSOLETE_GO_FILE = "opencode-quota/opencode-go.json";
-/** OpenCode Zen workspace/cookie file, replaced by the `opencode console login` session. */
+/** OpenCode Zen workspace/cookie file, replaced by the `opencode auth login opencode` sign-in. */
 export const OBSOLETE_ZEN_FILE = "opencode-quota/opencode.json";
 
 export interface ScopedUpdateMigrationCandidate {
@@ -280,18 +280,16 @@ export function inspectLegacyDisplayDocument(params: {
 }
 
 export function buildScopedUpdateMigrationCandidates(params: {
-  globalRoots: readonly string[];
+  globalRoot: string;
   workspaceRoot: string;
 }): ScopedUpdateMigrationCandidate[] {
-  return buildConfigLayerCandidates([...params.globalRoots], params.workspaceRoot).map(
-    (candidate) => ({
-      path: candidate.path,
-      rootDir: candidate.rootDir,
-      scope: candidate.scope,
-      format: candidate.path.endsWith(".jsonc") ? "jsonc" : "json",
-      container: candidate.kind === "plugin" ? "quota-root" : "experimental.quotaToast",
-    }),
-  );
+  return buildConfigLayerCandidates(params.globalRoot, params.workspaceRoot).map((candidate) => ({
+    path: candidate.path,
+    rootDir: candidate.rootDir,
+    scope: candidate.scope,
+    format: candidate.path.endsWith(".jsonc") ? "jsonc" : "json",
+    container: candidate.kind === "plugin" ? "quota-root" : "experimental.quotaToast",
+  }));
 }
 
 function isMissing(error: unknown): boolean {
@@ -350,7 +348,7 @@ export async function resolveScopedUpdateMigrationBoundary(params: {
 }
 
 export async function discoverExistingScopedUpdateMigrationCandidates(params: {
-  globalRoots: readonly string[];
+  globalRoot: string;
   workspaceRoot: string;
   selectedPackagePaths?: readonly string[];
 }): Promise<{
@@ -434,7 +432,7 @@ async function knownPathExists(path: string, action: string): Promise<boolean> {
 
 export async function auditObsoleteUpdateSources(params: {
   env: NodeJS.ProcessEnv;
-  configDirs: string[];
+  configDir: string;
 }): Promise<ScopedUpdateManualFinding[]> {
   const findings: ScopedUpdateManualFinding[] = [];
 
@@ -444,23 +442,15 @@ export async function auditObsoleteUpdateSources(params: {
     }
   }
 
-  const configDirs = [...new Set(params.configDirs)];
-  const goPaths = configDirs.map((dir) => join(dir, OBSOLETE_GO_FILE));
-  const zenPaths = configDirs.map((dir) => join(dir, OBSOLETE_ZEN_FILE));
-  const [goPresence, zenPresence] = await Promise.all([
-    Promise.all(
-      goPaths.map((path) => knownPathExists(path, "inspect obsolete OpenCode Go source")),
-    ),
-    Promise.all(
-      zenPaths.map((path) => knownPathExists(path, "inspect obsolete OpenCode Zen source")),
-    ),
+  const goPath = join(params.configDir, OBSOLETE_GO_FILE);
+  const zenPath = join(params.configDir, OBSOLETE_ZEN_FILE);
+  const [goPresent, zenPresent] = await Promise.all([
+    knownPathExists(goPath, "inspect obsolete OpenCode Go source"),
+    knownPathExists(zenPath, "inspect obsolete OpenCode Zen source"),
   ]);
 
-  for (let index = 0; index < goPaths.length; index++) {
-    const path = goPaths[index];
-    if (goPresence[index] && path) {
-      findings.push({ kind: "obsolete-go-file", path });
-    }
+  if (goPresent) {
+    findings.push({ kind: "obsolete-go-file", path: goPath });
   }
 
   const zenNames = AMBIGUOUS_ZEN_ENV_NAMES.filter((name) => Object.hasOwn(params.env, name));
@@ -468,11 +458,8 @@ export async function auditObsoleteUpdateSources(params: {
     findings.push({ kind: "ambiguous-zen-env", names: [...zenNames] });
   }
 
-  for (let index = 0; index < zenPaths.length; index++) {
-    const path = zenPaths[index];
-    if (zenPresence[index] && path) {
-      findings.push({ kind: "obsolete-zen-file", path });
-    }
+  if (zenPresent) {
+    findings.push({ kind: "obsolete-zen-file", path: zenPath });
   }
 
   return findings;

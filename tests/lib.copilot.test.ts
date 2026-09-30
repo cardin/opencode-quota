@@ -40,11 +40,11 @@ vi.mock("fs", async (importOriginal) => {
 });
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => ({
-    dataDirs: [testPaths.dataDir],
-    configDirs: [testPaths.configDir],
-    cacheDirs: [testPaths.cacheDir],
-    stateDirs: [testPaths.stateDir],
+  getOpencodeRuntimeDirs: () => ({
+    dataDir: testPaths.dataDir,
+    configDir: testPaths.configDir,
+    cacheDir: testPaths.cacheDir,
+    stateDir: testPaths.stateDir,
   }),
 }));
 
@@ -230,6 +230,27 @@ describe("GitHub Copilot AI Credit accounting", () => {
       Accept: "application/json",
       "Editor-Version": "vscode/1.96.2",
     });
+  });
+
+  it("shows a login OpenCode could not read as an error, present but without identity", async () => {
+    authMocks.readAuthFile.mockResolvedValue({
+      "github-copilot": { type: "oauth", resolveError: "refresh_failed: HTTP 401" },
+      copilot: { type: "oauth", access: "alias-token" },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
+    const { hasCopilotQuotaRuntimeAvailable, queryCopilotQuota, resolveCopilotAuthIdentity } =
+      await import("../src/lib/copilot.js");
+
+    await expect(queryCopilotQuota()).resolves.toEqual({
+      success: false,
+      error:
+        "Copilot sign-in could not be read: refresh_failed: HTTP 401. Run `opencode auth login github-copilot`.",
+    });
+    await expect(hasCopilotQuotaRuntimeAvailable()).resolves.toBe(true);
+    await expect(resolveCopilotAuthIdentity()).resolves.toBeNull();
+    expect(identityMocks.deriveResolvedAuthIdentity).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("derives only absent Copilot percentages and preserves reported values", async () => {

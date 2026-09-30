@@ -3,37 +3,33 @@ import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
-import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
+import { getCredentialDatabasePaths, readAuthFileCached } from "./opencode-auth.js";
 
 export const DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS = 5_000;
 // `opencode-go` is the provider id the OpenCode CLI writes via
-// `opencode auth login -p opencode-go` (shown as "OpenCode Go api" in `opencode auth list`).
+// `opencode auth login opencode-go` (shown as "OpenCode Go api" in `opencode auth list`).
 // `opencode` stays as a fallback alias for existing manual setups.
 const OPENCODE_GO_AUTH_KEYS = ["opencode-go", "opencode"] as const;
 const OPENCODE_GO_PROVIDER_KEYS = ["opencode-go", "opencode"] as const;
+/** Integration IDs whose credential rows can hold OpenCode Go auth, in resolver precedence order. */
+export const OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS: readonly string[] = OPENCODE_GO_AUTH_KEYS;
 const ALLOWED_OPENCODE_GO_ENV_VARS = ["OPENCODE_API_KEY"] as const;
 
 export type OpenCodeGoKeySource =
   | "env:OPENCODE_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json"
-  | OpenCodeCredentialSource;
+  | "opencode.db";
 
-export type OpenCodeGoAuthSource = "auth.json" | OpenCodeCredentialSource;
 export type ResolvedOpenCodeGoAuth = InvalidAwareAuthResult;
 export type OpenCodeGoAuthDiagnostics = InvalidAwareAuthDiagnostics<
   OpenCodeGoKeySource,
-  OpenCodeGoAuthSource
+  "opencode.db"
 >;
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
-const openCodeGoAuthResolver = createProviderApiKeyResolver<
-  OpenCodeGoKeySource,
-  OpenCodeGoAuthSource
->({
+const openCodeGoAuthResolver = createProviderApiKeyResolver<OpenCodeGoKeySource, "opencode.db">({
   envVars: [{ name: "OPENCODE_API_KEY", source: "env:OPENCODE_API_KEY" }],
   providerKeys: OPENCODE_GO_PROVIDER_KEYS,
   allowedEnvVars: ALLOWED_OPENCODE_GO_ENV_VARS,
@@ -43,12 +39,15 @@ const openCodeGoAuthResolver = createProviderApiKeyResolver<
   auth: {
     policy: "invalid-aware-api-key",
     authKeys: OPENCODE_GO_AUTH_KEYS,
-    authSource: "auth.json",
+    authSource: "opencode.db",
     displayName: "OpenCode Go",
     defaultMaxAgeMs: DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS,
     unsupportedTypeError: "OpenCode Go auth entry has unsupported type",
-    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs }),
-    getAuthPaths,
+    // Key logins only: the active `opencode` login is usually the OpenCode Console
+    // sign-in, and resolving it here could refresh its token for nothing.
+    readAuth: (maxAgeMs) =>
+      readAuthFileCached({ maxAgeMs, integrationIds: OPENCODE_GO_AUTH_KEYS, methods: ["key"] }),
+    getCredentialDatabasePaths,
   },
 });
 

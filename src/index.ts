@@ -1,5 +1,5 @@
 /**
- * OpenCode Quota Plugin (OpenCode 2)
+ * OpenCode Quota Plugin
  *
  * Shows quota status in OpenCode without LLM invocation.
  *
@@ -39,4 +39,4 @@ export type {
   QuotaToastConfig,
   SessionTokenScope,
 } from "./lib/types.js";
-export { QUOTA_PLUGIN_ID, QuotaToastPlugin, QuotaToastPlugin as default } from "./plugin.js";
+export { default } from "./plugin.js";

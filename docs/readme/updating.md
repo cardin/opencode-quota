@@ -2,113 +2,110 @@
 
 # Updating safely
 
-## What the command does
-
-`npx @cardinal4/opencode-quota update` first asks npm to resolve and run the newest published 4.x CLI package. That npm resolution and execution begins before the updater can print its preview. The preview guarantee covers changes owned by the updater: OpenCode configuration files and OpenCode Quota package-cache directories.
-
-The updater builds one plan, prints it in full, and then either stops or applies that same plan. It does not add runtime compatibility fallbacks.
-
 ## Preview, apply, and restart
 
-1. Close OpenCode.
-2. Preview without changing configuration or package caches:
+1. Back up the OpenCode config files you use, especially if you might roll back (older versions do not understand every newer setting).
+2. Close OpenCode.
+3. Preview. This changes nothing:
 
    ```bash
-   npx @cardinal4/opencode-quota update --dry-run
+   npx @cardinal4/opencode-quota@latest update --dry-run
    ```
 
-3. Read every section. If the plan is correct, apply it:
+4. Read the preview. If it looks right, apply it:
 
    ```bash
-   npx @cardinal4/opencode-quota update
+   npx @cardinal4/opencode-quota@latest update
    ```
 
-   The interactive command asks once before safe work begins. For a noninteractive run, use:
+   It asks once before changing anything. For scripts, `update --yes` skips the question. It still prints the full preview and applies only the safe config edits and verified cache cleanup, never secret changes.
 
-   ```bash
-   npx @cardinal4/opencode-quota update --yes
-   ```
+5. Restart OpenCode, then run `/quota_status` (or `opencode-quota status` in a terminal).
 
-   `--yes` still prints the full preview. It authorizes only deterministic config edits and manifest-verified cache cleanup, never secret changes.
+Good to know:
 
-4. Restart OpenCode.
-5. Run `/quota_status` in OpenCode, or run this in a terminal:
+- `npx` downloads and runs the latest CLI before the updater can print anything. The "preview first" promise covers what the updater changes: OpenCode config files and OpenCode Quota package caches.
+- The updater builds one plan, prints all of it, then either stops or applies that same plan.
 
-   ```bash
-   opencode-quota status
-   ```
+## Moving to OpenCode 2
+
+`5.0.0` runs only on OpenCode `2.0.16` or newer.
+
+1. Install OpenCode 2 ([OpenCode docs](https://opencode.ai/docs/)) and start it once. On first start it copies your old `auth.json` logins into its database, `opencode.db`. It does this only once.
+2. Run the update steps above.
+3. Run `/quota_status`. If a provider is missing, log in to it again in OpenCode 2 (`/connect`, or `opencode auth login <provider>`).
+
+What changed in `5.0.0`:
+
+- **OpenCode 1 is not supported.** This fork's `init` and `update` stop without changing files. See [OpenCode 1](#opencode-1).
+- **Logins come only from OpenCode 2.** Inside OpenCode, logins come through OpenCode 2's plugin API; the terminal command reads `opencode.db` read-only. Neither reads `auth.json`.
+- **Quota runs in OpenCode's background service.** Inside OpenCode, `PATH`, environment variables, and the working folder (your home folder) come from the service, not your terminal. See [Service environment](troubleshooting.md#service-environment).
+- **Web and Desktop get slash commands, but no toasts or panels,** because OpenCode 2 gives plugins no Web UI hooks. See [Web and Desktop notes](manual-install.md#web-and-desktop-notes).
+- **One plugin entry.** One `"plugin"` entry in `opencode.json` loads the server and the TUI; no `tui.json` entry is needed.
+- **TUI reports open in a popup** and leave no chat message. `tuiCommandDisplay` now defaults to `"dialog"`; set `"inline"` to keep them in the chat.
+- **OpenCode Zen uses your OpenCode Console sign-in.** See [OpenCode Zen findings](#opencode-zen-findings).
+- **Removed setting:** `tuiCompactStatus.suppressWhenNativeProviderQuota`. The old key is ignored.
+
+## OpenCode 1
+
+`init` and `update` run `opencode --version` first:
+
+| OpenCode found | What happens |
+| --- | --- |
+| OpenCode 2 | Everything works as described on this page. |
+| OpenCode 1 | `init` and `update` stop without changing anything. Upgrade OpenCode before installing or updating this fork; it has no 4.x compatibility line. |
+| Unknown (for example, `opencode` is not on your `PATH`) | `init` asks which OpenCode you use. `update` assumes OpenCode 2 and prints a note that this fork requires OpenCode 2. |
 
 ## Read the preview
 
-The preview can contain three sections:
+The preview has up to three sections (empty ones are hidden):
 
-- **Safe changes this command can make:** package-spec edits and recognized file-backed display-setting migration.
-- **Manual actions — this command will not change these sources:** credential findings or config cases that require your review.
-- **Package-cache candidates:** directories considered for removal. A candidate is removed only after current config and the package manifest are verified.
+- **Safe changes this command can make:** package-spec edits (in `plugin` and OpenCode 2 `plugins` entries; plugin options are kept) and known display-setting moves.
+- **Manual actions — this command will not change these sources:** credential findings or config that needs your review.
+- **Package-cache candidates:** folders it may remove, only after current config and the package manifest check out.
 
-Empty sections are omitted. No updater-owned config or cache change happens before the preview and, for the interactive command, your confirmation.
+Exit codes:
 
-The command uses two exit codes:
-
-- `0`: applied, already current, successful dry-run, manual-only findings, or cancellation.
-- `1`: invalid arguments, incomplete planning, a config race, a write failure, or post-write validation failure.
-
-Manual findings do not make the command fail. They remain your responsibility.
+- `0`: applied, already current, dry-run, manual-only findings, or cancelled. Manual findings do not fail the command, but they stay your job.
+- `1`: bad arguments, incomplete planning, a config race, a write failure, or a failed check after writing.
 
 ## What can change automatically
 
-The updater can:
+- Supported OpenCode Quota plugin specs move to `@latest`. OpenCode 1 is rejected without writes.
+- Package-cache folders are removed only if they pass path, symlink, containment, and exact package-manifest checks.
+- The removed `opencodeZenDisplay` setting is migrated in known config files: `"default"` becomes root `accountingDetail: "summary"`, and `"detailed"` becomes `accountingDetail: "detailed"`. If a valid `accountingDetail` already exists, it wins and the old key is removed.
 
-- pin supported OpenCode Quota plugin package specs (bare, `@latest`, or an exact 4.x-or-older version) to `@4`, because OpenCode Quota 5 needs OpenCode 2;
-- remove only package-cache directories that pass path, symlink, containment, and exact package-manifest checks;
-- migrate recognized `opencodeZenDisplay` values in known file-backed quota config locations:
-  - `"default"` becomes root `accountingDetail: "summary"`;
-  - `"detailed"` becomes root `accountingDetail: "detailed"`;
-- keep an existing valid `accountingDetail` value and remove the obsolete ignored key, even when the two values differ.
+Edits keep your other settings, plugins, comments, trailing commas, and plugin options. A supported config symlink stays a symlink; the updater writes the real file behind it.
 
-Targeted JSON/JSONC edits preserve unrelated settings, plugins, comments, trailing commas, and tuple options where the document can be edited safely. When the configured path is a supported symlink, the updater keeps that link and writes the verified regular-file target.
-
-Unsupported or invalid display values, invalid replacement values, duplicate keys, ambiguous structures, malformed files, unsupported roots, and newly discovered symlinks are left unchanged for manual review. SDK-only config is diagnostic-only because it has no safe file path for the updater to edit.
+Left alone for you to fix by hand: unsupported or invalid display values, duplicate keys, unclear structures, broken files, unsupported folders, and newly found symlinks. For these, use root `accountingDetail: "summary"` or `"detailed"`, and do not share the rejected value. SDK-only config is reported but never edited, because there is no file to edit.
 
 ## What stays manual
 
-Credential findings are report-only. The audit detects known obsolete sources by variable-name or file-path presence without retrieving environment values or opening credential files. It never prints, copies, or deletes secret values, and it does not edit environment declarations, shell startup files, `auth.json`, supported credential files, or legacy credential files.
+Credential findings are report-only. The updater spots old credential sources by variable name or file path only. It never reads, prints, copies, or deletes secret values, and never edits environment settings, shell startup files, `opencode.db`, or credential files. Never paste credential values into output, issues, or support messages.
 
 ### OpenCode Go findings
 
-OpenCode Go now uses an official API key. Configure one supported source in this order:
-
-1. `OPENCODE_API_KEY`
-2. Trusted user/global OpenCode config: `provider.opencode-go.options.apiKey`
-3. Trusted user/global fallback: `provider.opencode.options.apiKey`
-4. A strict `opencode-go` API-key entry in OpenCode `auth.json`
-5. A strict legacy `opencode` API-key entry in `auth.json` as the final fallback
-
-You can create the canonical `auth.json` entry with:
+OpenCode Go now uses a Console sign-in or an official API key. Set up a supported source (see [OpenCode Go](providers.md#opencode-go) for the order), for example:
 
 ```bash
-opencode auth login -p opencode-go
+opencode auth login opencode-go
 ```
 
-Verify the supported key with `/quota_status` or terminal `opencode-quota status`. Only after it works, manually remove obsolete declarations for `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`, plus any obsolete global `opencode-quota/opencode-go.json` file.
-
-Workspace/cookie material cannot be converted into the official API key. Do not paste credential values into command output, issue reports, or support messages.
+Check it with `/quota_status` or `opencode-quota status`. Only then remove the old `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE` declarations and any global `opencode-quota/opencode-go.json` file. Workspace/cookie values cannot be turned into an API key.
 
 ### OpenCode Zen findings
 
-OpenCode Zen now uses the OpenCode Console session: run `opencode console login` (and `opencode console switch` to pick an organization), then verify with `/quota_status` or terminal `opencode-quota status`. OpenCode Quota reads that session read-only from OpenCode's local database; it never refreshes or writes tokens.
+OpenCode Zen now uses your OpenCode Console sign-in: run `opencode auth login opencode` (and `opencode auth switch opencode` to pick a saved organization), then check `/quota_status`. See [OpenCode Zen](providers.md#opencode-zen).
 
-The updater reports two leftovers from the old workspace/cookie setup without reading or moving their values:
+Leftovers from the old workspace/cookie setup are reported, never read or moved:
 
-- A global `opencode-quota/opencode.json` file: it is no longer read. Remove it manually after Zen works.
-- `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE`: current quota code ignores them. They may come from an older Zen setup or belong to OpenCode's workspace feature. Remove them only if they held Zen credentials.
+- A global `opencode-quota/opencode.json` file: no longer read. Remove it after Zen works.
+- `OPENCODE_WORKSPACE_ID` / `OPENCODE_AUTH_COOKIE`: ignored now. They may also belong to OpenCode's workspace feature, so remove them only if they held Zen credentials.
 
-Never share the real values.
+## Cancelling, failures, and reruns
 
-## Cancellation, failures, and reruns
-
-Before updating, back up the OpenCode config files you use. This is especially important if you may roll back to an older plugin version, because old versions do not understand every current setting.
-
-Cancelling the interactive prompt changes nothing. Dry-run also changes nothing. A successful migration is idempotent: rerunning does not repeat a completed display edit, though manual findings remain until you resolve their sources.
-
-The updater checks every planned file again before writing and writes each changed file atomically. Supported configuration symlinks stay in place: the updater snapshots the link chain during planning, revalidates it immediately before writing, and updates the verified regular-file target. It fails closed on dangling links, loops, chains longer than 40 hops, non-regular targets, permission errors, retargeted links, destination-byte races, and JSON-to-JSONC conversions that would delete a symlink. It does not claim that several files form one transaction and it does not overwrite concurrent edits with an automatic rollback. If a later file changes or a write fails after earlier files were written, the error lists the files changed before failure and deletes no package cache. Fix the reported cause, inspect those paths, and rerun the dry-run command to build a fresh plan.
+- Cancelling the prompt or running `--dry-run` changes nothing.
+- Rerunning is safe: a finished migration is not repeated. Manual findings stay until you fix their source.
+- Every planned file is checked again right before writing, and each file is written atomically.
+- Symlinked config: the updater checks the link chain while planning and again just before writing. It stops on dangling links, loops, chains longer than 40 hops, non-regular targets, permission errors, retargeted links, file changes in between, and JSON-to-JSONC conversions that would delete a symlink.
+- Several files are not one transaction, and there is no automatic rollback over your own edits. If a later file changed or a write failed, the error lists the files already changed and no package cache is deleted. Fix the cause, check those files, and run `update --dry-run` again for a fresh plan.

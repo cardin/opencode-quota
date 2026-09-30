@@ -3,8 +3,7 @@ import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFileCached } from "./opencode-auth.js";
-import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
+import { getCredentialDatabasePaths, readAuthFileCached } from "./opencode-auth.js";
 import type { AuthData } from "./types.js";
 
 export const DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
@@ -17,16 +16,14 @@ export type ZaiKeySource =
   | "env:ZAI_CODING_PLAN_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json"
-  | OpenCodeCredentialSource;
+  | "opencode.db";
 
-export type ZaiAuthSource = "auth.json" | OpenCodeCredentialSource;
 export type ResolvedZaiAuth = InvalidAwareAuthResult;
-export type ZaiAuthDiagnostics = InvalidAwareAuthDiagnostics<ZaiKeySource, ZaiAuthSource>;
+export type ZaiAuthDiagnostics = InvalidAwareAuthDiagnostics<ZaiKeySource, "opencode.db">;
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
-const zaiAuthResolver = createProviderApiKeyResolver<ZaiKeySource, ZaiAuthSource>({
+const zaiAuthResolver = createProviderApiKeyResolver<ZaiKeySource, "opencode.db">({
   envVars: [
     { name: "ZAI_API_KEY", source: "env:ZAI_API_KEY" },
     { name: "ZAI_CODING_PLAN_API_KEY", source: "env:ZAI_CODING_PLAN_API_KEY" },
@@ -39,11 +36,11 @@ const zaiAuthResolver = createProviderApiKeyResolver<ZaiKeySource, ZaiAuthSource
   auth: {
     policy: "invalid-aware-api-key",
     authKeys: ZAI_AUTH_KEYS,
-    authSource: "auth.json",
+    authSource: "opencode.db",
     displayName: "Z.ai",
     defaultMaxAgeMs: DEFAULT_ZAI_AUTH_CACHE_MAX_AGE_MS,
-    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs }),
-    getAuthPaths,
+    readAuth: (maxAgeMs) => readAuthFileCached({ maxAgeMs, integrationIds: ZAI_AUTH_KEYS }),
+    getCredentialDatabasePaths,
   },
 });
 

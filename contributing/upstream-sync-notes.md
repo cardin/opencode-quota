@@ -213,3 +213,41 @@ was re-added on top.
 `pnpm verify` passes (check, typescript-version, v4-history, typecheck, build,
 full vitest suite, four-surface suite, package contents). `pnpm test`:
 199 files / 2574 passing, 1 skipped.
+
+---
+
+# Merge upstream 5.0.0 into the fork (`merge/upstream-5.0.0`)
+
+Upstream: `4da9935` (`chore(release): sync package version to 5.0.0`).
+Fork base: `6434e91` (`@cardinal4/opencode-quota` 5.1.1).
+
+Upstream PR #196 has now landed with its complete OpenCode 2 implementation.
+Adopted upstream's server plugin, quota RPC, TUI V2 popups and structured tables,
+integration-based credential reads, standalone CLI database reads, OpenCode Console
+auth, Cursor companion support, and simplified documentation.
+
+## Resolutions
+
+- Keep the scoped package `@cardinal4/opencode-quota`, fork repository links,
+  plugin/telemetry identities, and version `5.1.1`. No release bump or publishing.
+- Adopt upstream's minimum OpenCode `2.0.16`, Node `^22.13.0 || >=23.4.0`,
+  native SQLite opener, dependencies, lockfile, and packaging.
+- Remove the superseded fork credential-store and TUI adapters and their
+  obsolete fallback tests. Upstream covers credentials through integration and
+  SQLite sources; the legacy `auth.json` fallback is intentionally removed.
+- Keep the fork's async-local tool cancellation support and wire it into the
+  new diagnostics tool, with HTTP and plugin-boundary regression tests.
+- Preserve `@5` as a supported moving fork spec. Unlike upstream, this fork has
+  no OpenCode 1 compatibility line: `init` and `update` reject OpenCode 1 before
+  writes rather than pinning to a nonexistent scoped `@4` package.
+- Keep genuine upstream announcement issue URLs pointing at upstream.
+
+## Validation
+
+`pnpm verify` passes: lint/format gate, TypeScript version, history/privacy,
+typecheck, build, 192 test files (2578 passing, 1 skipped), the focused
+four-surface suite, and package contents.
+The same packed artifact passes consumer smoke tests on Node `24.16.0` and
+`22.23.3`, including server imports, TUI packaging, CLI, and host-owned telemetry.
+Live authenticated Web/Desktop/TUI screenshots and provider API checks are not
+performed by this local merge; fixture tests do not substitute for those checks.

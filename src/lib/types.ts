@@ -50,7 +50,6 @@ export interface TuiCompactStatusConfig {
   enabled: boolean;
   homeBottom: boolean;
   sessionPrompt: boolean;
-  suppressWhenNativeProviderQuota: boolean;
   maxWidth: number;
   /** Per-surface formatStyle override. Falls back to root formatStyle when absent. */
   formatStyle?: QuotaFormatStyle;
@@ -96,7 +95,10 @@ export interface QuotaToastConfig {
   /** Opt-in, persisted notifications when selected quota windows reset. */
   resetNotifications: QuotaResetNotificationsConfig;
 
-  /** Where deterministic native TUI command output appears. */
+  /**
+   * Where TUI quota slash command reports appear: "dialog" shows only the popup,
+   * "inline" keeps the report in the chat. Web and Desktop always show it in the chat.
+   */
   tuiCommandDisplay: TuiCommandDisplay;
 
   /**
@@ -228,7 +230,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     enabled: false,
     windows: ["weekly"],
   },
-  tuiCommandDisplay: "inline",
+  tuiCommandDisplay: "dialog",
   formatStyle: DEFAULT_QUOTA_FORMAT_STYLE,
   percentDisplayMode: "remaining",
   accountingDetail: "summary",
@@ -267,7 +269,6 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
     enabled: false,
     homeBottom: true,
     sessionPrompt: true,
-    suppressWhenNativeProviderQuota: true,
     maxWidth: 96,
   },
   tuiPromptBar: {
@@ -292,7 +293,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
 };
 
 // =============================================================================
-// Auth Data Types (from ~/.local/share/opencode/auth.json)
+// Auth Data Types (from ~/.local/share/opencode/opencode.db)
 // =============================================================================
 
 /** GitHub Copilot authentication data */
@@ -303,15 +304,20 @@ export interface CopilotAuthData {
   expires?: number;
   /** OpenCode-managed GitHub Enterprise Cloud hostname for this OAuth credential. */
   enterpriseUrl?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
 }
 
 export type AlibabaCodingPlanTier = "lite" | "pro";
 
-export interface CursorOAuthAuthData {
+export interface CursorAuthData {
   type: string;
   access?: string;
   refresh?: string;
   expires?: number;
+  key?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -320,6 +326,8 @@ export interface AnthropicOAuthAuthData {
   access?: string;
   refresh?: string;
   expires?: number;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -329,6 +337,8 @@ export interface OpenAIOAuthData {
   refresh?: string;
   expires?: number;
   accountId?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -337,6 +347,8 @@ export interface XaiOAuthData {
   access?: string;
   refresh?: string;
   expires?: number;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -353,6 +365,8 @@ export interface GeminiCliOAuthAuthData {
   email?: string;
   accountEmail?: string;
   login?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -362,6 +376,8 @@ export interface AlibabaAuthData {
   access?: string;
   tier?: string;
   plan?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
   [key: string]: unknown;
 }
 
@@ -389,6 +405,8 @@ export interface MiniMaxAuthData {
   type: string;
   key?: string;
   access?: string;
+  /** Set when OpenCode could not return this login; see `CredentialRow.resolveError`. */
+  resolveError?: string;
 }
 
 /**
@@ -440,7 +458,7 @@ export interface CopilotQuotaConfig {
   tier: CopilotTier;
 }
 
-/** Full auth.json structure (partial - only what we need) */
+/** Full opencode.db structure (partial - only what we need) */
 export interface AuthData {
   anthropic?: AnthropicOAuthAuthData;
   "github-copilot"?: CopilotAuthData;
@@ -472,7 +490,7 @@ export interface AuthData {
   nanogpt?: NanoGptAuthData;
   "nano-gpt"?: NanoGptAuthData;
   deepseek?: DeepSeekAuthData;
-  cursor?: CursorOAuthAuthData;
+  cursor?: CursorAuthData;
   alibaba?: AlibabaAuthData;
   "alibaba-coding-plan"?: AlibabaAuthData;
   "zai-coding-plan"?: {
@@ -498,7 +516,7 @@ export interface AuthData {
 // Kimi Types
 // =============================================================================
 
-/** Kimi auth entry in auth.json */
+/** Kimi auth entry in opencode.db */
 export interface KimiAuthData {
   type: "api";
   key: string;
@@ -526,7 +544,7 @@ export type KimiResult = KimiQuotaResult | QuotaError;
 // Z.ai Types
 // =============================================================================
 
-/** Z.ai auth entry in auth.json */
+/** Z.ai auth entry in opencode.db */
 export interface ZaiAuthData {
   type: "api";
   key: string;

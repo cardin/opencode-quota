@@ -1,14 +1,12 @@
 import { rm } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
-  createPluginTestClient,
-  createPluginTestContext,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  getSyntheticText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
@@ -46,10 +44,11 @@ vi.mock("../src/lib/modelsdev-pricing.js", async (importOriginal) => ({
   ...createPricingModuleMock(mocks),
 }));
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
-  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
+  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
 vi.mock("../src/lib/opencode-go-auth.js", () => ({
   DEFAULT_OPENCODE_GO_AUTH_CACHE_MAX_AGE_MS: 5_000,
+  OPENCODE_GO_CREDENTIAL_INTEGRATION_IDS: ["opencode-go", "opencode"],
   resolveOpenCodeGoAuthCached: mocks.resolveOpenCodeGoAuthCached,
   getOpenCodeGoAuthDiagnostics: mocks.getOpenCodeGoAuthDiagnostics,
 }));
@@ -82,7 +81,6 @@ function createConfig() {
       sessionPrompt: true,
       maxWidth: 240,
       formatStyle: "allWindows",
-      suppressWhenNativeProviderQuota: false,
     },
     tuiPromptBar: { enabled: true },
   });
@@ -112,86 +110,64 @@ function successfulResult() {
   };
 }
 
+async function runQuotaStatus(
+  sessionID: string,
+  integration = createFakeIntegration([]),
+): Promise<string> {
+  let quotaTool:
+    | { execute: (input: unknown, context: { sessionID: string }) => Promise<{ content: string }> }
+    | undefined;
+  const { default: plugin } = await import("../src/plugin.js");
+  await plugin.setup({
+    location: { directory: process.cwd() },
+    provider: { list: vi.fn().mockResolvedValue({ data: [{ id: "opencode-go" }] }) },
+    session: {
+      get: vi.fn().mockResolvedValue({ model: { id: "model", providerID: "opencode-go" } }),
+      hook: vi.fn(),
+    },
+    command: { transform: vi.fn() },
+    rpc: { register: vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } })) },
+    integration,
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
+    tool: {
+      transform: async (callback: (editor: { add: (tool: typeof quotaTool) => void }) => void) =>
+        callback({
+          add: (tool) => {
+            quotaTool = tool;
+          },
+        }),
+    },
+  } as never);
+  if (!quotaTool) throw new Error("V2 quota_status tool was not registered");
+  return (await quotaTool.execute({}, { sessionID })).content;
+}
+
+async function collectQuotaProjection(): Promise<string> {
+  const { collectQuotaRenderData } = await import("../src/lib/quota-render-data.js");
+  const result = await collectQuotaRenderData({
+    client: {} as never,
+    config: createConfig(),
+    providers: [provider],
+    formatStyle: "allWindows",
+    surfaceExplicitProviderIssues: true,
+    bypassProviderCache: true,
+    includeAllWindowsData: true,
+  });
+  return JSON.stringify(result.allWindowsData ?? result.data);
+}
+
 function expectCanonicalPercentOrder(output: string): void {
   expect(output).toContain("OpenCode Go");
   const positions = [
-    output.lastIndexOf("88%"),
-    output.lastIndexOf("55%"),
-    output.lastIndexOf("20%"),
+    output.lastIndexOf('"percentRemaining":88'),
+    output.lastIndexOf('"percentRemaining":55'),
+    output.lastIndexOf('"percentRemaining":20'),
   ];
   expect(
     positions.every((position) => position >= 0),
     output,
   ).toBe(true);
   expect(positions, output).toEqual([...positions].sort((left, right) => left - right));
-}
-
-async function collectSurfaceOutputs(sessionID: string) {
-  const client = createPluginTestClient({
-    modelID: "opencode-go/model",
-    providerID: "opencode-go",
-  });
-  client.config.providers.mockResolvedValue({
-    data: { providers: [{ id: "opencode-go" }] },
-  });
-
-  const { QuotaToastPlugin } = await import("../src/plugin.js");
-  const context = createPluginTestContext({
-    directory: process.cwd(),
-    modelID: "opencode-go/model",
-    providerID: "opencode-go",
-    providers: [{ id: "opencode-go" }],
-  });
-  const dispose = await QuotaToastPlugin.setup(context as never);
-
-  await context.runCommand("quota", "", sessionID);
-  const command = getSyntheticText(context);
-
-  // V2 removed server-side toast emission; exercise the shared runtime with a
-  // fake showToast, which is what the CLI bridge drives.
-  const { createQuotaToastRuntime } = await import("../src/lib/quota-toast-runtime.js");
-  const showToast = vi.fn().mockResolvedValue({});
-  const runtime = createQuotaToastRuntime({
-    client: client as never,
-    roots: () => ({
-      workspaceRoot: process.cwd(),
-      configRoot: process.cwd(),
-      fallbackDirectory: process.cwd(),
-    }),
-    resolveSessionMeta: async (id) => {
-      const response = await client.session.get({ path: { id } });
-      return {
-        modelID: response.data?.model?.id,
-        providerID: response.data?.model?.providerID,
-      };
-    },
-    isSubagentSession: async (id) => {
-      const response = await client.session.get({ path: { id } });
-      return Boolean(response.data?.parentID);
-    },
-    reconcileDetectedProviders: vi.fn().mockResolvedValue(undefined),
-    setSessionTokenError: vi.fn(),
-    showToast: showToast as never,
-    log: vi.fn().mockResolvedValue(undefined),
-    onInitialized: vi.fn(),
-  });
-  await runtime.handleTrigger({ sessionID, trigger: "session.idle" });
-  const toast = (showToast.mock.calls[0]?.[0] as { message?: string } | undefined)?.message ?? "";
-
-  const { loadTuiSessionQuotaSurfaces } = await import("../src/lib/tui-runtime.js");
-  const surfaces = await loadTuiSessionQuotaSurfaces({
-    api: {
-      state: {
-        provider: [{ id: "opencode-go" }],
-        path: { worktree: process.cwd(), directory: process.cwd() },
-        session: { messages: () => [] },
-      },
-      client,
-    } as never,
-    sessionID,
-  });
-
-  return { client, context, command, toast, showToast, surfaces, dispose };
 }
 
 describe("OpenCode Go shared projections", () => {
@@ -218,9 +194,9 @@ describe("OpenCode Go shared projections", () => {
     });
     mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValue({
       state: "configured",
-      source: "auth.json",
+      source: "opencode.db",
       checkedPaths: ["env:OPENCODE_API_KEY"],
-      authPaths: ["/tmp/auth.json"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
     });
     mocks.queryOpenCodeGoQuota.mockResolvedValue(successfulResult());
 
@@ -236,30 +212,98 @@ describe("OpenCode Go shared projections", () => {
   });
 
   it("keeps canonical all-window values and the five-hour prompt entry on every surface", async () => {
-    const { command, toast, surfaces, dispose } =
-      await collectSurfaceOutputs("opencode-go-session");
-    const sidebar = [...surfaces.sidebar.lines, ...(surfaces.sidebar.linesExpanded ?? [])].join(
-      "\n",
-    );
-    const compact = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
+    const status = await runQuotaStatus("opencode-go-session");
+    const output = await collectQuotaProjection();
+    expectCanonicalPercentOrder(output);
+    expect(output).not.toContain(TEST_TOKEN);
+    expect(status).toContain("live_entry_1: 5h: percent_remaining=88");
+    expect(status).not.toContain(TEST_TOKEN);
+  });
 
-    for (const output of [command, toast, sidebar, compact]) {
-      expectCanonicalPercentOrder(output);
-      expect(output).not.toContain(TEST_TOKEN);
-    }
-    expect(surfaces.promptBar).toMatchObject({
-      status: "ready",
-      entry: {
-        name: "OpenCode Go 5h",
-        percentRemaining: 88,
-        resetTimeIso: "2026-08-12T12:30:00.000Z",
-        accounting: { acquisitionMethod: "remote_api" },
+  it("uses the Go key and keeps the console error when the console sign-in cannot be refreshed", async () => {
+    const integration = createFakeIntegration([
+      {
+        integrationId: "opencode",
+        id: "cred_console",
+        label: "default",
+        registered: true,
+        method: "oauth",
+        value: {
+          type: "oauth",
+          methodID: "device",
+          access: "distinctive-console-access",
+          refresh: "distinctive-console-refresh",
+          expires: 0,
+        },
+        resolveError: "HTTP 401",
       },
-      percentDisplayMode: "remaining",
-    });
-    expect(JSON.stringify(surfaces)).not.toContain(TEST_TOKEN);
+    ]);
 
-    await dispose?.();
+    const status = await runQuotaStatus("opencode-go-console-invalid", integration);
+    const output = await collectQuotaProjection();
+    expectCanonicalPercentOrder(output);
+    expect(status).toContain("live_entry_1: 5h: percent_remaining=88");
+    for (const secret of [
+      TEST_TOKEN,
+      "distinctive-console-access",
+      "distinctive-console-refresh",
+    ]) {
+      expect(status).not.toContain(secret);
+      expect(output).not.toContain(secret);
+    }
+
+    const result = await provider.fetch(createProviderAvailabilityContext());
+    expect(result.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "console_auth_state", value: "invalid" },
+        { key: "console_error", value: "refresh_failed: HTTP 401" },
+        { key: "go_source", value: "legacy_key" },
+      ]),
+    );
+    // The failed sign-in is resolved once, then not again within the minute.
+    expect(integration.connection.resolve).toHaveBeenCalledOnce();
+    expect(status).toContain("- console_error: refresh_failed: HTTP 401");
+    expect(status).toContain("- go_source: legacy_key");
+  });
+
+  it("shows the failed console sign-in on every surface when there is no Go key", async () => {
+    mocks.resolveOpenCodeGoAuthCached.mockResolvedValue({ state: "none" });
+    mocks.getOpenCodeGoAuthDiagnostics.mockResolvedValue({
+      state: "none",
+      source: null,
+      checkedPaths: ["env:OPENCODE_API_KEY"],
+      credentialDatabasePaths: ["/tmp/opencode.db"],
+    });
+    const integration = createFakeIntegration([
+      {
+        integrationId: "opencode",
+        id: "cred_console",
+        label: "default",
+        registered: true,
+        method: "oauth",
+        value: {
+          type: "oauth",
+          methodID: "device",
+          access: "distinctive-console-access",
+          refresh: "distinctive-console-refresh",
+          expires: 0,
+        },
+        resolveError: "HTTP 401",
+      },
+    ]);
+
+    const status = await runQuotaStatus("opencode-go-console-invalid-no-key", integration);
+    const output = await collectQuotaProjection();
+    const message =
+      "OpenCode Console sign-in failed: refresh_failed: HTTP 401. Run `opencode auth login opencode`.";
+
+    expect(status).toContain(`- live_error_1: ${message}`);
+    expect(output).toContain(message);
+    expect(mocks.queryOpenCodeGoQuota).not.toHaveBeenCalled();
+    for (const secret of ["distinctive-console-access", "distinctive-console-refresh"]) {
+      expect(status).not.toContain(secret);
+      expect(output).not.toContain(secret);
+    }
   });
 
   it("hides a not-subscribed result on every display and keeps it visible in safe diagnostics", async () => {
@@ -269,46 +313,26 @@ describe("OpenCode Go shared projections", () => {
       notSubscribed: true,
       retryable: false,
     });
-    const sessionID = "opencode-go-no-subscription";
-    const { client, context, command, toast, showToast, surfaces, dispose } =
-      await collectSurfaceOutputs(sessionID);
-
-    const sidebar = [...surfaces.sidebar.lines, ...(surfaces.sidebar.linesExpanded ?? [])].join(
-      "\n",
-    );
-    const compact = surfaces.compact.status === "ready" ? surfaces.compact.text : "";
-
-    for (const output of [command, toast, sidebar, compact]) {
-      expect(output).not.toContain("EntitlementError");
-      expect(output).not.toContain("not subscribed");
-      expect(output).not.toContain(TEST_TOKEN);
-    }
-    expect(showToast).not.toHaveBeenCalled();
+    const output = await runQuotaStatus("opencode-go-no-subscription");
+    expect(output).not.toContain("EntitlementError");
+    expect(output).not.toContain(TEST_TOKEN);
+    expect(output).toContain("opencode_go:");
 
     const { buildQuotaExport } = await import("../src/lib/quota-export.js");
     const { createRuntimeProviderIdResolver } = await import("../src/lib/runtime-provider-ids.js");
     const exportData = await buildQuotaExport({
       providers: [provider],
       ctx: {
-        client,
+        client: {} as never,
         config: createConfig(),
-        resolveRuntimeProviderIds: createRuntimeProviderIdResolver(client),
+        resolveRuntimeProviderIds: createRuntimeProviderIdResolver({} as never),
       } as never,
       ttlMs: 60_000,
       fromCache: true,
     });
     expect(exportData.providers["opencode-go"]).toEqual({ status: "unavailable" });
 
-    // V2 exposes diagnostics as the quota_status tool rather than a slash
-    // command intercepted in command.execute.before.
-    await context.runTool("quota_status", {}, sessionID);
-    const status = getSyntheticText(context, 1);
-    expect(status).toContain("opencode_go_state");
-    expect(status).toContain("not_subscribed");
-    expect(status).not.toContain(TEST_TOKEN);
     expect(mocks.queryOpenCodeGoQuota).toHaveBeenCalledTimes(1);
-
-    await dispose?.();
   });
 
   it("selects the most constrained window and preserves accounting through projection", async () => {

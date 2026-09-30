@@ -89,6 +89,47 @@ describe("cursor usage", () => {
     expect(summary.unknownModels).toEqual([]);
   });
 
+  it("buckets cursor-opencode-provider fast and 1m entries by Cursor pool", async () => {
+    const { iterAssistantMessages } = await import("../src/lib/opencode-storage.js");
+    (iterAssistantMessages as any).mockResolvedValue([
+      {
+        role: "assistant",
+        providerID: "cursor",
+        modelID: "composer-2.5-fast",
+        tokens: { input: 1_000_000, output: 1_000_000, cache: { read: 0, write: 0 } },
+      },
+      {
+        role: "assistant",
+        providerID: "cursor",
+        modelID: "grok-4.7",
+        tokens: { input: 1_000_000, output: 500_000, cache: { read: 0, write: 0 } },
+      },
+      {
+        role: "assistant",
+        providerID: "cursor",
+        modelID: "claude-opus-4-8-1m",
+        tokens: { input: 1_000_000, output: 1_000_000, cache: { read: 0, write: 0 } },
+      },
+      {
+        role: "assistant",
+        providerID: "cursor",
+        modelID: "gpt-5.5-1m",
+        tokens: { input: 10, output: 20, cache: { read: 0, write: 0 } },
+      },
+    ]);
+
+    const summary = await getCurrentCursorUsageSummary({
+      nowMs: new Date(2026, 2, 19, 10, 0, 0, 0).getTime(),
+      billingCycleStartDay: 7,
+    });
+
+    expect(summary.autoComposer.messageCount).toBe(2);
+    expect(summary.autoComposer.costUsd).toBeCloseTo(23, 6);
+    expect(summary.api.messageCount).toBe(1);
+    expect(summary.api.costUsd).toBeCloseTo(30, 6);
+    expect(summary.unknownModels.map((model) => model.sourceModelID)).toEqual(["gpt-5.5-1m"]);
+  });
+
   it("treats new Cursor official fallback aliases as api usage instead of unknown models", async () => {
     const { iterAssistantMessages } = await import("../src/lib/opencode-storage.js");
     (iterAssistantMessages as any).mockResolvedValue([

@@ -22,7 +22,7 @@ vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
 }));
 
-import { queryOpenCodeGoQuota } from "../src/lib/opencode-go.js";
+import { queryOpenCodeGoConsoleStatus, queryOpenCodeGoQuota } from "../src/lib/opencode-go.js";
 
 type WindowKey = "rolling" | "weekly" | "monthly";
 
@@ -437,6 +437,101 @@ describe("queryOpenCodeGoQuota", () => {
     expect(result).toEqual({
       success: false,
       error: "Invalid OpenCode Go API response: rolling status is not ok: [redacted] retry",
+    });
+  });
+});
+
+describe("queryOpenCodeGoConsoleStatus", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function mockConsoleStatus(): void {
+    const meter = (usedMicroCents: number) => ({
+      limitMicroCents: 1_000,
+      usedMicroCents,
+      resetsAt: "2026-10-01T00:00:00Z",
+    });
+    mocks.fetchResponse.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          access: { meters: { fiveHour: meter(0), week: meter(250), month: meter(500) } },
+        }),
+      ),
+    });
+  }
+
+  it("asks the login's Console server, scoped to the login's org", async () => {
+    mockConsoleStatus();
+
+    const result = await queryOpenCodeGoConsoleStatus(
+      { accessToken: "console-access", orgId: "wrk_1", server: "https://console.example.test" },
+      { requestTimeoutMs: 4321 },
+    );
+
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "https://console.example.test/api/go/status",
+      {
+        request: {
+          method: "GET",
+          headers: {
+            Authorization: "Bearer console-access",
+            Accept: "application/json",
+            "x-org-id": "wrk_1",
+          },
+        },
+        timeoutMs: 4321,
+        consume: expect.any(Function),
+      },
+    );
+    expect(result).toMatchObject({
+      success: true,
+      rolling: { percentRemaining: 100 },
+      weekly: { percentRemaining: 75 },
+      monthly: { percentRemaining: 50 },
+    });
+  });
+
+  it("uses the default Console server and no org header when the login has neither", async () => {
+    mockConsoleStatus();
+
+    await queryOpenCodeGoConsoleStatus({ accessToken: "console-access" });
+
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledWith(
+      "https://opencode.ai/console/api/go/status",
+      {
+        request: {
+          method: "GET",
+          headers: { Authorization: "Bearer console-access", Accept: "application/json" },
+        },
+        timeoutMs: undefined,
+        consume: expect.any(Function),
+      },
+    );
+  });
+
+  it("reads HTTP 404 as no Go subscription", async () => {
+    mocks.fetchResponse.mockResolvedValueOnce({ ok: false, status: 404 });
+
+    await expect(queryOpenCodeGoConsoleStatus({ accessToken: "console-access" })).resolves.toEqual({
+      success: false,
+      error: "OpenCode Go subscription not found for this console account (404)",
+      notSubscribed: true,
+    });
+  });
+
+  it.each([
+    [401, false],
+    [403, false],
+    [500, true],
+  ])("keeps HTTP %s as a failed Console request", async (status, retryable) => {
+    mocks.fetchResponse.mockResolvedValueOnce({ ok: false, status });
+
+    await expect(queryOpenCodeGoConsoleStatus({ accessToken: "console-access" })).resolves.toEqual({
+      success: false,
+      error: `OpenCode Console API error ${status} (/api/go/status)`,
+      retryable,
     });
   });
 });

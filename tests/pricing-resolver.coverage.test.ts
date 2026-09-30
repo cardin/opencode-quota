@@ -14,28 +14,35 @@ import {
 } from "../src/lib/modelsdev-pricing.js";
 import { resolvePricingKey } from "../src/lib/quota-stats.js";
 
-const CURSOR_UPSTREAM_MODELS_PATH = new URL(
-  "../references/upstream-plugins/opencode-cursor-oauth/dist/models.js",
+const CURSOR_UPSTREAM_PRICING_PATH = new URL(
+  "../references/upstream-plugins/cursor-opencode-provider/dist/pricing-data.js",
   import.meta.url,
 );
 
-const CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS = new Set<string>();
+// Price not confirmed, so these stay unknown: models.dev rates differ from Cursor's for the
+// Gemini Flash ids, and muse-spark (meta) is not a pricing snapshot provider.
+const CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS = new Set<string>([
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
+  "gemini-3.8-flash",
+  "muse-spark-1.3",
+]);
 
-function getCursorUpstreamFallbackModelIds(): string[] {
-  const source = readFileSync(CURSOR_UPSTREAM_MODELS_PATH, "utf8");
-  const marker = "const FALLBACK_MODELS = [";
+function getCursorUpstreamPricedModelIds(): string[] {
+  const source = readFileSync(CURSOR_UPSTREAM_PRICING_PATH, "utf8");
+  const marker = "export const CURSOR_MODEL_COSTS = ";
   const start = source.indexOf(marker);
   if (start === -1) {
-    throw new Error("Unable to locate Cursor upstream FALLBACK_MODELS in synced reference");
+    throw new Error("Unable to locate Cursor upstream CURSOR_MODEL_COSTS in synced reference");
   }
 
-  const bodyStart = source.indexOf("[", start);
+  const bodyStart = start + marker.length;
   let depth = 0;
   let bodyEnd = -1;
   for (let index = bodyStart; index < source.length; index += 1) {
     const char = source[index];
-    if (char === "[") depth += 1;
-    if (char === "]") {
+    if (char === "{") depth += 1;
+    if (char === "}") {
       depth -= 1;
       if (depth === 0) {
         bodyEnd = index;
@@ -44,13 +51,12 @@ function getCursorUpstreamFallbackModelIds(): string[] {
     }
   }
 
-  if (bodyStart === -1 || bodyEnd === -1) {
-    throw new Error("Unable to parse Cursor upstream FALLBACK_MODELS in synced reference");
+  if (source[bodyStart] !== "{" || bodyEnd === -1) {
+    throw new Error("Unable to parse Cursor upstream CURSOR_MODEL_COSTS in synced reference");
   }
 
-  return [...source.slice(bodyStart, bodyEnd + 1).matchAll(/\bid\s*:\s*"([^"]+)"/g)]
-    .map((match) => match[1]!)
-    .sort((a, b) => a.localeCompare(b));
+  const costs = JSON.parse(source.slice(bodyStart, bodyEnd + 1)) as Record<string, unknown>;
+  return Object.keys(costs).sort((a, b) => a.localeCompare(b));
 }
 
 describe("resolvePricingKey snapshot coverage", () => {
@@ -156,25 +162,17 @@ describe("resolvePricingKey snapshot coverage", () => {
   });
 
   it("maps documented Kimi Code K3 models to authoritative pricing", () => {
-    for (const providerID of [
-      "kimi-for-coding",
-      "kimi",
-      "kimi-code",
-      "kimi-code-plan-global",
-      "kimi-code-plan-cn",
-    ]) {
-      for (const modelID of ["k3", "k3-256k"]) {
-        expect(
-          resolvePricingKey({
-            providerID,
-            modelID,
-          }),
-        ).toEqual({
-          ok: true,
-          key: { provider: "moonshotai", model: "kimi-k3" },
-          method: "source_provider",
-        });
-      }
+    for (const modelID of ["k3", "k3-256k"]) {
+      expect(
+        resolvePricingKey({
+          providerID: "kimi-for-coding",
+          modelID,
+        }),
+      ).toEqual({
+        ok: true,
+        key: { provider: "moonshotai", model: "kimi-k3" },
+        method: "source_provider",
+      });
     }
 
     expect(lookupCost("moonshotai", "kimi-k3")).toEqual({
@@ -332,6 +330,205 @@ describe("resolvePricingKey snapshot coverage", () => {
       cache_read: 0.35,
       output: 7.5,
     });
+    expect(lookupCursorLocalCost("composer-2.5")).toEqual({
+      input: 0.5,
+      cache_read: 0.2,
+      output: 2.5,
+    });
+    expect(lookupCursorLocalCost("composer-2.5-fast")).toEqual({
+      input: 3,
+      cache_read: 0.5,
+      output: 15,
+    });
+    expect(lookupCursorLocalCost("grok-4.5")).toEqual({ input: 2, cache_read: 0.5, output: 6 });
+    expect(lookupCursorLocalCost("grok-4.5-fast")).toEqual({ input: 4, cache_read: 1, output: 18 });
+    expect(lookupCursorLocalCost("grok-4.6")).toEqual({ input: 2, cache_read: 0.5, output: 6 });
+    expect(lookupCursorLocalCost("grok-4.6-fast")).toEqual({ input: 4, cache_read: 1, output: 12 });
+    expect(lookupCursorLocalCost("grok-4.7")).toEqual({ input: 2, cache_read: 0.5, output: 6 });
+    expect(lookupCursorLocalCost("grok-4.7-fast")).toEqual({ input: 4, cache_read: 1, output: 12 });
+  });
+
+  it("prices cursor-opencode-provider model ids at Cursor's published rates", () => {
+    const cursorModelsPool = [
+      "composer-2.5",
+      "composer-2.5-fast",
+      "grok-4.5",
+      "grok-4.5-fast",
+      "grok-4.6",
+      "grok-4.6-fast",
+      "grok-4.7",
+      "grok-4.7-fast",
+    ];
+    for (const modelID of cursorModelsPool) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual({
+        kind: "local",
+        model: modelID,
+        pool: "auto_composer",
+      });
+    }
+
+    const otherModelsPool = [
+      ["claude-fable-5", "anthropic", "claude-fable-5", { input: 10, output: 50, cache_read: 1 }],
+      [
+        "claude-fable-5-1",
+        "anthropic",
+        "claude-fable-5-1",
+        { input: 10, output: 50, cache_read: 0.25 },
+      ],
+      [
+        "claude-haiku-4-5",
+        "anthropic",
+        "claude-haiku-4-5",
+        { input: 1, output: 5, cache_read: 0.1 },
+      ],
+      [
+        "claude-opus-4-5",
+        "anthropic",
+        "claude-opus-4-5",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      [
+        "claude-opus-4-6",
+        "anthropic",
+        "claude-opus-4-6",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      [
+        "claude-opus-4-7",
+        "anthropic",
+        "claude-opus-4-7",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      [
+        "claude-opus-4-8",
+        "anthropic",
+        "claude-opus-4-8",
+        { input: 5, output: 25, cache_read: 0.5 },
+      ],
+      ["claude-opus-5", "anthropic", "claude-opus-5", { input: 5, output: 25, cache_read: 0.5 }],
+      [
+        "claude-opus-5-5",
+        "anthropic",
+        "claude-opus-5-5",
+        { input: 4, output: 20, cache_read: 0.2 },
+      ],
+      [
+        "claude-sonnet-4",
+        "anthropic",
+        "claude-sonnet-4-0",
+        { input: 3, output: 15, cache_read: 0.3 },
+      ],
+      [
+        "claude-sonnet-4-5",
+        "anthropic",
+        "claude-sonnet-4-5",
+        { input: 3, output: 15, cache_read: 0.3 },
+      ],
+      [
+        "claude-sonnet-4-6",
+        "anthropic",
+        "claude-sonnet-4-6",
+        { input: 3, output: 15, cache_read: 0.3 },
+      ],
+      [
+        "claude-sonnet-5",
+        "anthropic",
+        "claude-sonnet-5",
+        { input: 2, output: 10, cache_read: 0.2 },
+      ],
+      [
+        "gemini-2.5-flash",
+        "google",
+        "gemini-2.5-flash",
+        { input: 0.3, output: 2.5, cache_read: 0.03 },
+      ],
+      [
+        "gemini-3-flash",
+        "google",
+        "gemini-3-flash-preview",
+        { input: 0.5, output: 3, cache_read: 0.05 },
+      ],
+      [
+        "gemini-3.1-pro",
+        "google",
+        "gemini-3.1-pro-preview",
+        { input: 2, output: 12, cache_read: 0.2 },
+      ],
+      [
+        "gemini-3.5-flash",
+        "google",
+        "gemini-3.5-flash",
+        { input: 1.5, output: 9, cache_read: 0.15 },
+      ],
+      ["glm-5.2", "zai", "glm-5.2", { input: 1.4, output: 4.4, cache_read: 0.26 }],
+      ["gpt-5-mini", "openai", "gpt-5-mini", { input: 0.25, output: 2, cache_read: 0.025 }],
+      ["gpt-5.1", "openai", "gpt-5.1", { input: 1.25, output: 10, cache_read: 0.125 }],
+      ["gpt-5.2", "openai", "gpt-5.2", { input: 1.75, output: 14, cache_read: 0.175 }],
+      ["gpt-5.3-codex", "openai", "gpt-5.3-codex", { input: 1.75, output: 14, cache_read: 0.175 }],
+      ["gpt-5.4", "openai", "gpt-5.4", { input: 2.5, output: 15, cache_read: 0.25 }],
+      ["gpt-5.4-mini", "openai", "gpt-5.4-mini", { input: 0.75, output: 4.5, cache_read: 0.075 }],
+      ["gpt-5.4-nano", "openai", "gpt-5.4-nano", { input: 0.2, output: 1.25, cache_read: 0.02 }],
+      ["gpt-5.5", "openai", "gpt-5.5", { input: 5, output: 30, cache_read: 0.5 }],
+      ["gpt-5.6-luna", "openai", "gpt-5.6-luna", { input: 0.2, output: 1.2, cache_read: 0.02 }],
+      ["gpt-5.6-sol", "openai", "gpt-5.6-sol", { input: 4, output: 20, cache_read: 0.4 }],
+      ["gpt-5.6-terra", "openai", "gpt-5.6-terra", { input: 2, output: 12, cache_read: 0.2 }],
+      [
+        "kimi-k2.7-code",
+        "moonshotai",
+        "kimi-k2.7-code",
+        { input: 0.95, output: 4, cache_read: 0.19 },
+      ],
+      ["kimi-k3", "moonshotai", "kimi-k3", { input: 3, output: 15, cache_read: 0.3 }],
+    ] as const;
+    for (const [modelID, providerHint, modelHint, rates] of otherModelsPool) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual({
+        kind: "official",
+        providerHint,
+        modelHint,
+        pool: "api",
+      });
+      expect(lookupCost(providerHint, modelHint), modelID).toMatchObject(rates);
+    }
+  });
+
+  it("prices -1m ids at the base rate only where Cursor documents no long-context surcharge", () => {
+    const sameRateLongContext = [
+      ["claude-opus-4-6-1m", "claude-opus-4-6"],
+      ["claude-opus-4-7-1m", "claude-opus-4-7"],
+      ["claude-opus-4-8-1m", "claude-opus-4-8"],
+      ["claude-opus-5-1m", "claude-opus-5"],
+      ["claude-opus-5-5-1m", "claude-opus-5-5"],
+      ["claude-sonnet-4-5-1m", "claude-sonnet-4-5"],
+      ["claude-sonnet-4-6-1m", "claude-sonnet-4-6"],
+      ["claude-sonnet-5-1m", "claude-sonnet-5"],
+      ["kimi-k3-1m", "kimi-k3"],
+    ] as const;
+    for (const [modelID, baseModelID] of sameRateLongContext) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual(
+        resolveCursorModel(`cursor/${baseModelID}`),
+      );
+    }
+
+    // Unpublished (Auto), tiered long-context surcharges, or models.dev rates that differ
+    // from Cursor's published rates stay unknown instead of guessing a price.
+    const unconfirmed = [
+      "default",
+      "claude-fable-5-1m",
+      "claude-fable-5-1-1m",
+      "claude-sonnet-4-1m",
+      "gemini-3.6-flash",
+      "gemini-3.7-flash",
+      "gemini-3.8-flash",
+      "gpt-5.4-1m",
+      "gpt-5.5-1m",
+      "gpt-5.6-sol-1m",
+      "grok-4.7-1m",
+      "grok-4.7-1m-fast",
+      "muse-spark-1.3",
+    ];
+    for (const modelID of unconfirmed) {
+      expect(resolveCursorModel(`cursor/${modelID}`), modelID).toEqual({ kind: "unknown" });
+    }
   });
 
   it("keeps every Cursor API alias aligned with a priced snapshot key", () => {
@@ -376,20 +573,20 @@ describe("resolvePricingKey snapshot coverage", () => {
     expect(failures).toEqual([]);
   });
 
-  it("accounts for every synced upstream Cursor fallback model id", () => {
-    const fallbackModelIds = getCursorUpstreamFallbackModelIds();
+  it("accounts for every synced upstream Cursor priced model id", () => {
+    const upstreamModelIds = getCursorUpstreamPricedModelIds();
     const intentionallyUnknown = [...CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS].sort((a, b) =>
       a.localeCompare(b),
     );
 
     expect(
-      intentionallyUnknown.filter((modelID) => !fallbackModelIds.includes(modelID)),
-      "Remove stale entries from CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS when upstream fallback ids change.",
+      intentionallyUnknown.filter((modelID) => !upstreamModelIds.includes(modelID)),
+      "Remove stale entries from CURSOR_UPSTREAM_INTENTIONALLY_UNKNOWN_MODELS when upstream priced ids change.",
     ).toEqual([]);
 
     const failures: string[] = [];
 
-    for (const modelID of fallbackModelIds) {
+    for (const modelID of upstreamModelIds) {
       const resolvedModel = resolveCursorModel(`cursor/${modelID}`);
       const resolvedPricing = resolvePricingKey({
         providerID: "cursor",

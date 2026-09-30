@@ -22,16 +22,16 @@ vi.mock("../src/lib/http.js", () => ({
   fetchWithTimeout: mocks.fetchWithTimeout,
 }));
 
+import type { OpenCodeConsoleCredential } from "../src/lib/opencode-console-auth.js";
 import { queryOpenCodeZenQuota } from "../src/lib/opencode-zen.js";
 
 const CONSOLE_API = "https://opencode.ai/console/api";
 const SESSION_ERROR =
-  "OpenCode Console session expired or invalid — run `opencode console login` to sign in again";
+  "OpenCode Console session expired or invalid. Run `opencode auth login opencode` to sign in again.";
 
-const account = {
-  baseUrl: "https://opencode.ai/console",
+const credential: OpenCodeConsoleCredential = {
   accessToken: "st_secret-token",
-  activeOrgId: "wrk_abc",
+  orgId: "wrk_abc",
 };
 
 // Payloads captured from a real account by the maintainer (org id replaced).
@@ -72,7 +72,7 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function routes(overrides: Record<string, () => Response> = {}): void {
+function routes(overrides: Record<string, () => Response> = {}, consoleApi = CONSOLE_API): void {
   const payloads: Record<string, () => Response> = {
     "billing/status": () => json(STATUS),
     "billing/account": () => json(ACCOUNT),
@@ -82,7 +82,8 @@ function routes(overrides: Record<string, () => Response> = {}): void {
     ...overrides,
   };
   mocks.fetchResponse.mockImplementation(async (url: string) => {
-    const route = url.slice(`${CONSOLE_API}/`.length);
+    if (!url.startsWith(`${consoleApi}/`)) throw new Error(`unexpected url ${url}`);
+    const route = url.slice(`${consoleApi}/`.length);
     const payload = payloads[route];
     if (!payload) throw new Error(`unexpected url ${url}`);
     return payload();
@@ -104,7 +105,7 @@ describe("queryOpenCodeZenQuota", () => {
   it("calls the five Console routes with the Bearer token and org id", async () => {
     routes();
 
-    await queryOpenCodeZenQuota(account, { requestTimeoutMs: 4_000 });
+    await queryOpenCodeZenQuota(credential, { requestTimeoutMs: 4_000 });
 
     expect(mocks.fetchWithTimeout.mock.calls.map(([url]) => url).sort()).toEqual([
       `${CONSOLE_API}/billing/account`,
@@ -132,10 +133,44 @@ describe("queryOpenCodeZenQuota", () => {
     }
   });
 
+  it("sends no x-org-id header when the sign-in has no org", async () => {
+    routes();
+
+    const result = await queryOpenCodeZenQuota({ accessToken: "st_secret-token" });
+
+    expect(result.success).toBe(true);
+    expect(mocks.fetchWithTimeout).toHaveBeenCalledTimes(5);
+    for (const [, options] of mocks.fetchWithTimeout.mock.calls) {
+      expect(options.request.headers).toEqual({
+        Accept: "application/json",
+        Authorization: "Bearer st_secret-token",
+      });
+    }
+  });
+
+  it("calls the Console server saved with the sign-in", async () => {
+    const selfHostedApi = "https://console.self-hosted.example/api";
+    routes({}, selfHostedApi);
+
+    const result = await queryOpenCodeZenQuota({
+      ...credential,
+      server: "https://console.self-hosted.example",
+    });
+
+    expect(result.success).toBe(true);
+    expect(mocks.fetchWithTimeout.mock.calls.map(([url]) => url).sort()).toEqual([
+      `${selfHostedApi}/billing/account`,
+      `${selfHostedApi}/billing/auto-recharge`,
+      `${selfHostedApi}/billing/status`,
+      `${selfHostedApi}/budgets/org`,
+      `${selfHostedApi}/usage/cost-by-day`,
+    ]);
+  });
+
   it("parses the real empty-account payloads", async () => {
     routes();
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 0,
@@ -146,6 +181,7 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: 20,
         reloadTrigger: 5,
         budgetResetIso: "2026-10-01T00:00:00.000Z",
+        budgetSource: "org_budget",
       },
       errors: [],
     });
@@ -158,7 +194,7 @@ describe("queryOpenCodeZenQuota", () => {
       "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
     });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 1_822_921_472,
@@ -169,6 +205,7 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: 20,
         reloadTrigger: 5,
         budgetResetIso: "2026-10-01T00:00:00.000Z",
+        budgetSource: "org_budget",
       },
       errors: [],
     });
@@ -182,7 +219,7 @@ describe("queryOpenCodeZenQuota", () => {
       "budgets/org": () => json({ limitMicroCents: null, spentMicroCents: null, resetsAt: null }),
     });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 4_250_000_000,
@@ -193,6 +230,31 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: 20,
         reloadTrigger: 5,
         budgetResetIso: null,
+        budgetSource: "credit_limit",
+      },
+      errors: [],
+    });
+  });
+
+  it.each([
+    ["a null body", () => json(null)],
+    ["an empty body", () => new Response("", { headers: { "content-type": "application/json" } })],
+    ["an empty object", () => json({})],
+  ])("treats %s from budgets/org as no org budget", async (_label, orgBudget) => {
+    routes({
+      "billing/account": () => json({ ...ACCOUNT, creditLimitMicroCents: "10000000000" }),
+      "usage/cost-by-day": () => json([{ date: "2026-09-24", totalCostMicroCents: "75000000" }]),
+      "budgets/org": orgBudget,
+    });
+
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toMatchObject({
+      success: true,
+      data: {
+        balance: 0,
+        monthlyLimit: 100,
+        monthlyUsage: 75_000_000,
+        budgetResetIso: null,
+        budgetSource: "credit_limit",
       },
       errors: [],
     });
@@ -206,7 +268,7 @@ describe("queryOpenCodeZenQuota", () => {
       "budgets/org": () => new Response("server error", { status: 500 }),
     });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 4_250_000_000,
@@ -217,6 +279,7 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: 20,
         reloadTrigger: 5,
         budgetResetIso: null,
+        budgetSource: "credit_limit",
       },
       errors: ["OpenCode Console budgets/org error 500"],
     });
@@ -236,7 +299,7 @@ describe("queryOpenCodeZenQuota", () => {
         ]),
     });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 4_250_000_000,
@@ -247,6 +310,7 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: 20,
         reloadTrigger: 5,
         budgetResetIso: null,
+        budgetSource: "credit_limit",
       },
       errors: [],
     });
@@ -261,6 +325,7 @@ describe("queryOpenCodeZenQuota", () => {
         reload: true,
         reloadAmount: 20,
         budgetResetIso: "2026-10-01T00:00:00.000Z",
+        budgetSource: "org_budget",
       },
     ],
     [
@@ -271,6 +336,7 @@ describe("queryOpenCodeZenQuota", () => {
         reload: null,
         reloadAmount: null,
         budgetResetIso: "2026-10-01T00:00:00.000Z",
+        budgetSource: "org_budget",
       },
     ],
     [
@@ -281,6 +347,7 @@ describe("queryOpenCodeZenQuota", () => {
         reload: true,
         reloadAmount: 20,
         budgetResetIso: "2026-10-01T00:00:00.000Z",
+        budgetSource: "org_budget",
       },
     ],
   ])("keeps the balance when optional %s fails", async (route, expected) => {
@@ -292,7 +359,7 @@ describe("queryOpenCodeZenQuota", () => {
       [route]: () => new Response("server error", { status: 500 }),
     });
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
 
     expect(result).toEqual({
       success: true,
@@ -315,7 +382,7 @@ describe("queryOpenCodeZenQuota", () => {
       "usage/cost-by-day": failed,
     });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 0,
@@ -326,6 +393,7 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: null,
         reloadTrigger: null,
         budgetResetIso: null,
+        budgetSource: "credit_limit",
       },
       errors: [
         "OpenCode Console billing/account error 500",
@@ -339,7 +407,7 @@ describe("queryOpenCodeZenQuota", () => {
   it("clamps a negative balance to zero", async () => {
     routes({ "billing/status": () => json({ ...STATUS, balanceMicroCents: "-14496" }) });
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
 
     expect(result).toMatchObject({ success: true, data: { balance: 0 } });
   });
@@ -367,7 +435,7 @@ describe("queryOpenCodeZenQuota", () => {
       "usage/cost-by-day": sessionResponse,
     });
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
 
     expect(result).toEqual({ success: false, error: SESSION_ERROR });
     expect(JSON.stringify(result)).not.toContain("st_secret-token");
@@ -376,7 +444,7 @@ describe("queryOpenCodeZenQuota", () => {
   it("fails the query when the required billing/status route returns 403", async () => {
     routes({ "billing/status": () => new Response("forbidden", { status: 403 }) });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: false,
       error: "OpenCode Console billing/status error 403",
     });
@@ -390,7 +458,7 @@ describe("queryOpenCodeZenQuota", () => {
       "budgets/org": () => new Response("forbidden", { status: 403 }),
     });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 4_250_000_000,
@@ -401,6 +469,7 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: 20,
         reloadTrigger: 5,
         budgetResetIso: null,
+        budgetSource: "credit_limit",
       },
       errors: ["OpenCode Console budgets/org error 403"],
     });
@@ -414,7 +483,7 @@ describe("queryOpenCodeZenQuota", () => {
       "budgets/org": () => json({ ...ORG_BUDGET, spentMicroCents: "-5" }),
     });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: true,
       data: {
         balance: 4_250_000_000,
@@ -425,6 +494,7 @@ describe("queryOpenCodeZenQuota", () => {
         reloadAmount: 20,
         reloadTrigger: 5,
         budgetResetIso: null,
+        budgetSource: "credit_limit",
       },
       errors: [],
     });
@@ -433,11 +503,17 @@ describe("queryOpenCodeZenQuota", () => {
   it("keeps a usable org budget but omits an invalid reset date", async () => {
     routes({ "budgets/org": () => json({ ...ORG_BUDGET, resetsAt: "not-a-date" }) });
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
 
     expect(result).toMatchObject({
       success: true,
-      data: { balance: 0, monthlyLimit: 60, monthlyUsage: 617_355_570, budgetResetIso: null },
+      data: {
+        balance: 0,
+        monthlyLimit: 60,
+        monthlyUsage: 617_355_570,
+        budgetResetIso: null,
+        budgetSource: "org_budget",
+      },
       errors: [],
     });
   });
@@ -447,7 +523,7 @@ describe("queryOpenCodeZenQuota", () => {
     // it must be canonicalized, never passed through as-is.
     routes({ "budgets/org": () => json({ ...ORG_BUDGET, resetsAt: "2026-10-01T00:00:00" }) });
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
     expect(result.success).toBe(true);
     if (!result.success) return;
 
@@ -465,7 +541,7 @@ describe("queryOpenCodeZenQuota", () => {
   ])("reports an expired session when only %s is rejected", async (route) => {
     routes({ [route]: () => new Response("unauthorized", { status: 401 }) });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: false,
       error: SESSION_ERROR,
     });
@@ -475,7 +551,7 @@ describe("queryOpenCodeZenQuota", () => {
     const secretBody = "private-body-session-secret";
     routes({ "billing/status": () => new Response(secretBody, { status: 500 }) });
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
 
     expect(result).toEqual({
       success: false,
@@ -492,7 +568,7 @@ describe("queryOpenCodeZenQuota", () => {
   ])("returns a stable parse error for a %s billing/status response", async (_name, payload) => {
     routes({ "billing/status": payload });
 
-    await expect(queryOpenCodeZenQuota(account)).resolves.toEqual({
+    await expect(queryOpenCodeZenQuota(credential)).resolves.toEqual({
       success: false,
       error: "Could not parse OpenCode Console billing/status response",
     });
@@ -503,6 +579,8 @@ describe("queryOpenCodeZenQuota", () => {
     ["billing/account", () => json({ ...ACCOUNT, creditLimitMicroCents: "9".repeat(309) })],
     ["billing/auto-recharge", () => json({ ...AUTO_RECHARGE, enabled: "no" })],
     ["budgets/org", () => json([])],
+    ["budgets/org", () => json("none")],
+    ["budgets/org", () => json({ spentMicroCents: "0" })],
     ["budgets/org", () => json({ limitMicroCents: "abc", spentMicroCents: "0" })],
     ["budgets/org", () => json({ limitMicroCents: "6000000000", resetsAt: 7 })],
     ["usage/cost-by-day", () => json({ days: [] })],
@@ -522,7 +600,7 @@ describe("queryOpenCodeZenQuota", () => {
   ])("lists a stable parse error for a malformed %s response", async (route, payload) => {
     routes({ [route]: payload });
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
 
     expect(result).toMatchObject({
       success: true,
@@ -536,7 +614,7 @@ describe("queryOpenCodeZenQuota", () => {
       new Error("\u001b[31mtimeout for wrk_abc with st_secret-token\nretry\u001b[0m"),
     );
 
-    const result = await queryOpenCodeZenQuota(account);
+    const result = await queryOpenCodeZenQuota(credential);
 
     expect(result).toEqual({
       success: false,

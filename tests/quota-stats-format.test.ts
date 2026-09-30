@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { formatLocalCallTimestamp } from "../src/lib/format-utils.js";
 import type { AggregateResult } from "../src/lib/quota-stats.js";
-import { formatQuotaStatsReport } from "../src/lib/quota-stats-format.js";
+import {
+  buildQuotaStatsReportDocument,
+  formatQuotaStatsReport,
+} from "../src/lib/quota-stats-format.js";
 
 function makeEmptyResult(overrides?: Partial<AggregateResult>): AggregateResult {
   return {
@@ -73,7 +77,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).toMatch(
       /^# Tokens used \(Last 24 Hours\) \(\/tokens_daily\) \d{2}:\d{2} \d{2}\/\d{2}\/\d{4}\n\n/,
     );
-    expect(out).toContain("## Models");
+    expect(out).toContain("## Model breakdown");
     expect(out).toContain("| Source");
     // blank separator row between sources
     expect(out).toContain("|          |");
@@ -110,7 +114,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(standard).toContain(longModel);
     expect(standard).toContain("Input");
     expect(standard).toContain("Output");
-    expect(standard).toContain("C.Read");
+    expect(standard).toContain("Cache read");
 
     const compact = formatQuotaStatsReport({
       title: "Tokens used (Last 24 Hours) (/tokens_daily)",
@@ -132,8 +136,29 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(compact).toContain("C.Wr");
     expect(compact).not.toContain("Input");
     expect(compact).not.toContain("Output");
-    expect(compact).not.toContain("C.Read");
-    expect(compact).not.toContain("C.Write");
+    expect(compact).not.toContain("Cache read");
+    expect(compact).not.toContain("Cache write");
+
+    // The document keeps each table's full labels next to the compact ones, for the TUI dialog.
+    const document = buildQuotaStatsReportDocument({
+      title: "Tokens used (Last 24 Hours) (/tokens_daily)",
+      result: r,
+      tableOptions: { compactHeaders: true },
+    });
+    const models = document.sections.find((section) => section.id === "models")?.blocks[0];
+    expect(models).toMatchObject({
+      headers: ["Source", "Model", "In", "Out", "C.Rd", "C.Wr", "Tok", "Cost"],
+      fullHeaders: [
+        "Source",
+        "Model",
+        "Input",
+        "Output",
+        "Cache read",
+        "Cache write",
+        "Tokens",
+        "Cost",
+      ],
+    });
   });
 
   it("abbreviates antigravity model names before width enforcement", () => {
@@ -225,7 +250,7 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).not.toContain("Reasoning");
   });
 
-  it("sessionOnly mode hides Window/Sessions columns and Top Sessions section", () => {
+  it("sessionOnly mode hides Window/Sessions columns and Top sessions section", () => {
     const r = makeEmptyResult({
       totals: {
         priced: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
@@ -275,8 +300,8 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).toContain("Tokens");
     expect(out).toContain("Cost");
 
-    // Top Sessions section should NOT be present
-    expect(out).not.toContain("## Top Sessions");
+    // Top sessions section should NOT be present
+    expect(out).not.toContain("## Top sessions");
   });
 
   it("session_tree mode renders a session breakdown and counts zero-usage descendants", () => {
@@ -342,17 +367,17 @@ describe("formatQuotaStatsReport (markdown)", () => {
 
     expect(out).toContain("| Messages");
     expect(out).toContain("| Sessions");
-    expect(out).toContain("## Session Tree");
+    expect(out).toContain("## Session tree");
     expect(out).toContain("current");
     expect(out).toContain("child");
     expect(out).toContain("grandchild");
     expect(out).toContain("ses_parent");
     expect(out).toContain("ses_grandchild");
     expect(out).toContain("$0.00");
-    expect(out).not.toContain("## Top Sessions");
+    expect(out).not.toContain("## Top sessions");
   });
 
-  it("standard mode includes Window/Sessions columns and Top Sessions section", () => {
+  it("standard mode includes Window/Sessions columns and Top sessions section", () => {
     const r = makeEmptyResult({
       totals: {
         priced: { input: 100, output: 200, reasoning: 0, cache_read: 0, cache_write: 0 },
@@ -392,8 +417,8 @@ describe("formatQuotaStatsReport (markdown)", () => {
     expect(out).toContain("Window");
     expect(out).toContain("Sessions");
 
-    // Top Sessions section SHOULD be present
-    expect(out).toContain("## Top Sessions");
+    // Top sessions section SHOULD be present
+    expect(out).toContain("## Top sessions");
     // Marker column should be named and not render as an empty header
     expect(out).toContain("| Current");
     expect(out).toContain("| Session");
@@ -599,31 +624,61 @@ describe("formatQuotaStatsReport (markdown)", () => {
       | -------- | -------: | -------: | -----: | ----: |
       | all time |        6 |        2 |   3.1K | $1.23 |
 
-      ## Models
+      ## Model breakdown
 
-      | Source   | Model                | Input | Output | C.Read | C.Write | Total |  Cost |
-      | -------- | -------------------- | ----: | -----: | -----: | ------: | ----: | ----: |
-      | OpenCode | claude-opus-4-5-high |  1.0K |   2.0K |      0 |       0 |  3.0K | $1.23 |
+      | Source   | Model                | Input | Output | Cache read | Cache write | Tokens |  Cost |
+      | -------- | -------------------- | ----: | -----: | ---------: | ----------: | -----: | ----: |
+      | OpenCode | claude-opus-4-5-high |  1.0K |   2.0K |          0 |           0 |   3.0K | $1.23 |
 
-      ## Top Sessions
+      ## Top sessions
 
-      | Current | Session |  Cost | Tokens | Msgs | Title        |
-      | ------- | ------- | ----: | -----: | ---: | ------------ |
-      |         | ses_123 | $0.50 |    300 |    3 | Test Session |
+      | Current | Session |  Cost | Tokens | Messages | Title        |
+      | ------- | ------- | ----: | -----: | -------: | ------------ |
+      |         | ses_123 | $0.50 |    300 |        3 | Test Session |
 
-      ## Unpriced Models
+      ## Models with no token prices
 
-      | Source | Model     | Mapped           | Reason                 | Tokens | Msgs |
-      | ------ | --------- | ---------------- | ---------------------- | -----: | ---: |
-      | Cursor | foo-model | openai/foo-model | snapshot missing model |     70 |    1 |
+      | Source | Model     | Mapped           | Reason                 | Tokens | Messages |
+      | ------ | --------- | ---------------- | ---------------------- | -----: | -------: |
+      | Cursor | foo-model | openai/foo-model | snapshot missing model |     70 |        1 |
 
-      ## Unknown Pricing
+      ## Models without pricing
 
-      | Source   | Model     | Mapped                                          | Tokens | Msgs |
-      | -------- | --------- | ----------------------------------------------- | -----: | ---: |
-      | OpenCode | bar-model | openai/bar-model (candidates: openai,anthropic) |     30 |    1 |
+      | Source   | Model     | Mapped                                          | Tokens | Messages |
+      | -------- | --------- | ----------------------------------------------- | -----: | -------: |
+      | OpenCode | bar-model | openai/bar-model (candidates: openai,anthropic) |     30 |        1 |
 
       Run /quota_status to see the full pricing diagnostics report."
     `);
+  });
+
+  it("keeps the title line in text and gives the dialog only the facts its title lacks", () => {
+    const generatedAtMs = Date.UTC(2026, 8, 29, 14, 0);
+    const time = formatLocalCallTimestamp(generatedAtMs);
+    const weekly = {
+      title: "Tokens used (Last 7 Days) (/tokens_weekly)",
+      result: makeEmptyResult(),
+      generatedAtMs,
+    };
+    const between = {
+      title: "Tokens used (2026-01-01 .. 2026-01-15) (/tokens_between)",
+      titleDetail: "2026-01-01 .. 2026-01-15",
+      result: makeEmptyResult(),
+      generatedAtMs,
+    };
+
+    expect(formatQuotaStatsReport(weekly).split("\n")[0]).toBe(
+      `# Tokens used (Last 7 Days) (/tokens_weekly) ${time}`,
+    );
+    expect(buildQuotaStatsReportDocument(weekly).heading?.subtitle).toBe(time);
+    expect(formatQuotaStatsReport(between).split("\n")[0]).toBe(
+      `# Tokens used (2026-01-01 .. 2026-01-15) (/tokens_between) ${time}`,
+    );
+    expect(buildQuotaStatsReportDocument(between).heading?.subtitle).toBe(
+      `2026-01-01 .. 2026-01-15 · ${time}`,
+    );
+    // The sections, which the dialog draws, never repeat the title.
+    const sectionsText = formatQuotaStatsReport(weekly).split("\n").slice(1).join("\n");
+    expect(sectionsText).not.toContain("Tokens used");
   });
 });

@@ -8,7 +8,7 @@
  * After quota succeeds, subscription metadata may refine the display label via:
  * GET https://grok.com/rest/subscriptions
  *
- * OpenCode remains the sole owner of OAuth refresh and auth.json persistence.
+ * OpenCode remains the sole owner of OAuth refresh and opencode.db persistence.
  */
 
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
@@ -49,6 +49,7 @@ export type XaiResult =
 
 export type ResolvedXaiOAuth =
   | { state: "none" }
+  | { state: "failed"; error: string }
   | {
       state: "configured";
       accessToken: string;
@@ -95,6 +96,7 @@ export function periodKindLabel(kind: XaiPeriodKind): string {
 export function resolveXaiOAuth(auth: AuthData | null | undefined): ResolvedXaiOAuth {
   const entry = auth?.xai;
   if (!entry || entry.type !== "oauth") return { state: "none" };
+  if (entry.resolveError !== undefined) return { state: "failed", error: entry.resolveError };
 
   const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";
   if (!accessToken) return { state: "none" };
@@ -110,18 +112,19 @@ export function resolveXaiOAuth(auth: AuthData | null | undefined): ResolvedXaiO
 }
 
 export function hasXaiOAuth(auth: AuthData | null | undefined): boolean {
-  return resolveXaiOAuth(auth).state === "configured";
+  return resolveXaiOAuth(auth).state !== "none";
 }
 
 export async function hasXaiOAuthCached(params?: { maxAgeMs?: number }): Promise<boolean> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_XAI_AUTH_CACHE_MAX_AGE_MS),
+    integrationIds: ["xai"],
   });
   return hasXaiOAuth(auth);
 }
 
 export async function resolveXaiAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
-  const resolved = resolveXaiOAuth(await readAuthFile());
+  const resolved = resolveXaiOAuth(await readAuthFile({ integrationIds: ["xai"] }));
   if (resolved.state !== "configured") return null;
   return deriveResolvedAuthIdentity({
     providerId: "xai",
@@ -255,12 +258,19 @@ function safeErrorText(message: string, accessToken: string): string {
 }
 
 export async function queryXaiQuota(
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; auth?: ResolvedXaiOAuth } = {},
 ): Promise<XaiResult> {
   // OpenCode can replace this OAuth entry while servicing a model request.
   // Read the file directly so a post-request quota fetch cannot reuse the
   // token snapshot from before that refresh.
-  const resolvedAuth = resolveXaiOAuth(await readAuthFile());
+  const resolvedAuth =
+    options.auth ?? resolveXaiOAuth(await readAuthFile({ integrationIds: ["xai"] }));
+  if (resolvedAuth.state === "failed") {
+    return {
+      success: false,
+      error: `xAI sign-in could not be refreshed: ${resolvedAuth.error}. Run \`opencode auth login xai\`.`,
+    };
+  }
   if (resolvedAuth.state !== "configured") return null;
 
   if (resolvedAuth.expiresAt !== undefined && resolvedAuth.expiresAt <= Date.now()) {

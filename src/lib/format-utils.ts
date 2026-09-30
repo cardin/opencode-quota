@@ -155,10 +155,6 @@ export function formatLocalCallTimestamp(atMs?: number): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())} ${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
-export function renderCommandHeading(params: { title: string; generatedAtMs?: number }): string {
-  return `# ${params.title} ${formatLocalCallTimestamp(params.generatedAtMs)}`;
-}
-
 export function abbreviateDisplayedModelName(name: string): string {
   return name.replace(/antigravity/gi, "agy");
 }
@@ -200,7 +196,7 @@ const MS_PER_HOUR = 3_600_000;
 /**
  * Format a reset countdown for toast display.
  *
- * Returns a precise-to-minute value like "2d5h14m", "3h45m", or "14m".
+ * Returns a precise-to-minute value like "2d 5h 14m", "3h 45m", or "14m".
  * When reset time is in the past or invalid, returns "reset".
  */
 export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOptions): string {

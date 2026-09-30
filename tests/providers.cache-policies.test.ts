@@ -4,7 +4,7 @@ const cachePolicyMocks = vi.hoisted(() => ({
   resolveGlobal: vi.fn(),
   resolveCn: vi.fn(),
   deriveIdentity: vi.fn(async (params: unknown) => JSON.stringify(params)),
-  resolveZenAccount: vi.fn(),
+  resolveConsoleAuth: vi.fn(),
 }));
 
 vi.mock("../src/lib/kimi-auth.js", () => ({
@@ -13,10 +13,13 @@ vi.mock("../src/lib/kimi-auth.js", () => ({
   resolveKimiCnAuthCached: cachePolicyMocks.resolveCn,
   resolveKimiGlobalAuthWithDiagnosticsCached: vi.fn(),
   resolveKimiCnAuthWithDiagnosticsCached: vi.fn(),
+  resolveKimiGlobalAuth: vi.fn(),
+  resolveKimiCnAuth: vi.fn(),
 }));
 
-vi.mock("../src/lib/opencode-zen-config.js", () => ({
-  resolveOpenCodeZenAccountCached: cachePolicyMocks.resolveZenAccount,
+vi.mock("../src/lib/opencode-console-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-console-auth.js")>()),
+  resolveOpenCodeConsoleAuth: cachePolicyMocks.resolveConsoleAuth,
 }));
 
 vi.mock("../src/lib/resolved-auth-identity.js", async (importOriginal) => {
@@ -113,22 +116,19 @@ describe("provider cache policies", () => {
 
     const ctx = { config: {} } as never;
     const cacheContext = {} as never;
-    cachePolicyMocks.resolveZenAccount.mockResolvedValue({
+    cachePolicyMocks.resolveConsoleAuth.mockResolvedValue({
       state: "configured",
-      account: {
-        baseUrl: "https://opencode.ai/console",
-        accessToken: "st_secret-token",
-        activeOrgId: "wrk_shared",
-      },
+      credential: { accessToken: "st_secret-token", orgId: "wrk_shared", accountId: "acc_1" },
     });
     const cloudIdentity = await policy.resolveIdentity(ctx, cacheContext);
 
-    cachePolicyMocks.resolveZenAccount.mockResolvedValue({
+    cachePolicyMocks.resolveConsoleAuth.mockResolvedValue({
       state: "configured",
-      account: {
-        baseUrl: "https://console.self-hosted.example",
+      credential: {
         accessToken: "st_self-hosted-token",
-        activeOrgId: "wrk_shared",
+        orgId: "wrk_shared",
+        accountId: "acc_1",
+        server: "https://console.self-hosted.example",
       },
     });
     const selfHostedIdentity = await policy.resolveIdentity(ctx, cacheContext);
@@ -148,16 +148,40 @@ describe("provider cache policies", () => {
     });
   });
 
-  it("returns no OpenCode Zen identity without a configured Console account", async () => {
+  it.each([
+    [
+      { accessToken: "st_secret-token", accountId: "acc_1" },
+      { kind: "stable-id", value: "acc_1" },
+    ],
+    [{ accessToken: "st_secret-token" }, { kind: "credential", value: "st_secret-token" }],
+  ])("uses the account, then the token, when the Console sign-in has no org (%j)", async (credential, principal) => {
     const policy = PROVIDER_CACHE_POLICIES.opencode;
     if (policy.kind !== "resolved-auth") throw new Error("Expected a resolved-auth policy");
 
-    cachePolicyMocks.resolveZenAccount.mockResolvedValue({ state: "expired", expiryMs: 0 });
+    cachePolicyMocks.resolveConsoleAuth.mockResolvedValue({ state: "configured", credential });
+    await policy.resolveIdentity({ config: {} } as never, {} as never);
+
+    expect(cachePolicyMocks.deriveIdentity).toHaveBeenCalledWith({
+      providerId: "opencode",
+      principal,
+      qualifiers: ["https://opencode.ai/console"],
+    });
+  });
+
+  it.each([
+    { state: "none" },
+    { state: "expired", credential: { accessToken: "st_secret-token", orgId: "wrk_shared" } },
+    { state: "invalid", error: "refresh_failed: boom" },
+  ])("returns no OpenCode Zen identity without a configured Console sign-in (%j)", async (resolution) => {
+    const policy = PROVIDER_CACHE_POLICIES.opencode;
+    if (policy.kind !== "resolved-auth") throw new Error("Expected a resolved-auth policy");
+
+    cachePolicyMocks.resolveConsoleAuth.mockResolvedValue(resolution);
     await expect(policy.resolveIdentity({ config: {} } as never, {} as never)).resolves.toBeNull();
     expect(cachePolicyMocks.deriveIdentity).not.toHaveBeenCalled();
   });
 
-  it("attaches the exhaustive policy to the stable provider singleton", async () => {
+  it("attaches the exhaustive policy to the stable provider singleton", () => {
     const first = getProviders();
     const second = getProviders();
     expect(first.map(({ id }) => id)).toEqual(

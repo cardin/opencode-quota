@@ -11,7 +11,7 @@ import { join } from "path";
 import { sanitizeDisplaySnippet, sanitizeDisplayText } from "./display-sanitize.js";
 import { fetchWithTimeout } from "./http.js";
 import { readAuthFile } from "./opencode-auth.js";
-import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
+import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { deriveResolvedAuthIdentity, type ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type {
   AuthData,
@@ -34,7 +34,15 @@ const COPILOT_QUOTA_CONFIG_FILENAME = "copilot-quota-token.json";
 const USER_AGENT = "opencode-quota/copilot-billing";
 const COPILOT_INTERNAL_USER_PATH = "/copilot_internal/user";
 
-type CopilotAuthKeyName = "github-copilot" | "copilot" | "copilot-chat" | "github-copilot-chat";
+/** Integration ids that can hold the Copilot OAuth login, in precedence order. */
+export const COPILOT_AUTH_KEYS = [
+  "github-copilot",
+  "copilot",
+  "copilot-chat",
+  "github-copilot-chat",
+] as const;
+
+type CopilotAuthKeyName = (typeof COPILOT_AUTH_KEYS)[number];
 type CopilotPatTokenKind = "github_pat" | "ghp" | "ghu" | "ghs" | "other";
 type EffectiveCopilotAuthSource = "pat" | "oauth" | "none";
 type CopilotQuotaApi =
@@ -209,20 +217,6 @@ const LEGACY_PREMIUM_REQUEST_TOTALS: Partial<Record<CopilotTier, number>> = {
   pro: 300,
   "pro+": 1500,
 };
-
-function dedupeStrings(values: Array<string | undefined | null>): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-
-  for (const value of values) {
-    const trimmed = value?.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-
-  return out;
-}
 
 function validateEnterpriseHost(value: unknown): { host?: string; error?: string } {
   if (value === undefined || value === null) return {};
@@ -431,10 +425,7 @@ function validatePatTargetCompatibility(
 }
 
 export function getCopilotPatConfigCandidatePaths(): string[] {
-  const { configDirs } = getOpencodeRuntimeDirCandidates();
-  return dedupeStrings(
-    configDirs.map((configDir) => join(configDir, COPILOT_QUOTA_CONFIG_FILENAME)),
-  );
+  return [join(getOpencodeRuntimeDirs().configDir, COPILOT_QUOTA_CONFIG_FILENAME)];
 }
 
 function validateQuotaConfig(raw: unknown): { config: CopilotQuotaConfig | null; error?: string } {
@@ -566,7 +557,8 @@ function selectCopilotAuth(authData: AuthData | null): {
 
   for (const [keyName, auth] of candidates) {
     if (!auth || auth.type !== "oauth") continue;
-    if (!getCopilotOAuthToken(auth)) continue;
+    // A login OpenCode could not return still counts, so it shows as an error.
+    if (!getCopilotOAuthToken(auth) && auth.resolveError === undefined) continue;
     return { auth, keyName };
   }
 
@@ -1344,7 +1336,7 @@ async function fetchCopilotInternalUser(params: {
  * OpenCode-managed Copilot OAuth token can query the per-user internal quota endpoint.
  */
 export async function queryCopilotQuota(
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<CopilotResult> {
   const pat = readQuotaConfigWithMeta();
 
@@ -1354,7 +1346,14 @@ export async function queryCopilotQuota(
     );
   }
   if (pat.state === "absent" || !pat.config) {
-    const { auth } = selectCopilotAuth(await readAuthFile());
+    const { auth } = selectCopilotAuth(
+      options.authData ?? (await readAuthFile({ integrationIds: COPILOT_AUTH_KEYS })),
+    );
+    if (auth?.resolveError !== undefined) {
+      return toQuotaError(
+        `Copilot sign-in could not be read: ${auth.resolveError}. Run \`opencode auth login github-copilot\`.`,
+      );
+    }
     const token = getCopilotOAuthToken(auth);
     if (!auth || !token) return null;
 
@@ -1432,7 +1431,7 @@ export async function resolveCopilotAuthIdentity(): Promise<ResolvedAuthIdentity
     });
   }
 
-  const { auth } = selectCopilotAuth(await readAuthFile());
+  const { auth } = selectCopilotAuth(await readAuthFile({ integrationIds: COPILOT_AUTH_KEYS }));
   const token = getCopilotOAuthToken(auth);
   if (!auth || !token) return null;
 
@@ -1446,7 +1445,9 @@ export async function resolveCopilotAuthIdentity(): Promise<ResolvedAuthIdentity
 }
 
 export async function hasCopilotQuotaRuntimeAvailable(): Promise<boolean> {
-  const diagnostics = getCopilotQuotaAuthDiagnostics(await readAuthFile());
+  const diagnostics = getCopilotQuotaAuthDiagnostics(
+    await readAuthFile({ integrationIds: COPILOT_AUTH_KEYS }),
+  );
   return diagnostics.billingApiAccessLikely;
 }
 

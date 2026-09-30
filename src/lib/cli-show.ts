@@ -1,29 +1,22 @@
 import { resolve } from "path";
 import { hasAnthropicCredentialsConfigured } from "./anthropic.js";
-import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils.js";
-import { sanitizeQuotaRenderData } from "./display-sanitize.js";
-import { formatQuotaRows } from "./format.js";
-import { formatQuotaModeHeading } from "./format-utils.js";
+import { buildCliShowJson, buildCliShowText, type CliReport } from "./cli-reports.js";
+import { findGitWorktreeRoot } from "./config-file-utils.js";
 import {
   DEFAULT_KIMI_AUTH_CACHE_MAX_AGE_MS,
   resolveKimiCnAuthCached,
   resolveKimiGlobalAuthCached,
 } from "./kimi-auth.js";
+import { bindCredentialSource } from "./opencode-auth.js";
+import { createSqliteCredentialSource } from "./opencode-auth-sqlite.js";
 import {
   loadConfiguredOpenCodeConfig,
   loadConfiguredProviderIds,
 } from "./opencode-config-providers.js";
 import { getQuotaProviderShape } from "./provider-metadata.js";
-import { buildQuotaExport, createExportProviderContext } from "./quota-export.js";
-import { resolveQuotaFormatStyle } from "./quota-format-style.js";
-import { collectQuotaRenderData } from "./quota-render-data.js";
-import type { QuotaRuntimeClient } from "./quota-runtime-context.js";
-import {
-  createQuotaRuntimeRequestContext,
-  resolveQuotaRuntimeContext,
-} from "./quota-runtime-context.js";
+import type { QuotaRuntimeClient, QuotaRuntimeContext } from "./quota-runtime-context.js";
+import { resolveQuotaRuntimeContext } from "./quota-runtime-context.js";
 import type { QuotaToastConfig } from "./types.js";
-import { getPackageVersion } from "./version.js";
 
 export interface RunCliShowCommandOptions {
   argv?: string[];
@@ -126,19 +119,6 @@ function parseShowArgs(argv: string[]): ParsedShowArgs {
   return { ok: true, providerId, help: false, json, threshold };
 }
 
-function cloneCliConfig(config: QuotaToastConfig): QuotaToastConfig {
-  return {
-    ...config,
-    enabledProviders: Array.isArray(config.enabledProviders)
-      ? [...config.enabledProviders]
-      : config.enabledProviders,
-    opencodeGoWindows: [...config.opencodeGoWindows],
-    pricingSnapshot: { ...config.pricingSnapshot },
-    layout: { ...config.layout },
-    showSessionTokens: false,
-  };
-}
-
 export function resolveCliRoots(cwd: string): {
   workspaceRoot: string;
   configRoot: string;
@@ -146,10 +126,9 @@ export function resolveCliRoots(cwd: string): {
 } {
   const fallbackDirectory = resolve(cwd);
   const worktreeRoot = findGitWorktreeRoot(fallbackDirectory) ?? fallbackDirectory;
-  const configRoot = getEffectiveConfigRoot(worktreeRoot);
   return {
     workspaceRoot: worktreeRoot,
-    configRoot,
+    configRoot: worktreeRoot,
     fallbackDirectory,
   };
 }
@@ -221,72 +200,37 @@ function writeLine(stream: Pick<NodeJS.WriteStream, "write">, message: string): 
   stream.write(message.endsWith("\n") ? message : `${message}\n`);
 }
 
-async function runCliShowJsonOutput(params: {
-  runtime: Awaited<ReturnType<typeof resolveQuotaRuntimeContext>>;
-  providerId?: string;
-  threshold?: number;
+/**
+ * Builds one `show` or `status` report in this process, for the folder the command runs in,
+ * and prints it. It works with OpenCode closed: logins are read read-only from OpenCode's
+ * database, and only while the report runs.
+ */
+export async function runCliReport(params: {
+  cwd: string;
+  failurePrefix: "Failed to show quota" | "Failed to generate quota status";
+  build: (runtime: QuotaRuntimeContext) => Promise<CliReport>;
   stdout: Pick<NodeJS.WriteStream, "write">;
+  stderr: Pick<NodeJS.WriteStream, "write">;
 }): Promise<number> {
-  const { runtime, providerId, threshold, stdout } = params;
-
-  const config = cloneCliConfig(runtime.config);
-  if (providerId) {
-    config.enabledProviders = [providerId];
+  const unbind = bindCredentialSource(createSqliteCredentialSource());
+  try {
+    const roots = resolveCliRoots(params.cwd);
+    const runtime = await resolveQuotaRuntimeContext({
+      client: createCliQuotaClient({ configRootDir: roots.configRoot }),
+      roots,
+      includeSessionMeta: false,
+    });
+    const report = await params.build(runtime);
+    params.stdout.write(report.stdout);
+    params.stderr.write(report.stderr);
+    return report.exitCode;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    writeLine(params.stderr, `${params.failurePrefix}: ${message}`);
+    return 1;
+  } finally {
+    unbind();
   }
-
-  const allProviders = runtime.providers.filter((p) => {
-    if (config.enabledProviders === "auto") return true;
-    return config.enabledProviders.includes(p.id);
-  });
-
-  // Read cached quota through the shared export context so the cache key
-  // matches the one the TUI background writer used. Without this, a user with
-  // onlyCurrentModel:true would compute a different key and every provider
-  // would read back as "unavailable".
-  const ctx = createExportProviderContext(runtime);
-  const exportData = await buildQuotaExport({
-    providers: allProviders,
-    ctx,
-    ttlMs: config.minIntervalMs,
-    fromCache: true,
-  });
-
-  writeLine(stdout, JSON.stringify(exportData, null, 2));
-
-  if (threshold !== undefined) {
-    const providerResults = Object.values(exportData.providers);
-    if (providerResults.some((provider) => provider.status !== "ok")) {
-      return 2;
-    }
-
-    const okProviders = providerResults.filter(
-      (p): p is Extract<typeof p, { status: "ok" }> => p.status === "ok",
-    );
-
-    if (okProviders.length === 0) {
-      // No cached quota to compare against: distinct from "below threshold" (1).
-      return 2;
-    }
-
-    let hasComparablePercent = false;
-    for (const provider of okProviders) {
-      const percents = provider.entries
-        .filter((entry) => entry.renderType === "percent")
-        .map((entry) => entry.percentRemaining);
-      if (percents.length === 0) continue;
-      hasComparablePercent = true;
-      const minPercent = Math.min(...percents);
-      if (minPercent < threshold) {
-        return 1;
-      }
-    }
-
-    if (!hasComparablePercent) {
-      return 2;
-    }
-  }
-
-  return 0;
 }
 
 export async function runCliShowCommand(options: RunCliShowCommandOptions = {}): Promise<number> {
@@ -312,80 +256,14 @@ export async function runCliShowCommand(options: RunCliShowCommandOptions = {}):
     return 1;
   }
 
-  try {
-    const roots = resolveCliRoots(options.cwd ?? process.cwd());
-    const client = createCliQuotaClient({ configRootDir: roots.configRoot });
-    const runtime = await resolveQuotaRuntimeContext({
-      client,
-      roots,
-      includeSessionMeta: false,
-    });
-
-    if (!runtime.config.enabled) {
-      writeLine(stderr, "Quota disabled in config (enabled: false).");
-      return 1;
-    }
-
-    if (parsed.json) {
-      return runCliShowJsonOutput({
-        runtime,
-        providerId,
-        threshold: parsed.threshold,
-        stdout,
-      });
-    }
-
-    const config = cloneCliConfig(runtime.config);
-    if (providerId) {
-      config.enabledProviders = [providerId];
-    }
-
-    const result = await collectQuotaRenderData({
-      client: runtime.client,
-      resolveRuntimeProviderIds: runtime.resolveRuntimeProviderIds,
-      config,
-      configMeta: runtime.configMeta,
-      request: createQuotaRuntimeRequestContext(runtime),
-      surfaceExplicitProviderIssues: true,
-      formatStyle: resolveQuotaFormatStyle(config.formatStyle),
-      providers: runtime.providers,
-    });
-
-    if (!result.data) {
-      writeLine(stderr, "No provider data available.");
-      return 1;
-    }
-
-    const data = sanitizeQuotaRenderData(result.data);
-    const version = (await getPackageVersion()) ?? "";
-    const output = formatQuotaRows({
-      version,
-      layout: config.layout,
-      entries: data.entries,
-      errors: data.errors,
-      style: resolveQuotaFormatStyle(config.formatStyle),
-      percentDisplayMode: config.percentDisplayMode,
-      percentLabelStyle: config.percentLabelStyle,
-      accountingDetail: config.accountingDetail,
-      resetTimeDecimals: config.resetTimeDecimals,
-      resetTimeSpaced: config.resetTimeSpaced,
-    });
-
-    if (!output.trim()) {
-      writeLine(stderr, "No provider data available.");
-      return 1;
-    }
-
-    writeLine(
-      stdout,
-      config.percentLabelStyle === "bare"
-        ? `${formatQuotaModeHeading(config.percentDisplayMode)}\n\n${output}`
-        : output,
-    );
-    return data.entries.length > 0 ? 0 : 1;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    writeLine(stderr, `Failed to show quota: ${message}`);
-    return 1;
-  }
+  return runCliReport({
+    cwd: options.cwd ?? process.cwd(),
+    failurePrefix: "Failed to show quota",
+    build: (runtime) =>
+      parsed.json
+        ? buildCliShowJson({ runtime, providerId, threshold: parsed.threshold })
+        : buildCliShowText({ runtime, providerId }),
+    stdout,
+    stderr,
+  });
 }

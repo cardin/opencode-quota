@@ -185,12 +185,11 @@ describe("provider-metadata", () => {
       },
       {
         id: "opencode",
-        autoSetup: "needs_quick_setup",
-        authentication: "state_only",
+        autoSetup: "yes",
+        authentication: "opencode_auth_oauth_token",
         quota: "remote_api",
-        quickSetupAnchor: "opencode-zen",
         notes:
-          "Reads the OpenCode Console billing and usage APIs using the active `opencode console login` session",
+          "Reads the OpenCode Console billing, budget and usage APIs with your OpenCode Console sign-in",
       },
       {
         id: "ollama-cloud",
@@ -440,12 +439,11 @@ describe("provider-metadata", () => {
     });
     expect(getQuotaProviderShape("opencode-zen")).toEqual({
       id: "opencode",
-      autoSetup: "needs_quick_setup",
-      authentication: "state_only",
+      autoSetup: "yes",
+      authentication: "opencode_auth_oauth_token",
       quota: "remote_api",
-      quickSetupAnchor: "opencode-zen",
       notes:
-        "Reads the OpenCode Console billing and usage APIs using the active `opencode console login` session",
+        "Reads the OpenCode Console billing, budget and usage APIs with your OpenCode Console sign-in",
     });
     expect(getQuotaProviderShape("kilo")).toEqual({
       id: "kilo",

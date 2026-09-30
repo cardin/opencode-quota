@@ -1,7 +1,7 @@
 /**
  * OpenCode-managed Anthropic OAuth credentials.
  *
- * Reads the `anthropic` OAuth entry from OpenCode's own auth.json. This is the
+ * Reads the `anthropic` OAuth entry from OpenCode's own opencode.db. This is the
  * credential OpenCode refreshes for Anthropic subscription models, so it stays
  * usable even when a separately installed Claude Code has stale credentials.
  */
@@ -13,6 +13,7 @@ export const DEFAULT_ANTHROPIC_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
 export type ResolvedAnthropicOAuth =
   | { state: "none" }
+  | { state: "failed"; error: string }
   | { state: "expired"; expiresAt: number }
   | { state: "configured"; accessToken: string; expiresAt?: number };
 
@@ -23,6 +24,9 @@ export function resolveAnthropicOAuth(
   const entry = auth?.anthropic;
   if (!entry || entry.type !== "oauth") {
     return { state: "none" };
+  }
+  if (entry.resolveError !== undefined) {
+    return { state: "failed", error: entry.resolveError };
   }
 
   const accessToken = typeof entry.access === "string" ? entry.access.trim() : "";
@@ -45,6 +49,7 @@ export async function resolveAnthropicOAuthCached(params?: {
 }): Promise<ResolvedAnthropicOAuth> {
   const auth = await readAuthFileCached({
     maxAgeMs: Math.max(0, params?.maxAgeMs ?? DEFAULT_ANTHROPIC_AUTH_CACHE_MAX_AGE_MS),
+    integrationIds: ["anthropic"],
   });
   return resolveAnthropicOAuth(auth);
 }

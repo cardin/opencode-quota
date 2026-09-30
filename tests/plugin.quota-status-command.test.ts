@@ -1,16 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { messageDocument, renderPlainTextReport } from "../src/lib/report-document.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import {
   createAlibabaAuthModuleMock,
+  createPluginTestClient as createClient,
   createConfigModuleMock,
-  createPluginTestClient,
-  createPluginTestContext,
-  createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
   createSessionTokensModuleMock,
-  getSyntheticText,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
 
@@ -27,8 +25,7 @@ const mocks = vi.hoisted(() => ({
   resolveAlibabaCodingPlanAuthCached: vi.fn(),
   fetchSessionTokensForDisplay: vi.fn(),
   collectQuotaStatusLiveProbes: vi.fn(),
-  buildQuotaStatusReport: vi.fn(),
-  inspectTuiConfig: vi.fn(),
+  buildQuotaStatusReportDocument: vi.fn(),
 }));
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
@@ -56,22 +53,36 @@ vi.mock("../src/lib/quota-render-data.js", () => ({
 }));
 
 vi.mock("../src/lib/quota-status.js", () => ({
-  buildQuotaStatusReport: mocks.buildQuotaStatusReport,
+  buildQuotaStatusReportDocument: mocks.buildQuotaStatusReportDocument,
 }));
 
-vi.mock("../src/lib/tui-config-diagnostics.js", () => ({
-  inspectTuiConfig: mocks.inspectTuiConfig,
-}));
-
-async function setupPlugin() {
-  const { QuotaToastPlugin } = await import("../src/plugin.js");
-  const context = createPluginTestContext({
-    directory: process.cwd(),
-    modelID: "openai/gpt-5",
-    providerID: "openai",
+async function buildQuotaStatusDialogOutput(params: {
+  client: ReturnType<typeof createClient>;
+  sessionID?: string;
+}) {
+  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
+  const result = await buildQuotaDialogCommandOutput({
+    command: "quota_status",
+    client: params.client,
+    roots: {
+      workspaceRoot: process.cwd(),
+      configRoot: process.cwd(),
+      fallbackDirectory: process.cwd(),
+    },
+    sessionID: params.sessionID,
+    resolveSessionMeta: async (sessionID) => {
+      const response = await params.client.session.get({ path: { id: sessionID } });
+      return {
+        modelID: response.data?.model?.id,
+        providerID: response.data?.model?.providerID,
+      };
+    },
   });
-  await QuotaToastPlugin.setup(context as never);
-  return context;
+  expect(params.client.session.prompt).not.toHaveBeenCalled();
+  expect(result.state).toBe("output");
+  if (result.state !== "output") return "";
+  expect(renderPlainTextReport(result.document)).toBe(result.output);
+  return result.output;
 }
 
 describe("/quota_status command behavior", () => {
@@ -92,7 +103,6 @@ describe("/quota_status command behavior", () => {
       resetModules: true,
       resetPluginState: true,
     });
-    mocks.inspectTuiConfig.mockResolvedValue(createPluginTuiConfigInspection(process.cwd()));
     mocks.collectQuotaStatusLiveProbes.mockResolvedValue([
       {
         providerId: "openai",
@@ -115,7 +125,9 @@ describe("/quota_status command behavior", () => {
         },
       },
     ]);
-    mocks.buildQuotaStatusReport.mockResolvedValue("Injected quota status");
+    mocks.buildQuotaStatusReportDocument.mockResolvedValue(
+      messageDocument("Injected quota status"),
+    );
   });
 
   afterEach(() => {
@@ -168,7 +180,7 @@ describe("/quota_status command behavior", () => {
       },
     ]);
 
-    const client = createPluginTestClient({ modelID: "openai/gpt-5", providerID: "openai" });
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
     const roots = {
       workspaceRoot: process.cwd(),
       configRoot: process.cwd(),
@@ -189,6 +201,7 @@ describe("/quota_status command behavior", () => {
     });
 
     expect(data.output).toBe("Injected quota status");
+    expect(data.document).toEqual(messageDocument("Injected quota status"));
     expect(data.payload?.providers).toEqual([
       expect.objectContaining({ id: "synthetic", enabled: true, available: true }),
     ]);
@@ -199,7 +212,7 @@ describe("/quota_status command behavior", () => {
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({ providers: [synthetic] }),
     );
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         providerAvailability: [
           expect.objectContaining({ id: "synthetic", enabled: true, available: true }),
@@ -214,7 +227,7 @@ describe("/quota_status command behavior", () => {
     );
   });
 
-  it("passes every registered provider through the shared fetch-once status flow", async () => {
+  it("passes every registered provider through the shared fetch-once CLI status flow", async () => {
     const openai = {
       id: "openai",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -237,30 +250,29 @@ describe("/quota_status command behavior", () => {
     };
     mocks.getProviders.mockReturnValue([openai, synthetic, copilot, cursor]);
 
-    const context = await setupPlugin();
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
 
-    // V2 registers quota_status as a tool, not a slash-only command.
-    await context.runTool("quota_status", {}, "session-status");
-    const output = getSyntheticText(context);
+    const output = await buildQuotaStatusDialogOutput({
+      client,
+      sessionID: "session-status",
+    });
 
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledTimes(1);
-    expect(mocks.inspectTuiConfig).toHaveBeenCalledWith({
-      roots: {
-        workspaceRoot: process.cwd(),
-        configRoot: process.cwd(),
-      },
-    });
     expect(mocks.collectQuotaStatusLiveProbes).toHaveBeenCalledWith(
       expect.objectContaining({
-        client: expect.anything(),
+        client,
         config: expect.objectContaining({
           enabledProviders: ["openai", "synthetic", "copilot", "cursor"],
         }),
         providers: [openai, synthetic, copilot, cursor],
       }),
     );
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
+        runtimeRoots: {
+          workspaceRoot: process.cwd(),
+          configRoot: process.cwd(),
+        },
         globalConfigPaths: [],
         workspaceConfigPaths: [],
         settingSources: {},
@@ -292,22 +304,23 @@ describe("/quota_status command behavior", () => {
     expect(output).toBe("Injected quota status");
   });
 
-  it("reports no_session diagnostics when no active TUI session is available", async () => {
+  it("reports no_session diagnostics when the CLI has no active session", async () => {
     mocks.getProviders.mockReturnValue([]);
 
-    const context = await setupPlugin();
-    const quotaStatus = context.registeredTools.find((tool) => tool.name === "quota_status");
-    expect(quotaStatus).toBeDefined();
+    const client = createClient({ modelID: "openai/gpt-5", providerID: "openai" });
 
-    await quotaStatus?.execute({}, { sessionID: undefined as never, metadata: vi.fn() });
+    const output = await buildQuotaStatusDialogOutput({
+      client,
+      sessionID: undefined,
+    });
 
-    expect(context.session.get).not.toHaveBeenCalled();
-    expect(mocks.buildQuotaStatusReport).toHaveBeenCalledWith(
+    expect(client.session.get).not.toHaveBeenCalled();
+    expect(mocks.buildQuotaStatusReportDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         currentModel: undefined,
         sessionModelLookup: "no_session",
       }),
     );
-    expect(getSyntheticText(context)).toBe("Injected quota status");
+    expect(output).toBe("Injected quota status");
   });
 });

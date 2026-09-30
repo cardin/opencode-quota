@@ -1,19 +1,19 @@
 import { rm } from "fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { renderPlainTextReport } from "../src/lib/report-document.js";
+import { createFakeIntegration } from "./helpers/fake-integration.js";
 import {
   createAlibabaAuthModuleMock,
   createPluginTestClient as createClient,
   createConfigModuleMock,
   createPluginRuntimePathsMockModule,
-  createPluginTestContext,
-  createPluginTuiConfigInspection,
   createPricingModuleMock,
   createProvidersRegistryModuleMock,
-  getSyntheticText,
   makeQuotaToastTestConfig,
   seedDefaultPluginBootstrapMocks,
 } from "./helpers/plugin-test-harness.js";
+import { createQuotaRpcBridge } from "./helpers/quota-rpc-bridge.js";
 
 const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-plugin-announcements-tests";
 const TEST_ACCOUNTING = {
@@ -22,7 +22,7 @@ const TEST_ACCOUNTING = {
   ownership: "maintained",
   authority: "provider_reported",
 } as const;
-const ANNOUNCEMENT_TOAST_MESSAGE =
+const ANNOUNCEMENT_HOME_MESSAGE =
   "Notice: Maintainer announcement available. Run /quota_announcements.";
 
 const TEST_ANNOUNCEMENT = vi.hoisted(() => ({
@@ -47,15 +47,7 @@ const mocks = vi.hoisted(() => ({
 
 const announcementMocks = vi.hoisted(() => ({
   getMaintainerAnnouncementsSummary: vi.fn(),
-}));
-
-const tuiDiagnosticsMocks = vi.hoisted(() => ({
-  inspectTuiConfig: vi.fn(),
-}));
-
-const resetMocks = vi.hoisted(() => ({
-  observeQuotaResetNotifications: vi.fn(),
-  formatQuotaResetNotification: vi.fn(),
+  formatMaintainerAnnouncementHomeCountLine: vi.fn(),
 }));
 
 vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
@@ -67,23 +59,27 @@ vi.mock("../src/lib/alibaba-auth.js", () =>
   createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
 );
 vi.mock("../src/lib/opencode-runtime-paths.js", () =>
-  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT, { includeCandidates: true }),
+  createPluginRuntimePathsMockModule(TEST_RUNTIME_ROOT),
 );
-vi.mock("../src/lib/tui-config-diagnostics.js", () => ({
-  inspectTuiConfig: tuiDiagnosticsMocks.inspectTuiConfig,
-}));
+// Records the getters of the TUI's Solid signals, so a test can read what a view shows.
+const signals = vi.hoisted(() => [] as Array<() => unknown>);
+vi.mock("solid-js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("solid-js")>();
+  return {
+    ...actual,
+    createSignal: ((...args: Parameters<typeof actual.createSignal>) => {
+      const signal = actual.createSignal(...args);
+      signals.push(signal[0]);
+      return signal;
+    }) as typeof actual.createSignal,
+  };
+});
 vi.mock("../src/lib/maintainer-announcements.js", () => ({
   BUNDLED_MAINTAINER_ANNOUNCEMENTS: [TEST_ANNOUNCEMENT],
-  formatMaintainerAnnouncementHomeCountLine: (activeCount: number) => {
-    if (activeCount <= 0) return "";
-    if (activeCount === 1) return ANNOUNCEMENT_TOAST_MESSAGE;
-    return `Notice: ${activeCount} maintainer announcements available. Run /quota_announcements.`;
-  },
+  formatMaintainerAnnouncementHomeCountLine:
+    announcementMocks.formatMaintainerAnnouncementHomeCountLine,
   getMaintainerAnnouncementsSummary: announcementMocks.getMaintainerAnnouncementsSummary,
-}));
-vi.mock("../src/lib/quota-reset-notifications.js", () => ({
-  observeQuotaResetNotifications: resetMocks.observeQuotaResetNotifications,
-  formatQuotaResetNotification: resetMocks.formatQuotaResetNotification,
+  getMaintainerAnnouncementTargetProviderIds: () => ["copilot"],
 }));
 
 function makeAnnouncementSummary(overrides: Record<string, unknown> = {}) {
@@ -106,46 +102,120 @@ function makeAnnouncementSummary(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function setupPlugin() {
-  const { QuotaToastPlugin } = await import("../src/plugin.js");
-  const context = createPluginTestContext({ directory: process.cwd() });
-  await QuotaToastPlugin.setup(context as never);
-  return context;
+function configureQuestionQuotaToast(
+  overrides: Parameters<typeof makeQuotaToastTestConfig>[0] = {},
+): void {
+  mocks.loadConfig.mockResolvedValue(
+    makeQuotaToastTestConfig({
+      enabled: true,
+      enableToast: true,
+      enabledProviders: ["copilot"],
+      showOnIdle: false,
+      showOnQuestion: true,
+      showOnCompact: false,
+      minIntervalMs: 0,
+      maintainerAnnouncements: {
+        enabled: true,
+        home: true,
+      },
+      ...overrides,
+    }),
+  );
+  mocks.getProviders.mockReturnValue([
+    {
+      id: "copilot",
+      isAvailable: vi.fn().mockResolvedValue(true),
+      fetch: vi.fn().mockResolvedValue({
+        attempted: true,
+        entries: [{ accounting: TEST_ACCOUNTING, name: "Copilot", percentRemaining: 81 }],
+        errors: [],
+      }),
+    },
+  ]);
 }
 
-async function createRuntime(
-  overrides: { showToast: (body: unknown) => Promise<unknown> },
-  client: ReturnType<typeof createClient>,
-) {
-  const { createQuotaToastRuntime } = await import("../src/lib/quota-toast-runtime.js");
-  return createQuotaToastRuntime({
-    client: client as never,
-    roots: () => ({
+/** Starts the server plugin and the TUI plugin, joined by the quota RPC. */
+async function startCli() {
+  vi.stubGlobal("React", {
+    createElement: (type: unknown, props: Record<string, unknown> | null) =>
+      typeof type === "function" ? type(props ?? {}) : { type, props },
+  });
+  const { default: server } = await import("../src/plugin.js");
+  const register = vi.fn(async () => ({ dispose: async () => {}, events: { emit: vi.fn() } }));
+  await server.setup({
+    location: { directory: process.cwd() },
+    provider: { list: vi.fn(async () => ({ data: [{ id: "copilot" }] })) },
+    session: { get: vi.fn(async () => ({})), hook: vi.fn() },
+    command: { transform: vi.fn() },
+    tool: { transform: vi.fn() },
+    rpc: { register },
+    integration: createFakeIntegration([]),
+    event: { subscribe: () => ({ async *[Symbol.asyncIterator]() {} }) },
+  } as never);
+  const [, handlers] = register.mock.calls[0] as unknown as [
+    unknown,
+    Parameters<typeof createQuotaRpcBridge>[0],
+  ];
+  const { default: plugin } = await import("../src/tui-v2.js");
+  const listeners = new Map<string, (event: { data: Record<string, unknown> }) => void>();
+  const renderers = new Map<string, () => unknown>();
+  const toast = vi.fn();
+  const context = {
+    location: { directory: process.cwd() },
+    client: { rpc: createQuotaRpcBridge(handlers) },
+    data: {
+      session: { get: vi.fn(() => undefined) },
+      on: vi.fn((name: string, listener: (event: { data: Record<string, unknown> }) => void) => {
+        listeners.set(name, listener);
+        return () => listeners.delete(name);
+      }),
+    },
+    keymap: { layer: vi.fn() },
+    ui: {
+      slot: vi.fn((claim: { append: string; render: () => unknown }) => {
+        renderers.set(claim.append, claim.render);
+        if (claim.append === "app") claim.render();
+        return vi.fn();
+      }),
+      toast: { show: toast },
+    },
+  };
+  const dispose = plugin.setup(context as never);
+  const renderHome = () => renderers.get("home.footer.status")?.();
+  return { listeners, toast, renderHome, dispose };
+}
+
+async function buildAnnouncementsDialogOutput(params: {
+  client: ReturnType<typeof createClient>;
+  arguments?: string;
+}) {
+  const { buildQuotaDialogCommandOutput } = await import("../src/lib/quota-dialog-commands.js");
+  const result = await buildQuotaDialogCommandOutput({
+    command: "quota_announcements",
+    arguments: params.arguments,
+    client: params.client,
+    roots: {
       workspaceRoot: process.cwd(),
       configRoot: process.cwd(),
       fallbackDirectory: process.cwd(),
-    }),
-    resolveSessionMeta: async (sessionID) => {
-      const response = await client.session.get({ path: { id: sessionID } });
-      return {
-        modelID: response.data?.model?.id,
-        providerID: response.data?.model?.providerID,
-      };
     },
-    isSubagentSession: async (sessionID) => {
-      const response = await client.session.get({ path: { id: sessionID } });
-      return Boolean(response.data?.parentID);
-    },
-    reconcileDetectedProviders: vi.fn().mockResolvedValue(undefined),
-    setSessionTokenError: vi.fn(),
-    showToast: overrides.showToast as never,
-    log: vi.fn().mockResolvedValue(undefined),
-    onInitialized: vi.fn(),
+    sessionID: "session-announcements",
   });
+  expect(params.client.session.prompt).not.toHaveBeenCalled();
+  expect(result.state).toBe("output");
+  if (result.state !== "output") return "";
+  // Every command here renders its document as plain text.
+  expect(renderPlainTextReport(result.document)).toBe(result.output);
+  // The list's heading has no time and the dialog title names it, so the dialog shows no
+  // subtitle. Invalid arguments give a plain message without a heading.
+  expect(result.document.heading).toEqual(
+    params.arguments?.trim() ? undefined : { line: "Maintainer announcements" },
+  );
+  return result.output;
 }
 
 async function flushMaintainerFallbackWork(): Promise<void> {
-  for (let i = 0; i < 8; i += 1) {
+  for (let i = 0; i < 5; i += 1) {
     await Promise.resolve();
   }
 }
@@ -166,20 +236,26 @@ describe("maintainer announcement plugin integration", () => {
       },
       resetPluginState: true,
     });
-    announcementMocks.getMaintainerAnnouncementsSummary.mockReturnValue(makeAnnouncementSummary());
-    tuiDiagnosticsMocks.inspectTuiConfig.mockResolvedValue(
-      createPluginTuiConfigInspection(TEST_RUNTIME_ROOT),
-    );
-    resetMocks.observeQuotaResetNotifications.mockResolvedValue([]);
-    resetMocks.formatQuotaResetNotification.mockReturnValue(null);
+    announcementMocks.getMaintainerAnnouncementsSummary
+      .mockReset()
+      .mockReturnValue(makeAnnouncementSummary());
+    announcementMocks.formatMaintainerAnnouncementHomeCountLine
+      .mockReset()
+      .mockImplementation((activeCount: number) => {
+        if (activeCount <= 0) return "";
+        if (activeCount === 1) return ANNOUNCEMENT_HOME_MESSAGE;
+        return `Notice: ${activeCount} maintainer announcements available. Run /quota_announcements.`;
+      });
+    signals.length = 0;
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
   afterEach(async () => {
+    vi.unstubAllGlobals();
     await rm(TEST_RUNTIME_ROOT, { recursive: true, force: true });
   });
 
-  it("registers and builds the no-arg /quota_announcements deterministic output", async () => {
+  it("builds the CLI /quota_announcements output from available providers", async () => {
     const provider = {
       id: "copilot",
       isAvailable: vi.fn().mockResolvedValue(true),
@@ -187,23 +263,16 @@ describe("maintainer announcement plugin integration", () => {
     };
     mocks.getProviders.mockReturnValue([provider]);
 
-    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-commands.js");
+    const { QUOTA_DIALOG_COMMANDS } = await import("../src/lib/quota-dialog-command-specs.js");
     const announcementCommand = QUOTA_DIALOG_COMMANDS.find(
       (command) => command.id === "quota_announcements",
     );
-    const context = await setupPlugin();
-
-    expect(
-      context.registeredCommands.find((command) => command.name === announcementCommand?.slashName),
-    ).toEqual(
-      expect.objectContaining({
-        name: announcementCommand?.slashName,
-        description: announcementCommand?.description,
-      }),
+    const client = createClient();
+    expect(announcementCommand).toEqual(
+      expect.objectContaining({ slashName: "quota_announcements" }),
     );
 
-    await context.runCommand("quota_announcements", "", "session-announcements");
-    const output = getSyntheticText(context);
+    const output = await buildAnnouncementsDialogOutput({ client });
 
     expect(output).toBe(
       "Maintainer announcements\n\n- If you use Copilot, GitHub billing is moving to AI Credits.\n  https://github.blog/example",
@@ -233,10 +302,11 @@ describe("maintainer announcement plugin integration", () => {
         : makeAnnouncementSummary({ activeCount: 0, activeAnnouncements: [] });
     });
 
-    const context = await setupPlugin();
+    const client = createClient();
 
-    await context.runCommand("quota_announcements", "", "session-announcements");
-    expect(getSyntheticText(context)).toBe("Maintainer announcements\n\nNo current announcements.");
+    await expect(buildAnnouncementsDialogOutput({ client })).resolves.toBe(
+      "Maintainer announcements\n\nNo current announcements.",
+    );
     expect(provider.isAvailable).toHaveBeenCalledOnce();
     expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
       expect.objectContaining({ enabledProviders: [] }),
@@ -251,102 +321,70 @@ describe("maintainer announcement plugin integration", () => {
       }),
     );
 
-    const context = await setupPlugin();
+    const client = createClient();
 
-    await context.runCommand("quota_announcements", "", "session-announcements");
-    expect(getSyntheticText(context)).toBe("Maintainer announcements\n\nNo current announcements.");
+    await expect(buildAnnouncementsDialogOutput({ client })).resolves.toBe(
+      "Maintainer announcements\n\nNo current announcements.",
+    );
   });
 
   it("rejects /quota_announcements arguments", async () => {
-    const context = await setupPlugin();
+    const client = createClient();
 
-    await context.runCommand(
-      "quota_announcements",
-      "show copilot-credits",
-      "session-announcements",
-    );
-
-    expect(getSyntheticText(context)).toBe(
+    await expect(
+      buildAnnouncementsDialogOutput({
+        client,
+        arguments: "show copilot-credits",
+      }),
+    ).resolves.toBe(
       "Invalid arguments for /quota_announcements\n\nThis command does not accept arguments.\n\nUsage: /quota_announcements",
     );
   });
 
-  it("shows one count-only fallback toast after the first visible quota toast without TUI", async () => {
-    mocks.loadConfig.mockResolvedValue(
-      makeQuotaToastTestConfig({
-        enabled: true,
-        enableToast: true,
-        enabledProviders: ["copilot"],
-        showOnIdle: false,
-        showOnQuestion: true,
-        showOnCompact: false,
-        minIntervalMs: 0,
-        maintainerAnnouncements: {
-          enabled: true,
-          home: true,
-        },
-      }),
-    );
-    mocks.getProviders.mockReturnValue([
-      {
-        id: "copilot",
-        isAvailable: vi.fn().mockResolvedValue(true),
-        fetch: vi.fn().mockResolvedValue({
-          attempted: true,
-          entries: [{ accounting: TEST_ACCOUNTING, name: "Copilot", percentRemaining: 81 }],
-          errors: [],
-        }),
-      },
-    ]);
-    const showToast = vi.fn().mockResolvedValue({});
-    const client = createClient({ modelID: "copilot/gpt-4.1", providerID: "copilot" });
-    const runtime = await createRuntime({ showToast }, client);
-
-    await runtime.handleTrigger({ sessionID: "session-question", trigger: "question" });
-    await flushMaintainerFallbackWork();
-
-    expect(showToast.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ message: expect.stringContaining("Copilot") }),
-    );
-    expect(showToast.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({ message: ANNOUNCEMENT_TOAST_MESSAGE }),
-    );
-    expect(showToast.mock.calls[1]?.[0]).not.toEqual(
-      expect.objectContaining({
-        message: expect.stringContaining(TEST_ANNOUNCEMENT.message),
-      }),
+  it("shows the count-only announcement on Home instead of a toast", async () => {
+    configureQuestionQuotaToast();
+    const cli = await startCli();
+    cli.renderHome();
+    // The Home footer shows the lines the server returns over the RPC.
+    await vi.waitFor(() =>
+      expect(signals.map((read) => read())).toContainEqual([ANNOUNCEMENT_HOME_MESSAGE]),
     );
     expect(announcementMocks.getMaintainerAnnouncementsSummary).toHaveBeenCalledWith(
       expect.objectContaining({ enabledProviders: ["copilot"] }),
     );
+
+    cli.listeners.get("session.tool.input.started")?.({
+      data: { id: "call-1", name: "question", sessionID: "session-question" },
+    });
+    cli.listeners.get("session.tool.success")?.({
+      data: { id: "call-1", sessionID: "session-question" },
+    });
+    await vi.waitFor(() => expect(cli.toast).toHaveBeenCalledOnce());
+    await flushMaintainerFallbackWork();
+    expect(cli.toast).toHaveBeenCalledOnce();
+    expect(cli.toast.mock.calls[0]?.[0].message).toContain("Copilot");
+    expect(cli.toast.mock.calls[0]?.[0].message).not.toContain("Notice:");
+    cli.dispose?.();
   });
 
-  it("does not attempt fallback before or without a visible quota toast", async () => {
-    mocks.loadConfig.mockResolvedValueOnce(
-      makeQuotaToastTestConfig({
+  it("does not show the Home announcement when maintainerAnnouncements.home is off", async () => {
+    configureQuestionQuotaToast({
+      maintainerAnnouncements: { enabled: true, home: false },
+      tuiCompactStatus: {
         enabled: true,
-        enableToast: true,
-        showOnIdle: false,
-        showOnQuestion: false,
-        maintainerAnnouncements: {
-          enabled: true,
-          home: true,
-        },
-      }),
-    );
-
-    const showToast = vi.fn().mockResolvedValue({});
-    const client = createClient();
-    const runtime = await createRuntime({ showToast }, client);
-
-    // V2 server plugins no longer observe tool executions; the CLI bridge
-    // forwards only session lifecycle triggers. With every trigger disabled
-    // there is no quota toast, so no count-only fallback may appear.
-    await runtime.handleTrigger({ sessionID: "session-idle", trigger: "session.idle" });
-    await runtime.handleTrigger({ sessionID: "session-question", trigger: "question" });
+        homeBottom: true,
+        sessionPrompt: false,
+        maxWidth: 96,
+      },
+    });
+    const [copilot] = mocks.getProviders();
+    const cli = await startCli();
+    cli.renderHome();
+    // The Home compact line fetches quota after the announcement check would have run.
+    await vi.waitFor(() => expect(copilot.fetch).toHaveBeenCalled());
 
     expect(announcementMocks.getMaintainerAnnouncementsSummary).not.toHaveBeenCalled();
-    expect(tuiDiagnosticsMocks.inspectTuiConfig).not.toHaveBeenCalled();
-    expect(showToast).not.toHaveBeenCalled();
+    expect(announcementMocks.formatMaintainerAnnouncementHomeCountLine).not.toHaveBeenCalled();
+    cli.dispose?.();
   });
 });

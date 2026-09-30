@@ -5,11 +5,11 @@ import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimePathMocks = vi.hoisted(() => ({
-  getOpencodeRuntimeDirCandidates: vi.fn(),
+  getOpencodeRuntimeDirs: vi.fn(),
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: runtimePathMocks.getOpencodeRuntimeDirCandidates,
+  getOpencodeRuntimeDirs: runtimePathMocks.getOpencodeRuntimeDirs,
 }));
 
 const originalEnv = process.env;
@@ -36,7 +36,9 @@ describe("MiMo config resolution", () => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
     delete process.env.MIMO_USAGE_COOKIE;
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({
+      configDir: join(tmpdir(), "mimo-config-missing"),
+    });
   });
 
   afterEach(async () => {
@@ -81,7 +83,7 @@ describe("MiMo config resolution", () => {
   it("prefers the environment and never reads a lower-priority valid file", async () => {
     const [primary] = await createConfigDirs();
     await writeFile(configPath(primary), JSON.stringify({ cookie: requiredCookie }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
     process.env.MIMO_USAGE_COOKIE =
       "Cookie: userId=env-user; ignored=value; api-platform_serviceToken=env-service";
 
@@ -99,7 +101,7 @@ describe("MiMo config resolution", () => {
   it("treats a defined invalid environment value as blocking", async () => {
     const [primary] = await createConfigDirs();
     await writeFile(configPath(primary), JSON.stringify({ cookie: requiredCookie }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
     process.env.MIMO_USAGE_COOKIE = " ";
 
     const { resolveMimoConfig } = await import("../src/lib/mimo-config.js");
@@ -120,7 +122,7 @@ describe("MiMo config resolution", () => {
           "api-platform_ph=ph; userId=file-user; api-platform_serviceToken=file-service; other=no",
       }),
     );
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveMimoConfig } = await import("../src/lib/mimo-config.js");
 
@@ -137,9 +139,7 @@ describe("MiMo config resolution", () => {
     const [primary, fallback] = await createConfigDirs();
     await writeFile(configPath(primary), "{");
     await writeFile(configPath(fallback), JSON.stringify({ cookie: requiredCookie }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary, fallback],
-    });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveMimoConfig } = await import("../src/lib/mimo-config.js");
 
@@ -167,7 +167,7 @@ describe("MiMo config resolution", () => {
   ])("rejects %s without fallback", async (_label, body, error) => {
     const [primary] = await createConfigDirs();
     await writeFile(configPath(primary), body);
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveMimoConfig } = await import("../src/lib/mimo-config.js");
 
@@ -182,7 +182,7 @@ describe("MiMo config resolution", () => {
     const [primary] = await createConfigDirs();
     const path = configPath(primary);
     await writeFile(path, JSON.stringify({ cookie: requiredCookie }));
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({ configDirs: [primary] });
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
 
     const { resolveMimoConfigCached } = await import("../src/lib/mimo-config.js");
     const first = await resolveMimoConfigCached({ maxAgeMs: 5_000 });
@@ -197,10 +197,8 @@ describe("MiMo config resolution", () => {
   });
 
   it("reports trusted checked paths without exposing cookie names or values", async () => {
-    const [primary, fallback] = await createConfigDirs();
-    runtimePathMocks.getOpencodeRuntimeDirCandidates.mockReturnValue({
-      configDirs: [primary, fallback],
-    });
+    const [primary] = await createConfigDirs();
+    runtimePathMocks.getOpencodeRuntimeDirs.mockReturnValue({ configDir: primary });
     process.env.MIMO_USAGE_COOKIE = requiredCookie;
 
     const { getMimoConfigDiagnostics } = await import("../src/lib/mimo-config.js");
@@ -211,7 +209,7 @@ describe("MiMo config resolution", () => {
       state: "configured",
       source: "env:MIMO_USAGE_COOKIE",
       error: null,
-      checkedPaths: [configPath(primary), configPath(fallback)],
+      checkedPaths: [configPath(primary)],
     });
     expect(serialized).not.toContain("service-secret");
     expect(serialized).not.toContain("user-secret");

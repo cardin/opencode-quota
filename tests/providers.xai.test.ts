@@ -19,6 +19,12 @@ vi.mock("../src/lib/xai.js", () => ({
     return "Period";
   }),
   queryXaiQuota: vi.fn(),
+  resolveXaiOAuth: vi.fn(),
+}));
+
+vi.mock("../src/lib/opencode-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/opencode-auth.js")>()),
+  readCredentialRows: vi.fn().mockResolvedValue([]),
 }));
 
 describe("xai provider", () => {
@@ -114,6 +120,37 @@ describe("xai provider", () => {
     const output = await xaiProvider.fetch({} as any);
     expectAttemptedWithErrorLabel(output, "xAI");
     expect(output.errors).toEqual([{ label: "xAI", message: "Token expired" }]);
+  });
+
+  it("shows a login OpenCode could not return as its own error row", async () => {
+    const { readCredentialRows } = await import("../src/lib/opencode-auth.js");
+    const { queryXaiQuota, resolveXaiOAuth } = await import("../src/lib/xai.js");
+    const actual = await vi.importActual<typeof import("../src/lib/xai.js")>("../src/lib/xai.js");
+    (readCredentialRows as any).mockResolvedValueOnce([
+      {
+        id: "xai-id",
+        integrationId: "xai",
+        label: "default",
+        active: true,
+        value: { type: "oauth" },
+        resolveError: "refresh_failed: HTTP 401",
+      },
+    ]);
+    (resolveXaiOAuth as any).mockImplementationOnce(actual.resolveXaiOAuth);
+    (queryXaiQuota as any).mockImplementationOnce(actual.queryXaiQuota);
+
+    const output = await xaiProvider.fetch({ config: {} } as any);
+
+    expect(readCredentialRows).toHaveBeenCalledWith(["xai"], { methods: ["oauth"] });
+    expect(output.attempted).toBe(true);
+    expect(output.entries).toEqual([]);
+    expect(output.errors).toEqual([
+      {
+        label: "[xAI]",
+        message:
+          "xAI sign-in could not be refreshed: refresh_failed: HTTP 401. Run `opencode auth login xai`.",
+      },
+    ]);
   });
 
   it("uses currentProviderID to distinguish direct xAI from Copilot Grok models", () => {

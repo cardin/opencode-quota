@@ -1,146 +1,58 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  createAlibabaAuthModuleMock,
-  createConfigModuleMock,
-  createPluginTestClient,
-  createPluginTestContext,
-  createPricingModuleMock,
-  makeQuotaToastTestConfig,
-  seedDefaultPluginBootstrapMocks,
-} from "./helpers/plugin-test-harness.js";
+import plugin from "../src/tui-v2.tsx";
 
-const mocks = vi.hoisted(() => ({
-  loadConfig: vi.fn(),
-  resolveAlibabaCodingPlanAuthCached: vi.fn(),
-  getPricingSnapshotMeta: vi.fn(),
-  getPricingSnapshotSource: vi.fn(),
-  getRuntimePricingRefreshStatePath: vi.fn(),
-  getRuntimePricingSnapshotPath: vi.fn(),
-  maybeRefreshPricingSnapshot: vi.fn(),
-  setPricingSnapshotAutoRefresh: vi.fn(),
-  setPricingSnapshotSelection: vi.fn(),
-}));
+describe("V2 CLI question-tool accounting boundary", () => {
+  const handlers = new Map<string, (event: { data: Record<string, unknown> }) => void>();
+  const session = { get: vi.fn() };
+  const toast = vi.fn();
+  // With showOnQuestion off, the server answers the question surface with no quota.
+  const rpc = { surface: vi.fn() };
 
-vi.mock("../src/lib/config.js", () => createConfigModuleMock(mocks.loadConfig));
-vi.mock("../src/lib/opencode-auth.js", () => ({
-  readAuthFileCached: vi.fn(),
-  readAuthFile: vi.fn(),
-  getAuthPath: vi.fn(() => "/tmp/auth.json"),
-  getAuthPaths: vi.fn(() => ["/tmp/auth.json"]),
-  clearReadAuthFileCacheForTests: vi.fn(),
-}));
-vi.mock("../src/lib/alibaba-auth.js", () =>
-  createAlibabaAuthModuleMock(mocks.resolveAlibabaCodingPlanAuthCached),
-);
-vi.mock("../src/lib/modelsdev-pricing.js", () => createPricingModuleMock(mocks));
-
-/**
- * OpenCode 2 migration note
- * ------------------------
- * The V1 server plugin registered a `tool.execute.after` hook that forwarded
- * successful `question` tool calls to the toast runtime. OpenCode 2 removed
- * server-side tool hooks and moved toast emission into the CLI/TUI plugin
- * (`src/lib/tui-toast-bridge.ts`). The accounting boundary this file guarded
- * ("a question tool result is not a completed model request") now lives in the
- * shared toast runtime's trigger gate, which is exercised by the second test.
- */
-describe("plugin question hook accounting boundary", () => {
   beforeEach(() => {
-    seedDefaultPluginBootstrapMocks(mocks, {
-      configOverrides: { showOnQuestion: false },
-    });
+    handlers.clear();
+    session.get.mockReset();
+    toast.mockReset();
+    rpc.surface.mockReset().mockResolvedValue({ quota: null });
+    plugin.setup({
+      client: { rpc: () => rpc },
+      location: { directory: process.cwd() },
+      data: {
+        session,
+        on: (name: string, handler: (event: { data: Record<string, unknown> }) => void) => {
+          handlers.set(name, handler);
+          return () => handlers.delete(name);
+        },
+      },
+      keymap: { layer: vi.fn() },
+      ui: {
+        slot: (claim: { append: string; render: () => unknown }) => {
+          if (claim.append === "app") claim.render();
+          return vi.fn();
+        },
+        toast: { show: toast },
+      },
+    } as never);
   });
 
-  it("does not register a server-side tool.execute.after question hook", async () => {
-    const { QuotaToastPlugin } = await import("../src/plugin.js");
-    const context = createPluginTestContext({
-      modelID: "qwen3-coder-plus",
-      providerID: "alibaba-coding-plan",
-    });
-
-    await QuotaToastPlugin.setup(context as never);
-
-    // V2 server plugins register no tool hooks: the question trigger is owned
-    // by the CLI toast bridge, and this server plugin must not observe tool
-    // executions at all.
-    expect(context.tool.hook).not.toHaveBeenCalled();
-    expect(context.event.subscribe).not.toHaveBeenCalled();
-    expect(context.session.get).not.toHaveBeenCalled();
-    expect(mocks.resolveAlibabaCodingPlanAuthCached).not.toHaveBeenCalled();
-  });
-
-  it("keeps the question trigger behind the showOnQuestion gate in the shared runtime", async () => {
-    const { createQuotaToastRuntime } = await import("../src/lib/quota-toast-runtime.js");
-    const client = createPluginTestClient({
-      modelID: "qwen3-coder-plus",
-      providerID: "alibaba-coding-plan",
-    });
-    const showToast = vi.fn().mockResolvedValue({});
-    const runtime = createQuotaToastRuntime({
-      client: client as never,
-      roots: () => ({
-        workspaceRoot: process.cwd(),
-        configRoot: process.cwd(),
-        fallbackDirectory: process.cwd(),
-      }),
-      resolveSessionMeta: async () => ({
-        modelID: "qwen3-coder-plus",
-        providerID: "alibaba-coding-plan",
-      }),
-      isSubagentSession: async () => false,
-      reconcileDetectedProviders: vi.fn().mockResolvedValue(undefined),
-      setSessionTokenError: vi.fn(),
-      showToast: showToast as never,
-      log: vi.fn().mockResolvedValue(undefined),
-      onInitialized: vi.fn(),
-    });
-
-    // A successful question-tool completion is only a trigger; with
-    // showOnQuestion disabled it must not consult local plan auth or emit a
-    // toast, so it cannot be mistaken for a completed model request.
-    await runtime.handleTrigger({ sessionID: "session-1", trigger: "question" });
-
-    expect(mocks.resolveAlibabaCodingPlanAuthCached).not.toHaveBeenCalled();
-    expect(showToast).not.toHaveBeenCalled();
-  });
-
-  it("still respects the configured trigger matrix for question events", async () => {
-    mocks.loadConfig.mockResolvedValue(
-      makeQuotaToastTestConfig({
-        enabled: true,
-        enableToast: true,
-        showOnIdle: false,
-        showOnCompact: false,
-        showOnQuestion: false,
-      }),
+  it("does not treat a successful question-tool execution as a completed model request", async () => {
+    handlers.get("session.tool.input.started")?.({ data: { name: "question", id: "call-1" } });
+    handlers.get("session.tool.success")?.({ data: { sessionID: "session-1", id: "call-1" } });
+    await vi.waitFor(() => expect(rpc.surface).toHaveBeenCalledTimes(1));
+    expect(rpc.surface).toHaveBeenCalledWith(
+      { surface: "question", sessionID: "session-1" },
+      expect.anything(),
     );
-    const { createQuotaToastRuntime } = await import("../src/lib/quota-toast-runtime.js");
-    const client = createPluginTestClient({
-      modelID: "qwen3-coder-plus",
-      providerID: "alibaba-coding-plan",
-    });
-    const showToast = vi.fn().mockResolvedValue({});
-    const runtime = createQuotaToastRuntime({
-      client: client as never,
-      roots: () => ({
-        workspaceRoot: process.cwd(),
-        configRoot: process.cwd(),
-        fallbackDirectory: process.cwd(),
-      }),
-      resolveSessionMeta: async () => ({
-        modelID: "qwen3-coder-plus",
-        providerID: "alibaba-coding-plan",
-      }),
-      isSubagentSession: async () => false,
-      reconcileDetectedProviders: vi.fn().mockResolvedValue(undefined),
-      setSessionTokenError: vi.fn(),
-      showToast: showToast as never,
-      log: vi.fn().mockResolvedValue(undefined),
-      onInitialized: vi.fn(),
-    });
+    // Only the subagent check reads the session; the server looks up the model.
+    expect(session.get).toHaveBeenCalledExactlyOnceWith("session-1");
+    expect(toast).not.toHaveBeenCalled();
+  });
 
-    await runtime.handleTrigger({ sessionID: "session-1", trigger: "session.idle" });
-    expect(showToast).not.toHaveBeenCalled();
+  it("does not use question-tool failure metadata as accounting authority", () => {
+    handlers.get("session.tool.input.started")?.({ data: { name: "question", id: "call-2" } });
+    handlers.get("session.tool.failed")?.({ data: { sessionID: "session-1", id: "call-2" } });
+    expect(rpc.surface).not.toHaveBeenCalled();
+    expect(session.get).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 });

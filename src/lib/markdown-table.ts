@@ -144,3 +144,80 @@ export function renderMarkdownTable(params: {
   for (const row of safeRows) lines.push(fmtRow(row));
   return lines.join("\n");
 }
+
+/**
+ * Pads each cell to its column width, as renderMarkdownTable does, for a table drawn
+ * without pipes. Widths count raw graphemes and cells are not escaped.
+ */
+export function padTableColumns(params: {
+  headers: string[];
+  rows: string[][];
+  aligns: Array<"left" | "right">;
+}): { header: string[]; rows: string[][] } {
+  const colCount = params.headers.length;
+  const rows = params.rows.map((row) => {
+    const out: string[] = [];
+    for (let i = 0; i < colCount; i++) out.push((row[i] ?? "").replace(/\r?\n/g, " "));
+    return out;
+  });
+
+  const widths = params.headers.map((header) => measureWidth(header));
+  for (const row of rows) {
+    for (let i = 0; i < colCount; i++) {
+      widths[i] = Math.max(widths[i], measureWidth(row[i]));
+    }
+  }
+
+  const padRow = (cells: string[]) =>
+    cells.map((cell, i) => padCell(cell, widths[i], params.aligns[i] ?? "left", "raw"));
+  return { header: padRow(params.headers), rows: rows.map(padRow) };
+}
+
+/**
+ * Lays out a table drawn without pipes to span `width` columns, for the TUI dialog. The
+ * header uses the full labels when the table fits with them, else the compact ones. The
+ * spare width is spread over the gaps between columns (at least two spaces each, the
+ * leftmost gaps taking any remainder), so cells keep their alignment inside their columns.
+ * A table too wide even with the compact labels keeps its natural layout: compact labels
+ * and two-space gaps.
+ */
+export function fitTableToWidth(params: {
+  headers: string[];
+  fullHeaders?: string[];
+  rows: string[][];
+  aligns: Array<"left" | "right">;
+  width: number;
+}): { header: string; rows: string[] } {
+  const naturalWidth = (table: { header: string[] }) =>
+    table.header.reduce((sum, cell) => sum + measureWidth(cell), 0) + 2 * (table.header.length - 1);
+  const compact = padTableColumns(params);
+  const full = params.fullHeaders
+    ? padTableColumns({ ...params, headers: params.fullHeaders })
+    : undefined;
+  const fitting = [full, compact].find(
+    (table) => table !== undefined && naturalWidth(table) <= params.width,
+  );
+
+  const gapCount = params.headers.length - 1;
+  const gaps = fitting
+    ? spreadTableGaps(gapCount, params.width - naturalWidth(fitting))
+    : new Array<number>(Math.max(0, gapCount)).fill(2);
+
+  const table = fitting ?? compact;
+  const joinRow = (cells: string[]) =>
+    cells.map((cell, i) => (i < gapCount ? cell + " ".repeat(gaps[i]) : cell)).join("");
+  return { header: joinRow(table.header), rows: table.rows.map(joinRow) };
+}
+
+/**
+ * The gaps between a table's columns when it spans `spare` more columns than its natural
+ * width: at least two spaces each, the spare width spread over them, the leftmost gaps
+ * taking any remainder.
+ */
+export function spreadTableGaps(gapCount: number, spare: number): number[] {
+  const gaps = new Array<number>(Math.max(0, gapCount)).fill(2);
+  for (let i = 0; i < gapCount; i++) {
+    gaps[i] += Math.floor(spare / gapCount) + (i < spare % gapCount ? 1 : 0);
+  }
+  return gaps;
+}

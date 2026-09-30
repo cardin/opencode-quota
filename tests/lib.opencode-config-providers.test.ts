@@ -5,21 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeDirs = vi.hoisted(() => ({
   value: {
-    dataDirs: [] as string[],
-    configDirs: [] as string[],
-    cacheDirs: [] as string[],
-    stateDirs: [] as string[],
+    dataDir: "",
+    configDir: "",
+    cacheDir: "",
+    stateDir: "",
   },
 }));
 
 vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirCandidates: () => runtimeDirs.value,
+  getOpencodeRuntimeDirs: () => runtimeDirs.value,
 }));
 
-import {
-  extractPluginSpecsFromParsedConfig,
-  extractProviderIdsFromParsedConfig,
-} from "../src/lib/config-file-utils.js";
+import { extractProviderIdsFromParsedConfig } from "../src/lib/config-file-utils.js";
 import {
   loadConfiguredOpenCodeConfig,
   loadConfiguredProviderIds,
@@ -38,10 +35,10 @@ describe("opencode config provider discovery", () => {
     mkdirSync(globalConfigDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
     runtimeDirs.value = {
-      dataDirs: [],
-      configDirs: [globalConfigDir],
-      cacheDirs: [],
-      stateDirs: [],
+      dataDir: join(tempDir, "data"),
+      configDir: globalConfigDir,
+      cacheDir: join(tempDir, "cache"),
+      stateDir: join(tempDir, "state"),
     };
   });
 
@@ -89,7 +86,7 @@ describe("opencode config provider discovery", () => {
       JSON.stringify({
         plugin: [
           "opencode-gemini-auth",
-          "@playwo/opencode-cursor-oauth",
+          "cursor-opencode-provider/plugin/opencode2",
           "@cardinal4/opencode-quota",
         ],
       }),
@@ -102,23 +99,64 @@ describe("opencode config provider discovery", () => {
     ]);
   });
 
+  it("does not infer Cursor from OpenCode 1-only Cursor companion plugins", async () => {
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        plugin: [
+          "@playwo/opencode-cursor-oauth",
+          "opencode-cursor-oauth",
+          "@rama_nigg/open-cursor",
+        ],
+      }),
+      "utf8",
+    );
+
+    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
+  });
+
   it("deduplicates provider ids inferred from provider blocks and plugin specs", async () => {
     writeFileSync(
       join(globalConfigDir, "opencode.json"),
-      JSON.stringify({ plugin: ["open-cursor"] }),
+      JSON.stringify({ plugin: ["cursor-opencode-provider"] }),
       "utf8",
     );
     writeFileSync(
       join(workspaceDir, "opencode.json"),
       JSON.stringify({
         provider: { "alibaba-coding-plan": {}, cursor: {} },
-        plugin: [["@playwo/opencode-cursor-oauth", { enabled: true }]],
+        plugin: [["cursor-opencode-provider/server", { enabled: true }]],
       }),
       "utf8",
     );
 
     await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
       "alibaba-coding-plan",
+      "cursor",
+    ]);
+  });
+
+  it("reads OpenCode 2 native providers and plugins alongside the legacy keys", async () => {
+    writeFileSync(
+      join(globalConfigDir, "opencode.json"),
+      JSON.stringify({ providers: { deepseek: {} }, plugins: ["opencode-gemini-auth"] }),
+      "utf8",
+    );
+    writeFileSync(
+      join(workspaceDir, "opencode.json"),
+      JSON.stringify({
+        provider: { openai: {} },
+        plugins: [
+          { package: "cursor-opencode-provider/plugin/opencode2", options: { enabled: true } },
+        ],
+      }),
+      "utf8",
+    );
+
+    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
+      "openai",
+      "deepseek",
+      "google-gemini-cli",
       "cursor",
     ]);
   });
@@ -316,7 +354,7 @@ describe("opencode config provider discovery", () => {
       format: "json",
       addedProviderIds: ["deepseek"],
     });
-    expect(JSON.parse(readFileSync(globalPath, "utf8"))).toEqual({ providers: { deepseek: {} } });
+    expect(JSON.parse(readFileSync(globalPath, "utf8"))).toEqual({ provider: { deepseek: {} } });
     expect(existsSync(join(globalConfigDir, "opencode.jsonc"))).toBe(false);
     expect(readFileSync(projectPath, "utf8")).toBe(projectBefore);
   });
@@ -352,93 +390,5 @@ describe("opencode config provider discovery", () => {
     );
 
     await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([]);
-  });
-
-  it("extracts native V2 providers and plugins alongside legacy keys", () => {
-    expect(extractProviderIdsFromParsedConfig({ providers: { copilot: {}, openai: {} } })).toEqual([
-      "copilot",
-      "openai",
-    ]);
-
-    expect(
-      extractProviderIdsFromParsedConfig({
-        providers: { copilot: {} },
-        provider: { openai: {} },
-      }),
-    ).toEqual(["copilot", "openai"]);
-
-    expect(extractProviderIdsFromParsedConfig({ providers: [] })).toEqual([]);
-
-    expect(extractPluginSpecsFromParsedConfig({ plugins: ["opencode-qwencode-auth"] })).toEqual([
-      "opencode-qwencode-auth",
-    ]);
-    expect(
-      extractPluginSpecsFromParsedConfig({
-        plugins: ["opencode-qwencode-auth"],
-        plugin: ["opencode-gemini-auth"],
-        tui: { plugins: ["opencode-antigravity-auth"] },
-      }),
-    ).toEqual(["opencode-qwencode-auth", "opencode-gemini-auth", "opencode-antigravity-auth"]);
-  });
-
-  it("loads native V2 provider declarations from global and workspace config", async () => {
-    writeFileSync(
-      join(globalConfigDir, "opencode.jsonc"),
-      '{\n  "providers": { "copilot": {} },\n}\n',
-      "utf8",
-    );
-    writeFileSync(
-      join(workspaceDir, "opencode.jsonc"),
-      '{\n  "providers": { "openai": {} },\n}\n',
-      "utf8",
-    );
-
-    await expect(loadConfiguredProviderIds({ configRootDir: workspaceDir })).resolves.toEqual([
-      "copilot",
-      "openai",
-    ]);
-  });
-
-  it("adds detected providers to a native V2 global config using the providers key", async () => {
-    const globalPath = join(globalConfigDir, "opencode.jsonc");
-    writeFileSync(
-      globalPath,
-      '{\n  // keep this global setting and comment.\n  "providers": {\n    "global-only": {},\n  },\n}\n',
-      "utf8",
-    );
-
-    const result = await reconcileDetectedProvidersInGlobalConfig({
-      configRootDir: workspaceDir,
-      detectedProviderIds: ["deepseek"],
-    });
-
-    expect(result).toMatchObject({
-      path: globalPath,
-      format: "jsonc",
-      addedProviderIds: ["deepseek"],
-      changed: true,
-    });
-    const globalAfter = readFileSync(globalPath, "utf8");
-    expect(globalAfter).toContain("// keep this global setting and comment.");
-    expect(globalAfter).toContain(
-      "// Detected deepseek authentication; opencode-quota added this global provider declaration.",
-    );
-    expect(
-      JSON.parse(
-        JSON.stringify(await loadConfiguredOpenCodeConfig({ configRootDir: workspaceDir })),
-      ),
-    ).toMatchObject({
-      providers: {
-        "global-only": {},
-        deepseek: {},
-      },
-    });
-
-    const second = await reconcileDetectedProvidersInGlobalConfig({
-      configRootDir: workspaceDir,
-      detectedProviderIds: ["deepseek"],
-    });
-    expect(second).toMatchObject({ addedProviderIds: [], changed: false });
-    expect(readFileSync(globalPath, "utf8")).toBe(globalAfter);
   });
 });

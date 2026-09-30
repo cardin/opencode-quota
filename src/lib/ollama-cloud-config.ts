@@ -2,34 +2,34 @@ import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
-import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 
 export interface OllamaCloudApiKeyResult {
   key: string;
   source: OllamaCloudKeySource;
 }
 
+const OLLAMA_CLOUD_PROVIDER_KEYS = ["ollama-cloud"] as const;
+
 export type OllamaCloudKeySource =
   | "env:OLLAMA_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json"
-  | OpenCodeCredentialSource;
+  | "opencode.db";
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
 const ollamaCloudApiKeyResolver = createProviderApiKeyResolver<OllamaCloudKeySource>({
   envVars: [{ name: "OLLAMA_API_KEY", source: "env:OLLAMA_API_KEY" }],
-  providerKeys: ["ollama-cloud"],
+  providerKeys: OLLAMA_CLOUD_PROVIDER_KEYS,
   allowedEnvVars: ["OLLAMA_API_KEY"],
   configJsonSource: "opencode.json",
   configJsoncSource: "opencode.jsonc",
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
-    readAuth: readAuthFile,
-    getAuthPaths,
-    authSource: "auth.json",
+    readAuth: () => readAuthFile({ integrationIds: OLLAMA_CLOUD_PROVIDER_KEYS }),
+    getCredentialDatabasePaths,
+    authSource: "opencode.db",
   },
 });
 
@@ -45,7 +45,7 @@ export async function getOllamaCloudKeyDiagnostics(): Promise<{
   configured: boolean;
   source: OllamaCloudKeySource | null;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
 }> {
   return ollamaCloudApiKeyResolver.diagnostics();
 }

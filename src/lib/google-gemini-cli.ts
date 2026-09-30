@@ -1,3 +1,4 @@
+import { readGlobalProviderConfigString } from "./api-key-resolver.js";
 import {
   clearGeminiCliCompanionCacheForTests as clearGeminiCliCompanionResolutionCacheForTests,
   type GeminiCliConfiguredCredentials,
@@ -28,7 +29,7 @@ import type {
 
 export const DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS = 5_000;
 
-const GEMINI_CLI_AUTH_KEYS = [
+export const GEMINI_CLI_AUTH_KEYS = [
   "google-gemini-cli",
   "gemini-cli",
   "opencode-gemini-auth",
@@ -89,12 +90,6 @@ type RetrieveUserQuotaBucket = {
 
 type RetrieveUserQuotaResponse = {
   buckets?: RetrieveUserQuotaBucket[];
-};
-
-type ConfigClient = {
-  config?: {
-    get?: () => Promise<{ data?: unknown }>;
-  };
 };
 
 function normalizeString(value: unknown): string | undefined {
@@ -158,7 +153,7 @@ export function resolveGeminiCliAccounts(
 
   for (const sourceKey of GEMINI_CLI_AUTH_KEYS) {
     const entry = getAuthEntry(auth, sourceKey);
-    if (!entry || entry.type !== "oauth") {
+    if (!entry || entry.type !== "oauth" || entry.resolveError !== undefined) {
       continue;
     }
 
@@ -212,33 +207,33 @@ function firstGeminiCliAuthKey(
   return GEMINI_CLI_AUTH_KEYS.find((sourceKey) => getAuthEntry(auth, sourceKey)?.type === "oauth");
 }
 
+function firstFailedGeminiCliAuthKey(
+  auth: AuthData | null | undefined,
+): GeminiCliAuthSourceKey | undefined {
+  if (!auth) {
+    return undefined;
+  }
+  return GEMINI_CLI_AUTH_KEYS.find((sourceKey) => {
+    const entry = getAuthEntry(auth, sourceKey);
+    return entry?.type === "oauth" && entry.resolveError !== undefined;
+  });
+}
+
 function getCompanionQuotaError(state: "missing" | "invalid"): string {
   return state === "missing"
     ? "Gemini CLI requires the opencode-gemini-auth plugin"
     : "Installed opencode-gemini-auth package is incompatible";
 }
 
-export async function resolveGeminiCliConfiguredProjectId(
-  client?: ConfigClient,
-): Promise<string | undefined> {
+export async function resolveGeminiCliConfiguredProjectId(): Promise<string | undefined> {
   const explicitEnvProjectId = normalizeString(process.env.OPENCODE_GEMINI_PROJECT_ID);
   if (explicitEnvProjectId) {
     return explicitEnvProjectId;
   }
 
-  if (client?.config?.get) {
-    try {
-      const result = await client.config.get();
-      const data = result?.data as {
-        provider?: Record<string, { options?: Record<string, unknown> }>;
-      };
-      const configProjectId = normalizeString(data?.provider?.google?.options?.projectId);
-      if (configProjectId) {
-        return configProjectId;
-      }
-    } catch {
-      // ignore and fall back to generic Google project env vars below
-    }
+  const configProjectId = await readGlobalProviderConfigString("google", "projectId");
+  if (configProjectId) {
+    return configProjectId;
   }
 
   return (
@@ -247,12 +242,13 @@ export async function resolveGeminiCliConfiguredProjectId(
   );
 }
 
-export async function inspectGeminiCliAuthPresence(
-  client?: ConfigClient,
-): Promise<GeminiCliAuthPresence> {
+export async function inspectGeminiCliAuthPresence(): Promise<GeminiCliAuthPresence> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
-    resolveGeminiCliConfiguredProjectId(client),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: GEMINI_CLI_AUTH_KEYS,
+    }),
+    resolveGeminiCliConfiguredProjectId(),
   ]);
   const accountCount = countGeminiCliAuthEntries(auth);
   if (accountCount === 0) {
@@ -261,7 +257,9 @@ export async function inspectGeminiCliAuthPresence(
 
   const accounts = resolveGeminiCliAccounts(auth, configuredProjectId);
   const sourceKey = accounts[0]?.sourceKey ?? firstGeminiCliAuthKey(auth);
-  if (accounts.length === 0) {
+  // A login OpenCode could not return still counts as present, so its error row shows.
+  const presentSourceKey = accounts[0]?.sourceKey ?? firstFailedGeminiCliAuthKey(auth);
+  if (!presentSourceKey) {
     return {
       state: "invalid",
       ...(sourceKey ? { sourceKey } : {}),
@@ -273,31 +271,28 @@ export async function inspectGeminiCliAuthPresence(
 
   return {
     state: "present",
-    sourceKey: accounts[0]!.sourceKey,
+    sourceKey: presentSourceKey,
     accountCount,
     validAccountCount: accounts.length,
   };
 }
 
-export async function hasGeminiCliQuotaRuntimeAvailable(client?: ConfigClient): Promise<boolean> {
+export async function hasGeminiCliQuotaRuntimeAvailable(): Promise<boolean> {
   const [authPresence, companionPresence] = await Promise.all([
-    inspectGeminiCliAuthPresence(client),
+    inspectGeminiCliAuthPresence(),
     inspectGeminiCliCompanionPresence(),
   ]);
 
-  return (
-    authPresence.state === "present" &&
-    authPresence.validAccountCount > 0 &&
-    companionPresence.state === "present"
-  );
+  return authPresence.state === "present" && companionPresence.state === "present";
 }
 
-export async function resolveGeminiCliAuthIdentity(
-  client?: ConfigClient,
-): Promise<ResolvedAuthIdentity | null> {
+export async function resolveGeminiCliAuthIdentity(): Promise<ResolvedAuthIdentity | null> {
   const [auth, configuredProjectId, credentials] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
-    resolveGeminiCliConfiguredProjectId(client),
+    readAuthFileCached({
+      maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+      integrationIds: GEMINI_CLI_AUTH_KEYS,
+    }),
+    resolveGeminiCliConfiguredProjectId(),
     resolveGeminiCliClientCredentials(),
   ]);
   const accounts = resolveGeminiCliAccounts(auth, configuredProjectId);
@@ -633,12 +628,15 @@ async function fetchAccountQuota(params: {
 }
 
 export async function queryGeminiCliQuota(
-  client?: ConfigClient,
-  options: { requestTimeoutMs?: number } = {},
+  options: { requestTimeoutMs?: number; authData?: AuthData } = {},
 ): Promise<GeminiCliResult> {
   const [auth, configuredProjectId] = await Promise.all([
-    readAuthFileCached({ maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS }),
-    resolveGeminiCliConfiguredProjectId(client),
+    options.authData ??
+      readAuthFileCached({
+        maxAgeMs: DEFAULT_GEMINI_CLI_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: GEMINI_CLI_AUTH_KEYS,
+      }),
+    resolveGeminiCliConfiguredProjectId(),
   ]);
   const accounts = resolveGeminiCliAccounts(auth, configuredProjectId);
   if (accounts.length === 0) {

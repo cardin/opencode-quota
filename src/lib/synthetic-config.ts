@@ -2,8 +2,7 @@ import {
   createProviderApiKeyResolver,
   getGlobalOpencodeConfigCandidatePaths,
 } from "./api-key-resolver.js";
-import { getAuthPaths, readAuthFile } from "./opencode-auth.js";
-import type { OpenCodeCredentialSource } from "./opencode-credential-store.js";
+import { getCredentialDatabasePaths, readAuthFile } from "./opencode-auth.js";
 
 export interface SyntheticApiKeyResult {
   key: string;
@@ -17,8 +16,7 @@ export type SyntheticKeySource =
   | "env:SYNTHETIC_API_KEY"
   | "opencode.json"
   | "opencode.jsonc"
-  | "auth.json"
-  | OpenCodeCredentialSource;
+  | "opencode.db";
 
 export { getGlobalOpencodeConfigCandidatePaths as getOpencodeConfigCandidatePaths } from "./api-key-resolver.js";
 
@@ -30,9 +28,9 @@ const syntheticApiKeyResolver = createProviderApiKeyResolver<SyntheticKeySource>
   configJsoncSource: "opencode.jsonc",
   getConfigCandidates: getGlobalOpencodeConfigCandidatePaths,
   auth: {
-    readAuth: readAuthFile,
-    getAuthPaths,
-    authSource: "auth.json",
+    readAuth: () => readAuthFile({ integrationIds: SYNTHETIC_PROVIDER_KEYS }),
+    getCredentialDatabasePaths,
+    authSource: "opencode.db",
   },
 });
 
@@ -48,7 +46,7 @@ export async function getSyntheticKeyDiagnostics(): Promise<{
   configured: boolean;
   source: SyntheticKeySource | null;
   checkedPaths: string[];
-  authPaths: string[];
+  credentialDatabasePaths: string[];
 }> {
   return syntheticApiKeyResolver.diagnostics();
 }

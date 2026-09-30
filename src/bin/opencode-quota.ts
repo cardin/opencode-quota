@@ -59,6 +59,25 @@ export function cliShouldRunMain(
   return resolvePath(modulePath) === resolvePath(argv1);
 }
 
+/**
+ * `show` and `status` read OpenCode's database through node:sqlite, and Node prints
+ * "ExperimentalWarning: SQLite is an experimental feature..." when it loads. Hide only
+ * that warning; every other warning still prints. Call before node:sqlite loads.
+ */
+export function hideSqliteExperimentalWarning(): void {
+  const emitWarning = process.emitWarning;
+  process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+    if (
+      typeof warning === "string" &&
+      rest[0] === "ExperimentalWarning" &&
+      warning.startsWith("SQLite is an experimental feature")
+    ) {
+      return;
+    }
+    return (emitWarning as (...args: unknown[]) => void).call(process, warning, ...rest);
+  }) as typeof process.emitWarning;
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const [command, ...rest] = argv;
 
@@ -107,6 +126,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 }
 
 if (cliShouldRunMain()) {
+  hideSqliteExperimentalWarning();
   void main().then((code) => {
     process.exitCode = code;
   });

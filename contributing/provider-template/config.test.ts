@@ -150,7 +150,10 @@ describe("example provider config", () => {
     const { resolveExampleProviderApiKey } = await import("../src/lib/example-provider-config.js");
     await expect(resolveExampleProviderApiKey()).resolves.toEqual({
       key: "auth-key",
-      source: "auth.json",
+      source: "opencode.db",
+    });
+    expect(readAuthFile).toHaveBeenCalledWith({
+      integrationIds: ["example-provider", "exampleProvider"],
     });
   });
 });

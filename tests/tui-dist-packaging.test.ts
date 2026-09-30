@@ -21,6 +21,8 @@ vi.mock("@opentui/solid", () => ({
   setProp: vi.fn(),
 }));
 
+vi.mock("@opentui/solid/preload", () => ({}));
+
 async function exists(url: URL): Promise<boolean> {
   try {
     await access(fileURLToPath(url));
@@ -33,7 +35,15 @@ async function exists(url: URL): Promise<boolean> {
 const packagedTui = await import("../dist/tui.js");
 
 describe("tui dist packaging", () => {
-  it("ships the precompiled TUI entry and removes stale jsx artifacts", async () => {
+  it("loads the conventional root TUI entrypoint as the existing local plugin", async () => {
+    const [local, source] = await Promise.all([import("../tui.js"), import("../src/tui-v2.js")]);
+
+    expect(local.default).toBe(source.default);
+    expect(local.default).toMatchObject({ id: "@cardinal4/opencode-quota" });
+    expect(typeof local.default.setup).toBe("function");
+  });
+
+  it("ships the precompiled TUI entry without jsx artifacts", async () => {
     const distTui = new URL("../dist/tui.js", import.meta.url);
     const distJsx = new URL("../dist/tui.jsx", import.meta.url);
     const distJsxMap = new URL("../dist/tui.jsx.map", import.meta.url);
@@ -44,22 +54,13 @@ describe("tui dist packaging", () => {
 
     const source = await readFile(distTui, "utf8");
     expect(source).toContain("createComponent");
-    // OpenCode 2 CLI plugins register through the V2 slot paths.
     expect(source).toContain("sidebar.content");
-    expect(source).toContain("session.composer.top");
     expect(source).toContain("prompt.footer");
-    expect(source).toContain("home.footer");
-    expect(source).toContain('from "@opencode/plugin/tui"');
-    expect(source).toContain("buildSidebarContentRows");
-    expect(source).toContain("Index");
-    expect(source).not.toContain("displayLines().map");
-    expect(source).toContain("loadTuiSessionQuotaSurfaces");
-    expect(source).toContain("resolveTuiSurfaceRegistration");
-    expect(source).toContain("TuiQuotaPlugin");
-    expect(source).toContain("QuotaDialogCommandLayer");
-    expect(source).toContain("CommandOutputDialog");
-    expect(source).toContain("buildQuotaDialogCommandOutput");
-    expect(source).toContain("keymap.layer");
+    expect(source).toContain("home.footer.status");
+    expect(source).toContain("./rpc.js");
+    expect(source).toContain("client.rpc(");
+    expect(source).toContain("writeExport");
+    expect(source).toContain("registerQuotaCommands");
     expect(source).not.toContain("jsx-dev-runtime");
   });
 
@@ -67,7 +68,15 @@ describe("tui dist packaging", () => {
     expect(packagedTui.default).toMatchObject({
       id: "@cardinal4/opencode-quota",
     });
-    // V2 plugins are `{ id, setup }` definitions rather than V1 `{ tui }` modules.
     expect(typeof packagedTui.default.setup).toBe("function");
+  });
+
+  it("can load the packaged root module", async () => {
+    const mod = await import("../dist/index.js");
+
+    expect(mod.default).toMatchObject({
+      id: "@cardinal4/opencode-quota.server",
+    });
+    expect(typeof mod.default.setup).toBe("function");
   });
 });
