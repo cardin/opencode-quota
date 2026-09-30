@@ -156,6 +156,15 @@ function startTui(
     },
   };
   plugin.setup(context as any);
+  expect(context.ui.toast.show).toHaveBeenCalledWith(
+    expect.objectContaining({
+      variant: "warning",
+      title: "OpenCode Quota fork deprecated",
+      message: expect.stringContaining("npx @slkiser/opencode-quota@latest init"),
+      duration: 20_000,
+    }),
+  );
+  context.ui.toast.show.mockClear();
   const commands = layer!.commands;
   const command = (id: string) => commands.find((item) => item.id === `quota.${id}`)!;
   const emit = (name: string, data: Record<string, unknown>) => listeners.get(name)?.({ data });
@@ -166,6 +175,11 @@ function startTui(
 }
 
 describe("V2 quota TUI commands", () => {
+  it("does not repeat the deprecation toast when the app slot remounts", () => {
+    const { context, mountAppAgain } = startTui();
+    mountAppAgain();
+    expect(context.ui.toast.show).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     terminal.width = 120;
     rpc.command.mockReset().mockResolvedValue({

@@ -1,3 +1,4 @@
+import { DEPRECATION_MESSAGE, DEPRECATION_URL } from "./deprecation.js";
 import {
   type CanonicalQuotaProviderId,
   getQuotaProviderShape,
@@ -42,6 +43,12 @@ export interface MaintainerAnnouncementsSummary {
 }
 
 export const BUNDLED_MAINTAINER_ANNOUNCEMENTS: readonly MaintainerAnnouncement[] = [
+  {
+    id: "cardinal4-fork-deprecated",
+    message: DEPRECATION_MESSAGE,
+    url: DEPRECATION_URL,
+    startsAt: "2026-09-30T00:00:00.000Z",
+  },
   {
     id: "opencode-ecosystem-listing-support",
     message: "Support OpenCode Quota's ecosystem listing: review the issue and add a thumbs-up.",

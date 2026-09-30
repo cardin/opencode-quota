@@ -7,6 +7,7 @@ import { createSignal, onCleanup, Show } from "solid-js";
 
 import { loadConfig } from "./lib/config.js";
 import { resolveOpenCodeLocationRoots } from "./lib/config-file-utils.js";
+import { DEPRECATION_MESSAGE } from "./lib/deprecation.js";
 import { sanitizeDisplayText } from "./lib/display-sanitize.js";
 import { fitTableToWidth } from "./lib/markdown-table.js";
 import { layoutQuotaTables, type QuotaBlock, type QuotaTable } from "./lib/quota-columns.js";
@@ -787,10 +788,20 @@ const plugin = Plugin.define({
   setup(context) {
     const api = context as unknown as TuiContext;
     let disposeEvents: (() => void) | undefined;
+    let deprecationShown = false;
     const questionToolCalls = new Set<string>();
     const disposeApp = api.ui.slot({
       append: "app",
       render: () => {
+        if (!deprecationShown) {
+          deprecationShown = true;
+          api.ui.toast.show({
+            variant: "warning",
+            title: "OpenCode Quota fork deprecated",
+            message: DEPRECATION_MESSAGE,
+            duration: 20_000,
+          });
+        }
         // OpenCode mounts this slot again when it reconnects to its server, which can also
         // happen right after it starts. Leaving a mount drops its keymap layers and event
         // listeners, so each mount replaces the listeners and registers everything again.

@@ -33,6 +33,10 @@ describe("V2 CLI question-tool accounting boundary", () => {
         toast: { show: toast },
       },
     } as never);
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "OpenCode Quota fork deprecated" }),
+    );
+    toast.mockClear();
   });
 
   it("does not treat a successful question-tool execution as a completed model request", async () => {

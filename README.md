@@ -1,6 +1,7 @@
 > [!IMPORTANT]
-> **Independent fork.** This is [cardin/opencode-quota](https://github.com/cardin/opencode-quota), published as `@cardinal4/opencode-quota`. It is not affiliated with or endorsed by [slkiser/opencode-quota](https://github.com/slkiser/opencode-quota).
-> Both projects now support OpenCode 2. This fork incorporates upstream 5.0.0 while retaining its package identity and tool-cancellation support. Requires OpenCode `2.0.16+`.
+> **Deprecated — development has ceased.** This fork existed to add OpenCode 2 support. [Upstream now supports OpenCode 2 as of v5.0.0](https://github.com/slkiser/opencode-quota/releases/tag/v5.0.0), so this repository is being archived and `@cardinal4/opencode-quota` is deprecated. No further updates or fixes are planned.
+>
+> **Switch to `@slkiser/opencode-quota`:** remove this fork's server and TUI plugin entries from your OpenCode configuration, then run `npx @slkiser/opencode-quota@latest init` and restart OpenCode. Do not load both packages together. Upstream requires OpenCode `2.0.16+` and Node.js `^22.13.0 || >=23.4.0`. Your quota configuration can stay in place.
 
 <p align="center">
   <a href="https://github.com/cardin/opencode-quota">

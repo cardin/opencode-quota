@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEPRECATION_MESSAGE, DEPRECATION_URL } from "../src/lib/deprecation.js";
 
 import {
   BUNDLED_MAINTAINER_ANNOUNCEMENTS,
@@ -12,6 +13,12 @@ import {
 
 const NOW_MS = Date.parse("2026-05-21T12:00:00.000Z");
 const BUNDLED_NOW_MS = Date.parse("2026-07-22T12:00:00.000Z");
+const deprecationAnnouncement = {
+  id: "cardinal4-fork-deprecated",
+  message: DEPRECATION_MESSAGE,
+  url: DEPRECATION_URL,
+  startsAt: "2026-09-30T00:00:00.000Z",
+} satisfies MaintainerAnnouncement;
 
 const BASE_ANNOUNCEMENT = {
   id: "copilot-credits",
@@ -180,6 +187,7 @@ describe("maintainer announcements", () => {
     });
 
     expect(BUNDLED_MAINTAINER_ANNOUNCEMENTS).toEqual([
+      deprecationAnnouncement,
       ecosystemAnnouncement,
       openCode2FeedbackAnnouncement,
       ecosystemThumbsUpAnnouncement,
@@ -231,12 +239,16 @@ describe("maintainer announcements", () => {
     expect(evaluateAt("2026-11-24T23:59:59.999Z", ["google-agy"])?.active).toBe(true);
     expect(evaluateAt("2026-11-25T00:00:00.000Z")?.reasons).toEqual(["ended"]);
 
-    expect(getActiveIds("2026-10-26T12:00:00.000Z", "auto")).toEqual(["opencode-2-feedback"]);
+    expect(getActiveIds("2026-10-26T12:00:00.000Z", "auto")).toEqual([
+      "opencode-2-feedback",
+      "cardinal4-fork-deprecated",
+    ]);
     expect(getActiveIds("2026-10-26T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
       "opencode-2-feedback",
+      "cardinal4-fork-deprecated",
       "google-gemini-cli-org-only",
     ]);
-    expect(getActiveIds("2026-11-25T00:00:00.000Z", "auto")).toEqual([]);
+    expect(getActiveIds("2026-11-25T00:00:00.000Z", "auto")).toEqual(["cardinal4-fork-deprecated"]);
   });
 
   it("shows the ecosystem listing thumbs-up notice to everyone for one month beside the feedback notice", () => {
@@ -261,10 +273,12 @@ describe("maintainer announcements", () => {
     expect(getActiveIds("2026-10-15T12:00:00.000Z", "auto")).toEqual([
       "opencode-ecosystem-listing-thumbs-up",
       "opencode-2-feedback",
+      "cardinal4-fork-deprecated",
     ]);
     expect(getActiveIds("2026-10-15T12:00:00.000Z", ["google-gemini-cli"])).toEqual([
       "opencode-ecosystem-listing-thumbs-up",
       "opencode-2-feedback",
+      "cardinal4-fork-deprecated",
       "google-gemini-cli-org-only",
     ]);
     expect(
@@ -272,7 +286,18 @@ describe("maintainer announcements", () => {
         nowMs: Date.parse("2026-10-15T12:00:00.000Z"),
         enabledProviders: "auto",
       }).activeCount,
-    ).toBe(2);
+    ).toBe(3);
+  });
+
+  it("keeps the fork deprecation notice active for every provider without expiring", () => {
+    for (const enabledProviders of ["auto", [], ["copilot"], ["google-gemini-cli"]] as const) {
+      const notice = getActiveMaintainerAnnouncements({
+        nowMs: Date.parse("2030-01-01T00:00:00.000Z"),
+        enabledProviders: enabledProviders === "auto" ? "auto" : [...enabledProviders],
+      }).find((item) => item.announcement.id === "cardinal4-fork-deprecated");
+      expect(notice?.announcement).toEqual(deprecationAnnouncement);
+      expect(notice?.announcement.message).toContain("@slkiser/opencode-quota@latest init");
+    }
   });
 
   it("sorts active announcements before inactive, then by end date and id", () => {

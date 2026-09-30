@@ -78,6 +78,10 @@ function startTui() {
     },
   };
   const dispose = tuiPlugin.setup(context as never);
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "OpenCode Quota fork deprecated" }),
+  );
+  toast.mockClear();
   return { commands, listeners, show, set, prompt, toast, slots, context, dispose };
 }
 

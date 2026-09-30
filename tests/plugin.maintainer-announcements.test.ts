@@ -181,6 +181,10 @@ async function startCli() {
     },
   };
   const dispose = plugin.setup(context as never);
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "OpenCode Quota fork deprecated" }),
+  );
+  toast.mockClear();
   const renderHome = () => renderers.get("home.footer.status")?.();
   return { listeners, toast, renderHome, dispose };
 }

@@ -285,6 +285,10 @@ async function setupV2Surfaces(client: ReturnType<typeof createClient>, provider
     },
   } as never);
   expect(slots).toEqual(["app", "sidebar.content", "prompt.footer", "home.footer.status"]);
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "OpenCode Quota fork deprecated" }),
+  );
+  toast.mockClear();
   const quota = commands.find((command) => command.id === "quota.quota");
   expect(quota).toBeDefined();
   expect(commands.some((command) => command.id === "quota.quota_status")).toBe(true);

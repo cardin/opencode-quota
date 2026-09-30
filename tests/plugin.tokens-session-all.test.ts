@@ -156,6 +156,7 @@ describe("/tokens_session_all command", () => {
       },
       data: { on: () => () => {} },
       ui: {
+        toast: { show: vi.fn() },
         slot: (claim: { append: string; render: () => void }) => {
           if (claim.append === "app") claim.render();
           return () => {};

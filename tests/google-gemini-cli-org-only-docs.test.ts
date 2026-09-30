@@ -24,7 +24,7 @@ describe("Gemini CLI organization-only documentation", () => {
   it("no longer calls Gemini CLI deprecated or planned for removal", () => {
     for (const document of [readme, providers, troubleshooting]) {
       expect(document).not.toContain("Gemini CLI (deprecated)");
-      expect(document).not.toContain("v5.0.0");
+      expect(document).not.toMatch(/Gemini CLI[^\n]*removed[^\n]*v5\.0\.0/);
       expect(document).not.toContain("Existing setups only");
     }
   });
